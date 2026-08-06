@@ -151,6 +151,18 @@ android {
             matchingFallbacks += listOf("release")
             isDebuggable = false
         }
+
+        // Release-like build for day-to-day personal use during development: same
+        // minification/shrinking as release (so it's representative of real
+        // performance), but with its own applicationId/name so it installs
+        // side by side with the official release build and with debug.
+        create("personal") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            isDebuggable = false
+        }
     }
 
     compileOptions {
