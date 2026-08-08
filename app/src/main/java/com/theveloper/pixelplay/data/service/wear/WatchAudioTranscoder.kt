@@ -193,6 +193,14 @@ class WatchAudioTranscoder @Inject constructor(
     companion object {
         /** Also used by [WatchPlaylistTransferEstimator] to size-estimate songs that will be transcoded. */
         const val TARGET_BITRATE_BPS = 128_000
+
+        /**
+         * Container mime type of [transcodeIfNeeded]'s output file (an .m4a produced by
+         * [Transformer]'s default muxer) — used by callers reporting [WatchAudioOverride][
+         * PhoneDirectWatchTransferCoordinator.WatchAudioOverride] metadata to the watch.
+         */
+        const val TRANSCODED_OUTPUT_MIME_TYPE = "audio/mp4"
+
         private const val TAG = "WatchAudioTranscoder"
         private const val MAX_PASSTHROUGH_BITRATE_BPS = 256_000
         private const val PROGRESS_POLL_INTERVAL_MS = 250L
