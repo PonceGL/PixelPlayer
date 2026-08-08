@@ -7,6 +7,7 @@ import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.NodeClient
 import com.google.android.gms.wearable.Wearable
+import com.theveloper.pixelplay.data.local.LocalPlaylistDao
 import com.theveloper.pixelplay.data.local.LocalSongDao
 import com.theveloper.pixelplay.data.local.WearMusicDatabase
 import dagger.Module
@@ -46,10 +47,17 @@ object WearModule {
             application,
             WearMusicDatabase::class.java,
             "wear_music.db"
-        ).build()
+        )
+            .addMigrations(*WearMusicDatabase.ALL_MIGRATIONS)
+            .build()
 
     @Provides
     @Singleton
     fun provideLocalSongDao(database: WearMusicDatabase): LocalSongDao =
         database.localSongDao()
+
+    @Provides
+    @Singleton
+    fun provideLocalPlaylistDao(database: WearMusicDatabase): LocalPlaylistDao =
+        database.localPlaylistDao()
 }
