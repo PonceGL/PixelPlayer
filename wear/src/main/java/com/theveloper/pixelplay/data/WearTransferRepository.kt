@@ -6,10 +6,14 @@ import android.webkit.MimeTypeMap
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.NodeClient
+import com.theveloper.pixelplay.data.local.LocalPlaylistDao
+import com.theveloper.pixelplay.data.local.LocalPlaylistEntity
+import com.theveloper.pixelplay.data.local.LocalPlaylistSongCrossRef
 import com.theveloper.pixelplay.data.local.LocalSongDao
 import com.theveloper.pixelplay.data.local.LocalSongEntity
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearLibraryState
+import com.theveloper.pixelplay.shared.WearPlaylistSync
 import com.theveloper.pixelplay.shared.WearTransferMetadata
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import com.theveloper.pixelplay.shared.WearTransferRequest
@@ -70,6 +74,7 @@ data class TransferState(
 class WearTransferRepository @Inject constructor(
     private val application: Application,
     private val localSongDao: LocalSongDao,
+    private val localPlaylistDao: LocalPlaylistDao,
     private val channelClient: ChannelClient,
     private val messageClient: MessageClient,
     private val nodeClient: NodeClient,
@@ -864,6 +869,33 @@ class WearTransferRepository @Inject constructor(
         }.onFailure { error ->
             Timber.tag(TAG).w(error, "Failed to publish watch library state")
         }
+    }
+
+    /**
+     * Called when a playlist sync arrives from the phone — sent once up front, before any of its
+     * songs' audio has necessarily finished transferring, so the watch can show the playlist and
+     * start playing whatever's already local right away. Idempotent: re-syncing the same
+     * [WearPlaylistSync.playlistId] (e.g. after the user edits the playlist on the phone) replaces
+     * membership/order in one transaction rather than merging with the stale cross-refs.
+     */
+    suspend fun onPlaylistSyncReceived(sync: WearPlaylistSync) {
+        val now = System.currentTimeMillis()
+        val existing = localPlaylistDao.getPlaylistById(sync.playlistId)
+        val entity = LocalPlaylistEntity(
+            playlistId = sync.playlistId,
+            name = sync.name,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now,
+        )
+        val crossRefs = sync.songIds.mapIndexed { index, songId ->
+            LocalPlaylistSongCrossRef(playlistId = sync.playlistId, songId = songId, position = index)
+        }
+        localPlaylistDao.upsertPlaylist(entity, crossRefs)
+        Timber.tag(TAG).d(
+            "Playlist synced: %s (%d songs)",
+            sync.name,
+            sync.songIds.size,
+        )
     }
 
     /**
