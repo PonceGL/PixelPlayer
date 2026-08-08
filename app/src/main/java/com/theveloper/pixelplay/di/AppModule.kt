@@ -56,6 +56,7 @@ import kotlinx.serialization.json.Json
 import javax.inject.Qualifier
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
@@ -112,6 +113,14 @@ object AppModule {
     fun provideAppCoroutineScope(): CoroutineScope {
         return CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
+
+    @Provides
+    @IoDispatcher
+    fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    @Provides
+    @MainDispatcher
+    fun provideMainDispatcher(): CoroutineDispatcher = Dispatchers.Main
 
     @Singleton
     @Provides
