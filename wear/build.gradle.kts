@@ -162,6 +162,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.truth)
     // Android-specific artifact: plain io.mockk:mockk can't mock classes on ART.
     androidTestImplementation(libs.mockk.android)
