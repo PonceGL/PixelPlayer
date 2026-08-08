@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -81,6 +82,7 @@ import kotlinx.coroutines.flow.collect
  */
 @Composable
 fun DownloadsScreen(
+    onPlaylistsClick: () -> Unit = {},
     viewModel: WearDownloadsViewModel = hiltViewModel(),
     playerViewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
@@ -177,6 +179,33 @@ fun DownloadsScreen(
                     fontWeight = FontWeight(780),
                     color = palette.textPrimary,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                )
+            }
+
+            item {
+                Chip(
+                    label = {
+                        Text(
+                            text = stringResource(R.string.wear_local_playlists_entry),
+                            color = palette.textPrimary,
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+                            contentDescription = null,
+                            tint = palette.textSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    onClick = onPlaylistsClick,
+                    colors = ChipDefaults.chipColors(
+                        backgroundColor = surfaceContainer,
+                        contentColor = palette.chipContent,
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 4.dp),
