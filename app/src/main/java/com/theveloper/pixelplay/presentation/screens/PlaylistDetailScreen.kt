@@ -9,6 +9,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
@@ -139,6 +141,7 @@ import com.theveloper.pixelplay.utils.formatTotalDuration
 import com.theveloper.pixelplay.utils.formatListeningDurationCompact
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchBatchTransferState
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -1309,6 +1312,7 @@ private fun PlaylistActionItem(
  * leave the screen (or the app) while it continues; the foreground notification (see
  * `WatchTransferForegroundService`) is what tracks completion once they do.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun WatchTransferProgressBanner(
     batch: PhoneWatchBatchTransferState,
@@ -1325,17 +1329,39 @@ private fun WatchTransferProgressBanner(
             }
         }
     }
+    val animatedProgress by animateFloatAsState(
+        targetValue = overallProgress,
+        animationSpec = tween(durationMillis = 300),
+        label = "WatchTransferProgressBanner",
+    )
 
+    // Same icon-badge + row treatment as PlaylistActionItem right below it (40dp circular badge
+    // on surfaceContainerHighest, 16dp horizontal padding, 18dp corner radius) — this banner is
+    // conceptually one more row in that same list, not a separate, unrelated status card.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.rounded_watch_arrow_down_24),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = stringResource(
@@ -1343,19 +1369,37 @@ private fun WatchTransferProgressBanner(
                     batch.processedSongCount,
                     batch.totalSongCount,
                 ),
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            LinearProgressIndicator(
-                progress = { overallProgress },
+            if (batch.currentSongTitle.isNotBlank()) {
+                Text(
+                    text = batch.currentSongTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            LinearWavyProgressIndicator(
+                progress = { animatedProgress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp)
-                    .clip(CircleShape),
+                    .padding(top = 8.dp)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             )
         }
-        TextButton(onClick = onCancelClick) {
-            Text(stringResource(R.string.watch_transfer_action_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(modifier = Modifier.width(4.dp))
+        IconButton(onClick = onCancelClick) {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.watch_transfer_action_cancel),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

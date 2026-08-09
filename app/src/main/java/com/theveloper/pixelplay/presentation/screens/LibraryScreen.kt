@@ -480,6 +480,16 @@ private fun WatchPlaylistBatchProgressDialog(
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
                 )
+                if (batch.status == WearTransferProgress.STATUS_TRANSFERRING && batch.currentSongTitle.isNotBlank()) {
+                    Text(
+                        text = stringResource(R.string.watch_transfer_current_song, batch.currentSongTitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
                 Text(
                     text = stringResource(R.string.watch_transfer_bullet_step, statusText, songsText),
                     style = MaterialTheme.typography.bodySmall,
