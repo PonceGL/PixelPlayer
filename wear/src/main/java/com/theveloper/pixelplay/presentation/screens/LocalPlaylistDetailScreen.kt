@@ -54,6 +54,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.WearPlayerViewModel
 fun LocalPlaylistDetailScreen(
     playlistId: String,
     title: String,
+    onPlaybackStarted: () -> Unit = {},
     viewModel: WearLocalPlaylistViewModel = hiltViewModel(),
     playerViewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
@@ -130,7 +131,7 @@ fun LocalPlaylistDetailScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                         },
-                        onClick = { viewModel.playAll() },
+                        onClick = { viewModel.playAll(); onPlaybackStarted() },
                         enabled = playAllEnabled,
                         colors = ChipDefaults.chipColors(
                             backgroundColor = if (playAllEnabled) {
@@ -169,7 +170,12 @@ fun LocalPlaylistDetailScreen(
                         item = item,
                         isCurrentSong = isCurrentSong,
                         isPlayingSong = isPlayingSong,
-                        onClick = { if (item.isAvailable) viewModel.playFrom(item.songId) },
+                        onClick = {
+                            if (item.isAvailable) {
+                                viewModel.playFrom(item.songId)
+                                onPlaybackStarted()
+                            }
+                        },
                     )
                 }
             }
@@ -199,7 +205,7 @@ private fun LocalPlaylistSongChip(
 ) {
     val palette = LocalWearPalette.current
     val song = item.song
-    val title = song?.title ?: item.songId
+    val title = item.displayTitle
     val containerColor = if (isCurrentSong) palette.surfaceContainerHighColor() else palette.surfaceContainerColor()
     val contentAlpha = if (item.isAvailable) 1f else 0.55f
 

@@ -138,7 +138,8 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         transferStateStore.retainReachableWatchNodes(nodes.map { it.id }.toSet())
 
         WatchTransferForegroundService.start(application)
-        sendPlaylistSyncToNodes(nodes, playlistId, playlistName, songIds)
+        val songTitles = resolveSongTitlesInOrder(songIds)
+        sendPlaylistSyncToNodes(nodes, playlistId, playlistName, songIds, songTitles)
 
         val alreadyPresentCount = songIds.count { transferStateStore.isSongSavedOnAllReachableWatches(it) }
         repeat(alreadyPresentCount) { transferStateStore.markBatchSongCompleted(batchId) }
@@ -189,8 +190,9 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         playlistId: String,
         playlistName: String,
         songIds: List<String>,
+        songTitles: List<String>,
     ) {
-        val syncPayload = json.encodeToString(WearPlaylistSync(playlistId, playlistName, songIds))
+        val syncPayload = json.encodeToString(WearPlaylistSync(playlistId, playlistName, songIds, songTitles))
             .toByteArray(Charsets.UTF_8)
         nodes.forEach { node ->
             try {
@@ -201,6 +203,16 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
                 Timber.tag(TAG).w(error, "Failed to send playlist sync to node=%s", node.id)
             }
         }
+    }
+
+    /**
+     * Titles for [songIds], same order, "" for any id the library doesn't resolve — purely
+     * cosmetic (lets the watch show a real name instead of a raw id for a song still awaiting
+     * transfer), so a missing title here is never a reason to fail or delay the sync.
+     */
+    private suspend fun resolveSongTitlesInOrder(songIds: List<String>): List<String> {
+        val songsById = musicRepository.getSongsByIds(songIds).first().associateBy { it.id }
+        return songIds.map { songId -> songsById[songId]?.title.orEmpty() }
     }
 
     /**
