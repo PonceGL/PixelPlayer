@@ -899,7 +899,15 @@ class WearTransferRepository @Inject constructor(
             updatedAt = now,
         )
         val crossRefs = sync.songIds.mapIndexed { index, songId ->
-            LocalPlaylistSongCrossRef(playlistId = sync.playlistId, songId = songId, position = index)
+            LocalPlaylistSongCrossRef(
+                playlistId = sync.playlistId,
+                songId = songId,
+                position = index,
+                // songTitles is a parallel list to songIds; an older phone build omits it
+                // entirely (defaults to emptyList()), so this falls back to "" per song rather
+                // than crashing on an index that isn't there.
+                pendingTitle = sync.songTitles.getOrElse(index) { "" },
+            )
         }
         localPlaylistDao.upsertPlaylist(entity, crossRefs)
         Timber.tag(TAG).d(

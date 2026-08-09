@@ -27,8 +27,15 @@ import kotlinx.coroutines.flow.stateIn
 data class WearLocalPlaylistSongItem(
     val songId: String,
     val song: LocalSongEntity?,
+    /** Best-effort name from the phone's playlist sync, shown only while [song] is null (still
+     *  pending transfer) — empty if the sync that created this row predates it. */
+    val pendingTitle: String = "",
 ) {
     val isAvailable: Boolean get() = song != null
+
+    /** Real title once transferred; otherwise the phone-provided pending title; the raw
+     *  [songId] only as a last resort, for a sync from a phone build old enough to not send one. */
+    val displayTitle: String get() = song?.title ?: pendingTitle.ifBlank { songId }
 }
 
 /**
@@ -97,7 +104,9 @@ class WearLocalPlaylistViewModel @Inject constructor(
                     localSongDao.getAllSongs(),
                 ) { crossRefs, allSongs ->
                     val songsById = allSongs.associateBy { it.songId }
-                    crossRefs.map { ref -> WearLocalPlaylistSongItem(ref.songId, songsById[ref.songId]) }
+                    crossRefs.map { ref ->
+                        WearLocalPlaylistSongItem(ref.songId, songsById[ref.songId], ref.pendingTitle)
+                    }
                 }
             }
         }

@@ -150,8 +150,13 @@ class WearLocalPlaylistViewModelTest {
         )
     }
 
-    private fun crossRef(playlistId: String, songId: String, position: Int) =
-        LocalPlaylistSongCrossRef(playlistId = playlistId, songId = songId, position = position)
+    private fun crossRef(playlistId: String, songId: String, position: Int, pendingTitle: String = "") =
+        LocalPlaylistSongCrossRef(
+            playlistId = playlistId,
+            songId = songId,
+            position = position,
+            pendingTitle = pendingTitle,
+        )
 
     /** Subscribes long enough for `WhileSubscribed`'s forwarding coroutine to run and update
      *  `.value` past the `stateIn` placeholder, then lets go — `.value` keeps the real result. */
@@ -217,6 +222,27 @@ class WearLocalPlaylistViewModelTest {
             assertThat(items.first { it.songId == "s1" }.isAvailable).isTrue()
             assertThat(items.first { it.songId == "s2" }.isAvailable).isFalse()
             assertThat(items.first { it.songId == "s3" }.isAvailable).isTrue()
+        }
+    }
+
+    @Test
+    fun `displayTitle prefers the real title, then the phone's pending title, then the raw id`() = runTest {
+        playlistSongsFlowById["p1"] = MutableStateFlow(
+            listOf(
+                crossRef("p1", "s1", 0, pendingTitle = "Ignored once available"),
+                crossRef("p1", "s2", 1, pendingTitle = "Still transferring"),
+                crossRef("p1", "s3", 2), // no pendingTitle — an older phone's sync
+            )
+        )
+        allSongsFlow.value = listOf(song("s1")) // only s1 has actually arrived
+
+        viewModel.loadPlaylist("p1")
+        viewModel.playlistSongs.test {
+            awaitItem() // stateIn's initial placeholder (emptyList)
+            val items = awaitItem()
+            assertThat(items.first { it.songId == "s1" }.displayTitle).isEqualTo("Title s1")
+            assertThat(items.first { it.songId == "s2" }.displayTitle).isEqualTo("Still transferring")
+            assertThat(items.first { it.songId == "s3" }.displayTitle).isEqualTo("s3")
         }
     }
 

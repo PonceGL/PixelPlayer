@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [LocalSongEntity::class, LocalPlaylistEntity::class, LocalPlaylistSongCrossRef::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class WearMusicDatabase : RoomDatabase() {
@@ -71,7 +71,17 @@ abstract class WearMusicDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE local_playlist_songs ADD COLUMN pendingTitle TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         /** Every migration this database has ever declared, in order — wire all of them, not just the newest. */
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+        )
     }
 }

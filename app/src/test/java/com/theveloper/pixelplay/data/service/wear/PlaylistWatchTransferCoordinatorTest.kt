@@ -10,6 +10,8 @@ import com.google.android.gms.wearable.Node
 import com.google.common.truth.Truth.assertThat
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.shared.WearDataPaths
+import com.theveloper.pixelplay.shared.WearPlaylistSync
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -22,6 +24,8 @@ import java.nio.file.Files
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -36,6 +40,7 @@ import org.junit.jupiter.api.Test
 class PlaylistWatchTransferCoordinatorTest {
 
     private val application = mockk<Application>(relaxed = true)
+    private val json = Json { ignoreUnknownKeys = true }
     private val musicRepository = mockk<MusicRepository>()
     private val watchAudioTranscoder = mockk<WatchAudioTranscoder>()
     private val directTransferCoordinator = mockk<PhoneDirectWatchTransferCoordinator>(relaxed = true)
@@ -169,6 +174,27 @@ class PlaylistWatchTransferCoordinatorTest {
         advanceUntilIdle()
 
         assertThat(transferredSongIdsInOrder).containsExactly("s3", "s1", "s2").inOrder()
+    }
+
+    @Test
+    fun `the playlist sync sent to the watch carries song titles in the same order as ids`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s3", title = "Third"); song("s1", title = "First"); song("s2", title = "Second")
+        val syncPayloads = mutableListOf<WearPlaylistSync>()
+        every { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) } answers {
+            val bytes = thirdArg<ByteArray>()
+            syncPayloads += json.decodeFromString<WearPlaylistSync>(String(bytes, Charsets.UTF_8))
+            Tasks.forResult(0)
+        }
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s3", "s1", "s2"))
+        advanceUntilIdle()
+
+        assertThat(syncPayloads).hasSize(1)
+        assertThat(syncPayloads.single().songIds).containsExactly("s3", "s1", "s2").inOrder()
+        assertThat(syncPayloads.single().songTitles).containsExactly("Third", "First", "Second").inOrder()
     }
 
     @Test
