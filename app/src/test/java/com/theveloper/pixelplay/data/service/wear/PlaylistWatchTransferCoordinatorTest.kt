@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.service.wear
 
 import android.app.Application
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.CapabilityInfo
@@ -12,13 +13,16 @@ import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
+import java.nio.file.Files
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -41,9 +45,12 @@ class PlaylistWatchTransferCoordinatorTest {
     private val messageClient = mockk<MessageClient>()
 
     private val transferredSongIdsInOrder = mutableListOf<String>()
+    private lateinit var tempDir: java.nio.file.Path
+    private lateinit var batchPersistence: PlaylistBatchTransferPersistence
 
     @BeforeEach
     fun setUp() {
+        tempDir = Files.createTempDirectory("playlist-watch-transfer-coordinator-test")
         // Default: no song needs transcoding. transcodeIfNeeded is what the coordinator actually
         // calls — requiresTranscoding lives inside it and is never invoked directly by the
         // coordinator, so stubbing that instead would silently test nothing.
@@ -59,6 +66,11 @@ class PlaylistWatchTransferCoordinatorTest {
             val requestedIds = firstArg<List<String>>()
             flowOf(requestedIds.mapNotNull { id -> songsById[id] })
         }
+    }
+
+    @AfterEach
+    fun tearDown() {
+        tempDir.toFile().deleteRecursively()
     }
 
     private val songsById = mutableMapOf<String, Song>()
@@ -101,17 +113,26 @@ class PlaylistWatchTransferCoordinatorTest {
         }
     }
 
-    private fun buildCoordinator(scope: kotlinx.coroutines.CoroutineScope) = PlaylistWatchTransferCoordinator(
-        application = application,
-        musicRepository = musicRepository,
-        watchAudioTranscoder = watchAudioTranscoder,
-        directTransferCoordinator = directTransferCoordinator,
-        wearPhoneTransferSender = wearPhoneTransferSender,
-        transferStateStore = transferStateStore,
-        capabilityClient = capabilityClient,
-        messageClient = messageClient,
-        scope = scope,
-    )
+    private fun buildCoordinator(scope: kotlinx.coroutines.CoroutineScope): PlaylistWatchTransferCoordinator {
+        batchPersistence = PlaylistBatchTransferPersistence(
+            dataStore = PreferenceDataStoreFactory.create(
+                scope = scope,
+                produceFile = { tempDir.resolve("settings.preferences_pb").toFile() },
+            ),
+        )
+        return PlaylistWatchTransferCoordinator(
+            application = application,
+            musicRepository = musicRepository,
+            watchAudioTranscoder = watchAudioTranscoder,
+            directTransferCoordinator = directTransferCoordinator,
+            wearPhoneTransferSender = wearPhoneTransferSender,
+            transferStateStore = transferStateStore,
+            batchPersistence = batchPersistence,
+            capabilityClient = capabilityClient,
+            messageClient = messageClient,
+            scope = scope,
+        )
+    }
 
     @Test
     fun `an empty playlist does not start a batch`() = runTest {
@@ -276,5 +297,91 @@ class PlaylistWatchTransferCoordinatorTest {
         val batch = transferStateStore.batchTransfers.value[batchId]
         assertThat(batch?.failedSongCount).isEqualTo(1)
         assertThat(batch?.completedSongCount).isEqualTo(0)
+    }
+
+    // --- Persistence: resuming a batch interrupted by process death (PR7) ---
+
+    @Test
+    fun `a completed batch clears its persisted intent`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1")
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(batchPersistence.getInFlightBatch()).isNull()
+    }
+
+    @Test
+    fun `a batch that fails with no reachable watch clears its persisted intent`() = runTest {
+        stubReachableNodes()
+        song("s1")
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(batchPersistence.getInFlightBatch()).isNull()
+    }
+
+    @Test
+    fun `cancelling a batch clears its persisted intent`() = runTest {
+        stubReachableNodes("node-1")
+        song("s1"); song("s2")
+        val coordinator = buildCoordinator(this)
+        lateinit var batchId: String
+
+        every {
+            directTransferCoordinator.startTransferToWatch(
+                nodeId = any(), requestId = any(), songId = any(),
+                transferMode = any(), startPositionMs = any(), autoPlay = any(), audioOverride = any(),
+            )
+        } answers {
+            val requestId = secondArg<String>()
+            val songId = thirdArg<String>()
+            coordinator.cancelPlaylistTransfer(batchId)
+            transferStateStore.markProgress(requestId, songId, 0L, 0L, WearTransferProgress.STATUS_COMPLETED)
+        }
+
+        batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1", "s2"))
+        advanceUntilIdle()
+
+        assertThat(batchPersistence.getInFlightBatch()).isNull()
+    }
+
+    @Test
+    fun `resuming with nothing persisted does not start a transfer`() = runTest {
+        val coordinator = buildCoordinator(this)
+
+        coordinator.resumePersistedBatchIfNeeded()
+        advanceUntilIdle()
+
+        assertThat(transferStateStore.batchTransfers.value).isEmpty()
+        verify(exactly = 0) { directTransferCoordinator.startTransferToWatch(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `resuming a persisted intent re-runs the transfer for the same playlist and songs`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1"); song("s2")
+        val coordinator = buildCoordinator(this)
+        batchPersistence.saveInFlightBatch(
+            PersistedPlaylistBatchIntent(
+                batchId = "orphaned-batch",
+                playlistId = "p1",
+                playlistName = "Playlist",
+                songIds = listOf("s1", "s2"),
+                requestedAtMillis = 0L,
+            )
+        )
+
+        coordinator.resumePersistedBatchIfNeeded()
+        advanceUntilIdle()
+
+        assertThat(transferredSongIdsInOrder).containsExactly("s1", "s2").inOrder()
+        coVerify { wearPhoneTransferSender.refreshWatchLibraryState() }
     }
 }
