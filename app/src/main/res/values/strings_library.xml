@@ -270,6 +270,7 @@
     <string name="watch_transfer_bytes_progress">%1$s / %2$s</string>
     <string name="watch_transfer_channel_description">Shows live progress for phone-to-watch music transfers</string>
     <string name="watch_transfer_channel_name">Watch transfers</string>
+    <string name="watch_transfer_current_song">Sending: %1$s</string>
     <string name="watch_transfer_dialog_title">Sending to Watch</string>
     <string name="watch_transfer_status_cancelled">Cancelled</string>
     <string name="watch_transfer_status_cancelled_service">Transfer cancelled</string>
