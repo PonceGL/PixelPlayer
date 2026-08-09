@@ -11,6 +11,7 @@ import com.theveloper.pixelplay.data.local.LocalPlaylistEntity
 import com.theveloper.pixelplay.data.local.LocalSongDao
 import com.theveloper.pixelplay.data.local.LocalSongEntity
 import com.theveloper.pixelplay.data.WearTransferRepository
+import com.theveloper.pixelplay.shared.WearTransferProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,15 +54,26 @@ class WearLocalPlaylistViewModel @Inject constructor(
     /** In-flight song transfers from the phone, keyed by requestId — for on-screen receive feedback. */
     val activeTransfers: StateFlow<Map<String, TransferState>> = transferRepository.activeTransfers
 
-    /** Playlists that currently have at least one of their songs actively transferring. */
+    /**
+     * Playlists that currently have at least one of their songs actively transferring.
+     *
+     * Only [WearTransferProgress.STATUS_TRANSFERRING] counts as "still receiving" — a failed or
+     * cancelled transfer stays in [WearTransferRepository.activeTransfers] indefinitely (so
+     * DownloadsScreen can list it under "Transfer issues"), but that's a terminal state, not an
+     * in-progress one. Treating mere presence in the map as "active" left this badge stuck on
+     * forever once a song failed.
+     */
     val playlistIdsReceiving: StateFlow<Set<String>> = combine(
         localPlaylistDao.observeAllPlaylistSongCrossRefs(),
         transferRepository.activeTransfers,
     ) { crossRefs, transfers ->
-        if (transfers.isEmpty()) {
+        val activeSongIds = transfers.values
+            .filter { it.status == WearTransferProgress.STATUS_TRANSFERRING }
+            .map { it.songId }
+            .toSet()
+        if (activeSongIds.isEmpty()) {
             emptySet()
         } else {
-            val activeSongIds = transfers.values.map { it.songId }.toSet()
             crossRefs.filter { it.songId in activeSongIds }.map { it.playlistId }.toSet()
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptySet())
