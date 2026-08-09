@@ -47,6 +47,7 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
     private val directTransferCoordinator: PhoneDirectWatchTransferCoordinator,
     private val wearPhoneTransferSender: WearPhoneTransferSender,
     private val transferStateStore: PhoneWatchTransferStateStore,
+    private val batchPersistence: PlaylistBatchTransferPersistence,
     // Injected directly (unlike most of this package, which resolves these via
     // Wearable.getXClient(application) internally) so this coordinator is constructible with
     // fakes in tests without needing to mock a static Java method.
@@ -82,6 +83,31 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
             scope.launch { wearPhoneTransferSender.cancelTransfer(activeRequestId) }
         }
         transferStateStore.markBatchCancelled(batchId)
+        scope.launch { batchPersistence.clearInFlightBatch(batchId) }
+    }
+
+    /**
+     * Called once at process start ([com.theveloper.pixelplay.PixelPlayApplication]). If the
+     * process died mid-transfer last time, [PlaylistBatchTransferPersistence] still has that
+     * batch's intent — re-running it from scratch is safe and correct: the watch itself rejects
+     * a duplicate transfer for a song it already has (`ERROR_ALREADY_ON_WATCH`), and
+     * [runBatchTransfer] already skips anything [PhoneWatchTransferStateStore] can confirm is
+     * already there. That confirmation is only as good as the watch-library snapshot in memory —
+     * empty right after a cold start — so this waits (briefly) for a fresh one before resuming,
+     * instead of re-attempting everything and relying solely on the watch's own rejection.
+     */
+    suspend fun resumePersistedBatchIfNeeded() {
+        val persisted = batchPersistence.getInFlightBatch() ?: return
+        Timber.tag(TAG).i(
+            "Resuming playlist transfer interrupted by process death: playlistId=%s (%d songs)",
+            persisted.playlistId,
+            persisted.songIds.size,
+        )
+        runCatching { wearPhoneTransferSender.refreshWatchLibraryState() }
+        withTimeoutOrNull(WATCH_LIBRARY_RESOLVE_TIMEOUT_MS) {
+            transferStateStore.isWatchLibraryResolved.first { it }
+        }
+        requestPlaylistTransfer(persisted.playlistId, persisted.playlistName, persisted.songIds)
     }
 
     private suspend fun runBatchTransfer(
@@ -90,11 +116,22 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         playlistName: String,
         songIds: List<String>,
     ) {
+        batchPersistence.saveInFlightBatch(
+            PersistedPlaylistBatchIntent(
+                batchId = batchId,
+                playlistId = playlistId,
+                playlistName = playlistName,
+                songIds = songIds,
+                requestedAtMillis = System.currentTimeMillis(),
+            )
+        )
+
         val nodes = resolveReachableNodes()
         transferStateStore.markBatchStarted(batchId, playlistId, playlistName, songIds.size)
 
         if (nodes.isEmpty()) {
             transferStateStore.markBatchFailed(batchId, "No reachable watch with PixelPlay")
+            batchPersistence.clearInFlightBatch(batchId)
             return
         }
         transferStateStore.retainReachableWatchNodes(nodes.map { it.id }.toSet())
@@ -128,6 +165,7 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         cancelledBatchIds.remove(batchId)
         if (transferStateStore.batchTransfers.value[batchId]?.status != WearTransferProgress.STATUS_CANCELLED) {
             transferStateStore.markBatchCompleted(batchId)
+            batchPersistence.clearInFlightBatch(batchId)
         }
     }
 
@@ -312,6 +350,11 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         // transcoding plus a slow Bluetooth link on large files. Better to wait too long than to
         // mark a legitimately-slow transfer as failed.
         private const val DEFAULT_SONG_TRANSFER_AWAIT_TIMEOUT_MS = 300_000L
+
+        // How long resumePersistedBatchIfNeeded() waits for a fresh watch-library snapshot before
+        // giving up and resuming anyway. Short: this only avoids some wasted duplicate-rejected
+        // round-trips, it's not load-bearing for correctness (the watch rejects duplicates itself).
+        private const val WATCH_LIBRARY_RESOLVE_TIMEOUT_MS = 10_000L
 
         private val TERMINAL_STATUSES = setOf(
             WearTransferProgress.STATUS_COMPLETED,
