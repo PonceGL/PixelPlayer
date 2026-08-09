@@ -83,6 +83,7 @@ import kotlinx.coroutines.flow.collect
 @Composable
 fun DownloadsScreen(
     onPlaylistsClick: () -> Unit = {},
+    onPlaybackStarted: () -> Unit = {},
     viewModel: WearDownloadsViewModel = hiltViewModel(),
     playerViewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
@@ -584,10 +585,12 @@ fun DownloadsScreen(
                 onPlayOnWatch = {
                     viewModel.playLocalSong(menuSong.songId)
                     selectedLocalSongForMenu = null
+                    onPlaybackStarted()
                 },
                 onPlayOnPhone = {
                     viewModel.playSongOnPhone(menuSong.songId)
                     selectedLocalSongForMenu = null
+                    onPlaybackStarted()
                 },
                 onDeleteFromWatch = {
                     selectedLocalSongForMenu = null

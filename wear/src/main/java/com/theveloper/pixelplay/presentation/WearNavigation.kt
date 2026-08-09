@@ -77,6 +77,16 @@ fun WearNavigation() {
             }
         }
     }
+    // Starting playback from deep in Downloads/Playlists is otherwise a lot of swipes-back to
+    // reach the transport controls — jump straight there instead, clearing everything in
+    // between so a swipe-back from Player lands on Player's own dismiss behavior, not back
+    // through the browse stack.
+    val navigateToPlayer: () -> Unit = {
+        navController.navigate(WearScreens.PLAYER) {
+            popUpTo(WearScreens.PLAYER) { inclusive = true }
+            launchSingleTop = true
+        }
+    }
 
     SwipeDismissableNavHost(
         navController = navController,
@@ -152,6 +162,7 @@ fun WearNavigation() {
                         launchSingleTop = true
                     }
                 },
+                onPlaybackStarted = navigateToPlayer,
             )
         }
 
@@ -179,6 +190,7 @@ fun WearNavigation() {
             LocalPlaylistDetailScreen(
                 playlistId = playlistId,
                 title = title,
+                onPlaybackStarted = navigateToPlayer,
             )
         }
 
