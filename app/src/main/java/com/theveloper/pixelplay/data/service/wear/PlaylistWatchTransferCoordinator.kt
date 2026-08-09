@@ -18,6 +18,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
@@ -154,7 +155,7 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
                 continue
             }
 
-            val outcome = transferSongToAllNodes(batchId, nodes, song)
+            val outcome = transferSongToAllNodesWithRetry(batchId, nodes, song)
             if (outcome.completed) {
                 transferStateStore.markBatchSongCompleted(batchId)
             } else {
@@ -200,6 +201,35 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
                 Timber.tag(TAG).w(error, "Failed to send playlist sync to node=%s", node.id)
             }
         }
+    }
+
+    /**
+     * Retries [song] once after a transient failure, with a short backoff. Real hardware
+     * testing showed a song can legitimately fail (watch-side idle watchdog closing a live but
+     * slow Bluetooth stream — see WearTransferRepository) while a retry moments later succeeds
+     * cleanly: the watch's Bluetooth radio is shared with any connected BT headset, and a
+     * transfer can genuinely stall for a while under that contention without anything actually
+     * being broken. Doesn't retry past a cancellation, and re-transcodes on the retry rather
+     * than caching the first attempt's output — simpler and safe (transcoding on a modern phone
+     * is a few seconds, not the bottleneck), at the cost of redoing work that likely already
+     * succeeded once.
+     */
+    private suspend fun transferSongToAllNodesWithRetry(
+        batchId: String,
+        nodes: List<Node>,
+        song: Song,
+    ): SongTransferResult {
+        val firstAttempt = transferSongToAllNodes(batchId, nodes, song)
+        if (firstAttempt.completed || cancelledBatchIds.contains(batchId)) return firstAttempt
+
+        Timber.tag(TAG).w(
+            "Retrying transfer after failure: songId=%s errorCode=%s",
+            song.id,
+            firstAttempt.errorCode,
+        )
+        delay(RETRY_BACKOFF_MS)
+        if (cancelledBatchIds.contains(batchId)) return firstAttempt
+        return transferSongToAllNodes(batchId, nodes, song)
     }
 
     /** Transcodes [song] once (if needed) and streams it to every reachable [nodes] in turn. */
@@ -350,6 +380,11 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         // transcoding plus a slow Bluetooth link on large files. Better to wait too long than to
         // mark a legitimately-slow transfer as failed.
         private const val DEFAULT_SONG_TRANSFER_AWAIT_TIMEOUT_MS = 300_000L
+
+        // Short on purpose: a retry exists for transient stalls (radio contention with a
+        // connected BT headset, momentary Bluetooth hiccups), not to wait out a genuinely dead
+        // link — a longer backoff would just make a real failure take longer to report.
+        private const val RETRY_BACKOFF_MS = 3_000L
 
         // How long resumePersistedBatchIfNeeded() waits for a fresh watch-library snapshot before
         // giving up and resuming anyway. Short: this only avoids some wasted duplicate-rejected

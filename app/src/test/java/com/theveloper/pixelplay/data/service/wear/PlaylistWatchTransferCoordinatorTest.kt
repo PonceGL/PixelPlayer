@@ -201,6 +201,8 @@ class PlaylistWatchTransferCoordinatorTest {
             val requestId = secondArg<String>()
             val songId = thirdArg<String>()
             transferredSongIdsInOrder += songId
+            // s2 fails on every attempt, including its retry (see the dedicated retry tests
+            // below) — this test is only about the batch surviving a song that never recovers.
             val status = if (songId == "s2") WearTransferProgress.STATUS_FAILED else WearTransferProgress.STATUS_COMPLETED
             transferStateStore.markProgress(requestId, songId, 0L, 0L, status)
         }
@@ -209,11 +211,95 @@ class PlaylistWatchTransferCoordinatorTest {
         val batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1", "s2", "s3"))
         advanceUntilIdle()
 
-        assertThat(transferredSongIdsInOrder).containsExactly("s1", "s2", "s3").inOrder()
+        // s2 appears twice: the first attempt and its retry.
+        assertThat(transferredSongIdsInOrder).containsExactly("s1", "s2", "s2", "s3").inOrder()
         val batch = transferStateStore.batchTransfers.value[batchId]
         assertThat(batch?.completedSongCount).isEqualTo(2)
         assertThat(batch?.failedSongCount).isEqualTo(1)
         assertThat(batch?.status).isEqualTo(WearTransferProgress.STATUS_COMPLETED)
+    }
+
+    @Test
+    fun `a song that fails once but succeeds on retry counts as completed`() = runTest {
+        stubReachableNodes("node-1")
+        song("s1")
+        var attempt = 0
+        every {
+            directTransferCoordinator.startTransferToWatch(
+                nodeId = any(), requestId = any(), songId = any(),
+                transferMode = any(), startPositionMs = any(), autoPlay = any(), audioOverride = any(),
+            )
+        } answers {
+            val requestId = secondArg<String>()
+            val songId = thirdArg<String>()
+            attempt += 1
+            val status = if (attempt == 1) WearTransferProgress.STATUS_FAILED else WearTransferProgress.STATUS_COMPLETED
+            transferStateStore.markProgress(requestId, songId, 0L, 0L, status)
+        }
+        val coordinator = buildCoordinator(this)
+
+        val batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(attempt).isEqualTo(2)
+        val batch = transferStateStore.batchTransfers.value[batchId]
+        assertThat(batch?.completedSongCount).isEqualTo(1)
+        assertThat(batch?.failedSongCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a song failing twice in a row is only retried once, not indefinitely`() = runTest {
+        stubReachableNodes("node-1")
+        song("s1")
+        var attempts = 0
+        every {
+            directTransferCoordinator.startTransferToWatch(
+                nodeId = any(), requestId = any(), songId = any(),
+                transferMode = any(), startPositionMs = any(), autoPlay = any(), audioOverride = any(),
+            )
+        } answers {
+            val requestId = secondArg<String>()
+            val songId = thirdArg<String>()
+            attempts += 1
+            transferStateStore.markProgress(requestId, songId, 0L, 0L, WearTransferProgress.STATUS_FAILED)
+        }
+        val coordinator = buildCoordinator(this)
+
+        val batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(attempts).isEqualTo(2)
+        val batch = transferStateStore.batchTransfers.value[batchId]
+        assertThat(batch?.failedSongCount).isEqualTo(1)
+        assertThat(batch?.completedSongCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `cancelling during the backoff window skips the retry`() = runTest {
+        stubReachableNodes("node-1")
+        song("s1")
+        val coordinator = buildCoordinator(this)
+        lateinit var batchId: String
+
+        every {
+            directTransferCoordinator.startTransferToWatch(
+                nodeId = any(), requestId = any(), songId = any(),
+                transferMode = any(), startPositionMs = any(), autoPlay = any(), audioOverride = any(),
+            )
+        } answers {
+            val requestId = secondArg<String>()
+            val songId = thirdArg<String>()
+            transferredSongIdsInOrder += songId
+            coordinator.cancelPlaylistTransfer(batchId)
+            transferStateStore.markProgress(requestId, songId, 0L, 0L, WearTransferProgress.STATUS_FAILED)
+        }
+
+        batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(transferredSongIdsInOrder).containsExactly("s1")
+        val batch = transferStateStore.batchTransfers.value[batchId]
+        assertThat(batch?.status).isEqualTo(WearTransferProgress.STATUS_CANCELLED)
     }
 
     @Test
