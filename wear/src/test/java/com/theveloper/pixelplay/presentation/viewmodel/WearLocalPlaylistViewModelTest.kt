@@ -256,6 +256,41 @@ class WearLocalPlaylistViewModelTest {
     }
 
     @Test
+    fun `a failed transfer no longer counts as receiving once it reaches a terminal state`() = runTest {
+        allCrossRefsFlow.value = listOf(crossRef("p1", "s1", 0))
+
+        viewModel.playlistIdsReceiving.test {
+            assertThat(awaitItem()).isEmpty() // deduped placeholder, see the test above
+            transferRepository.onProgressReceived(
+                WearTransferProgress(
+                    requestId = "r1",
+                    songId = "s1",
+                    bytesTransferred = 10L,
+                    totalBytes = 100L,
+                    status = WearTransferProgress.STATUS_TRANSFERRING,
+                )
+            )
+            assertThat(awaitItem()).containsExactly("p1")
+
+            // The transfer fails — WearTransferRepository deliberately keeps this entry in
+            // activeTransfers (DownloadsScreen lists failed transfers under "Transfer issues"),
+            // it doesn't remove it. playlistIdsReceiving must stop counting it anyway: mere
+            // presence in the map isn't "still receiving" once the status is terminal.
+            transferRepository.onProgressReceived(
+                WearTransferProgress(
+                    requestId = "r1",
+                    songId = "s1",
+                    bytesTransferred = 10L,
+                    totalBytes = 100L,
+                    status = WearTransferProgress.STATUS_FAILED,
+                    error = "Transfer timed out",
+                )
+            )
+            assertThat(awaitItem()).isEmpty()
+        }
+    }
+
+    @Test
     fun `playAll switches output to watch when at least one song is available`() = expectFireAndForgetPlaybackCrash {
         playlistSongsFlowById["p1"] = MutableStateFlow(listOf(crossRef("p1", "s1", 0)))
         allSongsFlow.value = listOf(song("s1"))

@@ -125,6 +125,13 @@ class WearTransferRepository @Inject constructor(
 
     /** Failsafe timeout per transfer to avoid hanging states at 0%. */
     private val transferWatchdogs = ConcurrentHashMap<String, Job>()
+    /** The live audio InputStream for a request, while onAudioChannelOpened is reading it —
+     *  lets armTransferWatchdog actually interrupt a stuck read instead of just updating
+     *  bookkeeping while the real transfer keeps running unaware. */
+    private val openAudioStreams = ConcurrentHashMap<String, InputStream>()
+    /** Request IDs whose audio stream was closed by the watchdog, so onAudioChannelOpened's
+     *  catch block can report "Transfer timed out" instead of a generic stream-closed message. */
+    private val watchdogTimedOutRequestIds = ConcurrentHashMap.newKeySet<String>()
     /** Request IDs currently receiving bytes through ChannelClient. */
     private val activeChannelRequestIds = ConcurrentHashMap.newKeySet<String>()
     /** Cancelled request IDs retained briefly so late metadata/progress/channel events are ignored safely. */
@@ -488,6 +495,7 @@ class WearTransferRepository @Inject constructor(
         if (!musicDir.exists()) musicDir.mkdirs()
         val tempFile = File(musicDir, "$requestId.part")
         var metadata: WearTransferMetadata? = pendingMetadata[requestId]
+        openAudioStreams[requestId] = inputStream
 
         try {
             if (isTransferCancelled(requestId)) {
@@ -769,15 +777,18 @@ class WearTransferRepository @Inject constructor(
                 "Transfer complete: ${resolvedMetadata.title} ($actualSize bytes) → ${localFile.absolutePath}"
             )
         } catch (e: Exception) {
+            val timedOut = watchdogTimedOutRequestIds.remove(requestId)
             Timber.tag(TAG).e(e, "Failed to write transferred file")
             tempFile.delete()
             handleTransferError(
                 requestId = requestId,
                 songId = metadata?.songId ?: _activeTransfers.value[requestId]?.songId.orEmpty(),
-                message = e.message ?: "Write failed",
+                message = if (timedOut) "Transfer timed out" else (e.message ?: "Write failed"),
             )
         } finally {
             activeChannelRequestIds.remove(requestId)
+            openAudioStreams.remove(requestId)
+            watchdogTimedOutRequestIds.remove(requestId)
         }
     }
 
@@ -973,6 +984,8 @@ class WearTransferRepository @Inject constructor(
         pendingArtworkByRequestId.remove(requestId)
         clearTransferWatchdog(requestId)
         activeChannelRequestIds.remove(requestId)
+        openAudioStreams.remove(requestId)
+        watchdogTimedOutRequestIds.remove(requestId)
     }
 
     private fun handleTransferError(requestId: String, songId: String, message: String) {
@@ -994,6 +1007,8 @@ class WearTransferRepository @Inject constructor(
         pendingArtworkByRequestId.remove(requestId)
         clearTransferWatchdog(requestId)
         activeChannelRequestIds.remove(requestId)
+        openAudioStreams.remove(requestId)
+        watchdogTimedOutRequestIds.remove(requestId)
     }
 
     private fun resolveTemporaryPlaybackStartPosition(
@@ -1076,7 +1091,25 @@ class WearTransferRepository @Inject constructor(
         transferWatchdogs[requestId] = scope.launch {
             delay(TRANSFER_IDLE_TIMEOUT_MS)
             if (_activeTransfers.value.containsKey(requestId)) {
-                handleTransferError(requestId, songId, "Transfer timed out")
+                val stream = openAudioStreams[requestId]
+                if (stream != null) {
+                    // A live audio stream is genuinely stuck: close it so the blocking
+                    // read() in onAudioChannelOpened unblocks with an IOException and routes
+                    // through that function's own catch block for cleanup — a single,
+                    // consistent path instead of this watchdog declaring failure on its own
+                    // while the read loop keeps running in the background, unaware anything
+                    // happened. That's what let a "failed" transfer keep going and finish
+                    // seconds later anyway, or worse, strip pendingMetadata out from under
+                    // the still-running loop and turn a slow-but-fine transfer into a real
+                    // failure ("Transfer metadata missing" from the loop's own metadata
+                    // resolution not finding what this watchdog had just cleared).
+                    watchdogTimedOutRequestIds.add(requestId)
+                    runCatching { stream.close() }
+                } else {
+                    // No audio stream open yet (still waiting on metadata/channel) — nothing
+                    // to interrupt, so this is still the right place to declare failure.
+                    handleTransferError(requestId, songId, "Transfer timed out")
+                }
             }
         }
     }
