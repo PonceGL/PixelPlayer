@@ -45,4 +45,30 @@ class WearPlaylistSyncTest {
             WearPlaylistSync(playlistId = "playlist-1", name = "Running mix", songIds = listOf("1")),
         )
     }
+
+    @Test
+    fun `round-trips song titles in the same order as song ids`() {
+        val original = WearPlaylistSync(
+            playlistId = "playlist-1",
+            name = "Running mix",
+            songIds = listOf("3", "1", "2"),
+            songTitles = listOf("Third", "First", "Second"),
+        )
+
+        val decoded = json.decodeFromString<WearPlaylistSync>(json.encodeToString(original))
+
+        assertThat(decoded.songTitles).containsExactly("Third", "First", "Second").inOrder()
+    }
+
+    @Test
+    fun `a payload from an older phone without songTitles decodes with an empty list`() {
+        // The mirror case of the unknown-field test above: an OLDER sender that predates this
+        // field entirely, not a newer one adding an extra field this receiver doesn't know yet.
+        val payloadWithoutTitles =
+            """{"playlistId":"playlist-1","name":"Running mix","songIds":["1","2"]}"""
+
+        val decoded = json.decodeFromString<WearPlaylistSync>(payloadWithoutTitles)
+
+        assertThat(decoded.songTitles).isEmpty()
+    }
 }

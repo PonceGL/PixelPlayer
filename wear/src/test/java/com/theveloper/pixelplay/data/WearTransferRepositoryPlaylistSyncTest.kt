@@ -159,4 +159,39 @@ class WearTransferRepositoryPlaylistSyncTest {
         assertThat(entitySlot.captured.playlistId).isEqualTo("p1")
         assertThat(entitySlot.captured.name).isEqualTo("Summer mix")
     }
+
+    @Test
+    fun `cross-refs carry the matching pending title from the sync, by index`() = runTest {
+        coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
+        val crossRefsSlot = slot<List<LocalPlaylistSongCrossRef>>()
+        coEvery { localPlaylistDao.upsertPlaylist(any(), capture(crossRefsSlot)) } just Runs
+
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(
+                playlistId = "p1",
+                name = "Road trip",
+                songIds = listOf("s1", "s2"),
+                songTitles = listOf("First song", "Second song"),
+            )
+        )
+
+        assertThat(crossRefsSlot.captured).containsExactly(
+            LocalPlaylistSongCrossRef(playlistId = "p1", songId = "s1", position = 0, pendingTitle = "First song"),
+            LocalPlaylistSongCrossRef(playlistId = "p1", songId = "s2", position = 1, pendingTitle = "Second song"),
+        ).inOrder()
+    }
+
+    @Test
+    fun `a sync from an older phone with no songTitles falls back to an empty pending title`() = runTest {
+        coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
+        val crossRefsSlot = slot<List<LocalPlaylistSongCrossRef>>()
+        coEvery { localPlaylistDao.upsertPlaylist(any(), capture(crossRefsSlot)) } just Runs
+
+        // songTitles omitted entirely — WearPlaylistSync.songTitles defaults to emptyList().
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1"))
+        )
+
+        assertThat(crossRefsSlot.captured.single().pendingTitle).isEmpty()
+    }
 }
