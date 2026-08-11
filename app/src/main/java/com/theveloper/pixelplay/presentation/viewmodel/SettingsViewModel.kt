@@ -111,7 +111,11 @@ data class SettingsUiState(
     val replayGainEnabled: Boolean = false,
     val replayGainUseAlbumGain: Boolean = false,
     val isSafeTokenLimitEnabled: Boolean = true,
-    val showScrollbar: Boolean = true
+    val showScrollbar: Boolean = true,
+    // Wear OS performance toggles — only apply during standalone local playback on the watch.
+    val wearShowAlbumArt: Boolean = true,
+    val wearDynamicColorTheming: Boolean = true,
+    val wearPlayButtonAnimation: Boolean = true,
 )
 
 data class FailedSongInfo(
@@ -190,6 +194,7 @@ class SettingsViewModel @Inject constructor(
     private val lyricsRepository: LyricsRepository,
     private val musicRepository: MusicRepository,
     private val backupManager: BackupManager,
+    private val wearPerformanceSettingsPublisher: com.theveloper.pixelplay.data.service.wear.WearPerformanceSettingsPublisher,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -764,6 +769,24 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferencesRepository.tapBackgroundClosesPlayerFlow.collect { enabled ->
                 _uiState.update { it.copy(tapBackgroundClosesPlayer = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.wearShowAlbumArtFlow.collect { enabled ->
+                _uiState.update { it.copy(wearShowAlbumArt = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.wearDynamicColorThemingFlow.collect { enabled ->
+                _uiState.update { it.copy(wearDynamicColorTheming = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.wearPlayButtonAnimationFlow.collect { enabled ->
+                _uiState.update { it.copy(wearPlayButtonAnimation = enabled) }
             }
         }
 
@@ -1368,6 +1391,56 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferencesRepository.setHapticsEnabled(enabled)
         }
+    }
+
+    fun setWearShowAlbumArt(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setWearShowAlbumArt(enabled)
+            // Use the value we just wrote directly rather than re-reading uiState.value: the
+            // reactive collector that updates uiState from this same DataStore write hasn't
+            // necessarily run yet at this point, so uiState.value could still be stale.
+            wearPerformanceSettingsPublisher.publish(
+                showAlbumArt = enabled,
+                dynamicColorTheming = uiState.value.wearDynamicColorTheming,
+                playButtonAnimation = uiState.value.wearPlayButtonAnimation,
+            )
+        }
+    }
+
+    fun setWearDynamicColorTheming(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setWearDynamicColorTheming(enabled)
+            wearPerformanceSettingsPublisher.publish(
+                showAlbumArt = uiState.value.wearShowAlbumArt,
+                dynamicColorTheming = enabled,
+                playButtonAnimation = uiState.value.wearPlayButtonAnimation,
+            )
+        }
+    }
+
+    fun setWearPlayButtonAnimation(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setWearPlayButtonAnimation(enabled)
+            wearPerformanceSettingsPublisher.publish(
+                showAlbumArt = uiState.value.wearShowAlbumArt,
+                dynamicColorTheming = uiState.value.wearDynamicColorTheming,
+                playButtonAnimation = enabled,
+            )
+        }
+    }
+
+    /**
+     * Re-announces the current (already-persisted) values without changing anything — called once
+     * when the "Watch" settings screen opens, so a watch that's freshly paired or reinstalled gets
+     * them without the user needing to toggle something first (DataItem sync only reaches nodes
+     * once something has actually been `putDataItem`'d at least once).
+     */
+    fun publishWearPerformanceSettings() {
+        wearPerformanceSettingsPublisher.publish(
+            showAlbumArt = uiState.value.wearShowAlbumArt,
+            dynamicColorTheming = uiState.value.wearDynamicColorTheming,
+            playButtonAnimation = uiState.value.wearPlayButtonAnimation,
+        )
     }
 
     fun setBackupInfoDismissed(dismissed: Boolean) {

@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -82,6 +83,7 @@ class WearLocalPlayerRepository @Inject constructor(
     private val application: Application,
     private val localSongDao: LocalSongDao,
     private val playbackStatePersistence: WearPlaybackStatePersistence,
+    private val performanceSettings: WearPerformanceSettingsRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = Json { ignoreUnknownKeys = true }
@@ -135,6 +137,21 @@ class WearLocalPlayerRepository @Inject constructor(
                 if (!localPlayerState.value.isEmpty) {
                     updateState()
                 }
+            }
+        }
+
+        // React to the performance toggles changing while a song is already loaded — e.g. the
+        // user turns "show album art" off from the phone mid-song: drop the bitmap immediately
+        // instead of waiting for the next song change, since the whole point is freeing RAM right
+        // away. drop(1) skips the initial replay so this doesn't fire redundantly at construction.
+        scope.launch {
+            performanceSettings.showAlbumArt.drop(1).collect {
+                updateArtworkForSong(_localPlayerState.value.songId)
+            }
+        }
+        scope.launch {
+            performanceSettings.dynamicColorTheming.drop(1).collect {
+                updatePaletteForSong(_localPlayerState.value.songId)
             }
         }
     }
@@ -729,7 +746,10 @@ class WearLocalPlayerRepository @Inject constructor(
     }
 
     private fun updatePaletteForSong(songId: String) {
-        if (songId.isBlank()) {
+        if (songId.isBlank() || !performanceSettings.dynamicColorTheming.value) {
+            // Also reset lastPaletteSongId when the toggle is off (not just for a blank songId):
+            // otherwise re-enabling it later without a song change would leave it pointing at a
+            // song that's technically "already handled" and skip re-extracting the seed.
             lastPaletteSongId = ""
             _localThemePalette.value = null
             _localPaletteSeedArgb.value = null
@@ -792,7 +812,10 @@ class WearLocalPlayerRepository @Inject constructor(
     }
 
     private fun updateArtworkForSong(songId: String) {
-        if (songId.isBlank()) {
+        if (songId.isBlank() || !performanceSettings.showAlbumArt.value) {
+            // Same reasoning as updatePaletteForSong: reset lastArtworkSongId even when the
+            // toggle (not a blank songId) is why we're bailing, so a later re-enable without a
+            // song change still triggers a fresh decode instead of being silently skipped.
             lastArtworkSongId = ""
             _localAlbumArt.value = null
             return

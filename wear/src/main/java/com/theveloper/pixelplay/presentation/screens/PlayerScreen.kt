@@ -155,6 +155,7 @@ fun PlayerScreen(
     val activeOutputRouteType by viewModel.activeOutputRouteType.collectAsStateWithLifecycle()
     val activeVolumeState by viewModel.activeVolumeState.collectAsStateWithLifecycle()
     val albumArt by viewModel.albumArt.collectAsStateWithLifecycle()
+    val showPlayButtonAnimation by viewModel.showPlayButtonAnimation.collectAsStateWithLifecycle()
 
     PlayerContent(
         state = state,
@@ -162,6 +163,7 @@ fun PlayerScreen(
         isPhoneConnected = isPhoneConnected,
         isWatchOutputSelected = isWatchOutputSelected,
         activeVolumeState = activeVolumeState,
+        showPlayButtonAnimation = showPlayButtonAnimation,
         onTogglePlayPause = viewModel::togglePlayPause,
         onNext = viewModel::next,
         onPrevious = viewModel::previous,
@@ -182,6 +184,7 @@ private fun PlayerContent(
     isPhoneConnected: Boolean,
     isWatchOutputSelected: Boolean = false,
     activeVolumeState: WearVolumeState,
+    showPlayButtonAnimation: Boolean = true,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -272,6 +275,7 @@ private fun PlayerContent(
                         isPhoneConnected = isPhoneConnected,
                         isWatchOutputSelected = isWatchOutputSelected,
                         activeVolumeState = activeVolumeState,
+                        showPlayButtonAnimation = showPlayButtonAnimation,
                         onTogglePlayPause = onTogglePlayPause,
                         onNext = onNext,
                         onPrevious = onPrevious,
@@ -323,6 +327,7 @@ private fun PlayerMainPageHost(
     isPhoneConnected: Boolean,
     isWatchOutputSelected: Boolean,
     activeVolumeState: WearVolumeState,
+    showPlayButtonAnimation: Boolean,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -390,6 +395,7 @@ private fun PlayerMainPageHost(
                 isWatchOutputSelected = isWatchOutputSelected,
                 isAmbient = isAmbient,
                 activeVolumeState = activeVolumeState,
+                showPlayButtonAnimation = showPlayButtonAnimation,
                 onTogglePlayPause = onTogglePlayPause,
                 onNext = onNext,
                 onPrevious = onPrevious,
@@ -1052,6 +1058,7 @@ private fun MainPlayerPage(
     isWatchOutputSelected: Boolean = false,
     isAmbient: Boolean,
     activeVolumeState: WearVolumeState,
+    showPlayButtonAnimation: Boolean = true,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -1194,6 +1201,7 @@ private fun MainPlayerPage(
                     enabled = if (isWatchOutputSelected) !state.isEmpty else isPhoneConnected,
                     outlined = isAmbient,
                     trackProgress = trackProgress,
+                    showPlayButtonAnimation = showPlayButtonAnimation,
                     onTogglePlayPause = onTogglePlayPause,
                     onNext = onNext,
                     onPrevious = onPrevious,
@@ -1658,6 +1666,7 @@ private fun MainControlsRow(
     enabled: Boolean,
     outlined: Boolean,
     trackProgress: Float,
+    showPlayButtonAnimation: Boolean = true,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -1686,6 +1695,7 @@ private fun MainControlsRow(
             enabled = enabled && !isEmpty,
             outlined = outlined,
             trackProgress = trackProgress,
+            showAnimation = showPlayButtonAnimation,
             onClick = onTogglePlayPause,
         )
 
@@ -1762,6 +1772,7 @@ private fun CenterPlayButton(
     outlined: Boolean,
     trackProgress: Float,
     onClick: () -> Unit,
+    showAnimation: Boolean = true,
 ) {
     val palette = LocalWearPalette.current
 
@@ -1774,8 +1785,11 @@ private fun CenterPlayButton(
     val isInteractive by WearLifecycleState.isInteractive.collectAsStateWithLifecycle(
         initialValue = WearLifecycleState.isInteractiveNow,
     )
-    LaunchedEffect(isPlaying, isInteractive) {
-        if (!isPlaying || !isInteractive) {
+    // showAnimation off is treated exactly like "not interactive": settle back to 0° and stop —
+    // the ring itself still draws (and still reflects trackProgress), it just stops continuously
+    // rebuilding its 320-point path every animation frame while spinning.
+    LaunchedEffect(isPlaying, isInteractive, showAnimation) {
+        if (!isPlaying || !isInteractive || !showAnimation) {
             val normalizedRotation = ((rotation.value % 360f) + 360f) % 360f
             rotation.snapTo(normalizedRotation)
             rotation.animateTo(

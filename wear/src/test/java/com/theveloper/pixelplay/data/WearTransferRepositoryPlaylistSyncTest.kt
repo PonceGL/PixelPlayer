@@ -22,6 +22,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.decodeFromString
@@ -66,7 +67,17 @@ class WearTransferRepositoryPlaylistSyncTest {
         coEvery { localPlaylistDao.upsertPlaylist(any(), any()) } just Runs
 
         val stateRepository = WearStateRepository()
-        val localPlayerRepository = WearLocalPlayerRepository(application, localSongDao, mockk<WearPlaybackStatePersistence>())
+        val performanceSettingsRepository = mockk<WearPerformanceSettingsRepository> {
+            every { showAlbumArt } returns MutableStateFlow(true)
+            every { dynamicColorTheming } returns MutableStateFlow(true)
+            every { playButtonAnimation } returns MutableStateFlow(true)
+        }
+        val localPlayerRepository = WearLocalPlayerRepository(
+            application,
+            localSongDao,
+            mockk<WearPlaybackStatePersistence>(),
+            performanceSettingsRepository,
+        )
         val playbackController = WearPlaybackController(application, stateRepository)
 
         repository = WearTransferRepository(
