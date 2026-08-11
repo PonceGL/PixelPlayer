@@ -60,7 +60,7 @@ class WearTransferRepositoryPlaylistSyncTest {
         coEvery { localPlaylistDao.upsertPlaylist(any(), any()) } just Runs
 
         val stateRepository = WearStateRepository()
-        val localPlayerRepository = WearLocalPlayerRepository(application, localSongDao)
+        val localPlayerRepository = WearLocalPlayerRepository(application, localSongDao, mockk<WearPlaybackStatePersistence>())
         val playbackController = WearPlaybackController(application, stateRepository)
 
         repository = WearTransferRepository(

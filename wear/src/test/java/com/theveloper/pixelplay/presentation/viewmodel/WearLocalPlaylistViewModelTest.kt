@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.MainCoroutineExtension
 import com.theveloper.pixelplay.data.WearLocalPlayerRepository
 import com.theveloper.pixelplay.data.WearOutputTarget
 import com.theveloper.pixelplay.data.WearPlaybackController
+import com.theveloper.pixelplay.data.WearPlaybackStatePersistence
 import com.theveloper.pixelplay.data.WearStateRepository
 import com.theveloper.pixelplay.data.WearTransferRepository
 import com.theveloper.pixelplay.data.local.LocalPlaylistDao
@@ -98,7 +99,7 @@ class WearLocalPlaylistViewModelTest {
         coEvery { localSongDao.deleteById(any()) } just Runs
 
         stateRepository = WearStateRepository()
-        val localPlayerRepository = WearLocalPlayerRepository(application, localSongDao)
+        val localPlayerRepository = WearLocalPlayerRepository(application, localSongDao, mockk<WearPlaybackStatePersistence>())
         val playbackController = WearPlaybackController(application, stateRepository)
         transferRepository = WearTransferRepository(
             application = application,
