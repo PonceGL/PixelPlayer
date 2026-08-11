@@ -259,7 +259,7 @@ class WearDataListenerService : WearableListenerService() {
                     try {
                         val syncJson = String(messageEvent.data, Charsets.UTF_8)
                         val sync = json.decodeFromString<WearPlaylistSync>(syncJson)
-                        transferRepository.onPlaylistSyncReceived(sync)
+                        transferRepository.onPlaylistSyncReceived(sync, sourceNodeId = messageEvent.sourceNodeId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

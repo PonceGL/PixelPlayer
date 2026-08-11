@@ -16,6 +16,12 @@ import kotlinx.serialization.Serializable
  * omitting it still deserializes cleanly on a newer watch — it's purely cosmetic (lets a song
  * still awaiting transfer show its real name instead of its raw ID) and never load-bearing for
  * the transfer itself.
+ *
+ * [requestId] identifies this specific send attempt so the watch's [WearPlaylistSyncAck] can be
+ * correlated back to it — `MessageClient.sendMessage()` doesn't guarantee delivery, so the phone
+ * resends (a new [requestId] each time) until it sees a matching ack. Defaults to "" for the same
+ * backward-compatibility reason as [songTitles]: an old phone build omitting it just means the
+ * watch never acks, and the phone falls back to its old fire-and-forget behavior for that sync.
  */
 @Serializable
 data class WearPlaylistSync(
@@ -23,4 +29,5 @@ data class WearPlaylistSync(
     val name: String,
     val songIds: List<String>,
     val songTitles: List<String> = emptyList(),
+    val requestId: String = "",
 )

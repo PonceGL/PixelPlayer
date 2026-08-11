@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data
 
 import android.app.Application
+import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.NodeClient
@@ -10,7 +11,9 @@ import com.theveloper.pixelplay.data.local.LocalPlaylistDao
 import com.theveloper.pixelplay.data.local.LocalPlaylistEntity
 import com.theveloper.pixelplay.data.local.LocalPlaylistSongCrossRef
 import com.theveloper.pixelplay.data.local.LocalSongDao
+import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearPlaylistSync
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -18,8 +21,11 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -82,7 +88,10 @@ class WearTransferRepositoryPlaylistSyncTest {
         val entitySlot = slot<LocalPlaylistEntity>()
         coEvery { localPlaylistDao.upsertPlaylist(capture(entitySlot), any()) } just Runs
 
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1")))
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1")),
+            sourceNodeId = "node-1",
+        )
 
         assertThat(entitySlot.captured.createdAt).isEqualTo(entitySlot.captured.updatedAt)
     }
@@ -99,7 +108,10 @@ class WearTransferRepositoryPlaylistSyncTest {
         val entitySlot = slot<LocalPlaylistEntity>()
         coEvery { localPlaylistDao.upsertPlaylist(capture(entitySlot), any()) } just Runs
 
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1", "s2")))
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1", "s2")),
+            sourceNodeId = "node-1",
+        )
 
         assertThat(entitySlot.captured.createdAt).isEqualTo(originalCreatedAt)
         assertThat(entitySlot.captured.updatedAt).isGreaterThan(originalCreatedAt)
@@ -111,8 +123,14 @@ class WearTransferRepositoryPlaylistSyncTest {
         val crossRefsSlot = slot<List<LocalPlaylistSongCrossRef>>()
         coEvery { localPlaylistDao.upsertPlaylist(any(), capture(crossRefsSlot)) } just Runs
 
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("a", "b")))
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("c")))
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("a", "b")),
+            sourceNodeId = "node-1",
+        )
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("c")),
+            sourceNodeId = "node-1",
+        )
 
         // The repository always regenerates the full cross-ref list from the incoming sync's
         // songIds alone — it never reads current membership back in — so the last call's payload
@@ -129,7 +147,8 @@ class WearTransferRepositoryPlaylistSyncTest {
         coEvery { localPlaylistDao.upsertPlaylist(any(), capture(crossRefsSlot)) } just Runs
 
         repository.onPlaylistSyncReceived(
-            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s3", "s1", "s2"))
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s3", "s1", "s2")),
+            sourceNodeId = "node-1",
         )
 
         assertThat(crossRefsSlot.captured).containsExactly(
@@ -143,7 +162,10 @@ class WearTransferRepositoryPlaylistSyncTest {
     fun `empty song list still upserts an empty cross-ref list, not a no-op`() = runTest {
         coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
 
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Empty playlist", songIds = emptyList()))
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Empty playlist", songIds = emptyList()),
+            sourceNodeId = "node-1",
+        )
 
         coVerify(exactly = 1) { localPlaylistDao.upsertPlaylist(any(), emptyList()) }
     }
@@ -154,7 +176,10 @@ class WearTransferRepositoryPlaylistSyncTest {
         val entitySlot = slot<LocalPlaylistEntity>()
         coEvery { localPlaylistDao.upsertPlaylist(capture(entitySlot), any()) } just Runs
 
-        repository.onPlaylistSyncReceived(WearPlaylistSync(playlistId = "p1", name = "Summer mix", songIds = listOf("s1")))
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Summer mix", songIds = listOf("s1")),
+            sourceNodeId = "node-1",
+        )
 
         assertThat(entitySlot.captured.playlistId).isEqualTo("p1")
         assertThat(entitySlot.captured.name).isEqualTo("Summer mix")
@@ -172,7 +197,8 @@ class WearTransferRepositoryPlaylistSyncTest {
                 name = "Road trip",
                 songIds = listOf("s1", "s2"),
                 songTitles = listOf("First song", "Second song"),
-            )
+            ),
+            sourceNodeId = "node-1",
         )
 
         assertThat(crossRefsSlot.captured).containsExactly(
@@ -189,9 +215,56 @@ class WearTransferRepositoryPlaylistSyncTest {
 
         // songTitles omitted entirely — WearPlaylistSync.songTitles defaults to emptyList().
         repository.onPlaylistSyncReceived(
-            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1"))
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1")),
+            sourceNodeId = "node-1",
         )
 
         assertThat(crossRefsSlot.captured.single().pendingTitle).isEmpty()
+    }
+
+    // --- Ack (playlist-sync reliability fix) ---
+
+    @Test
+    fun `a sync with a requestId acks back to the source node once applied`() = runTest {
+        coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
+        val pathSlot = slot<String>()
+        val bytesSlot = slot<ByteArray>()
+        every { messageClient.sendMessage("node-9", capture(pathSlot), capture(bytesSlot)) } returns
+            Tasks.forResult(0)
+
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1"), requestId = "req-1"),
+            sourceNodeId = "node-9",
+        )
+
+        assertThat(pathSlot.captured).isEqualTo(WearDataPaths.PLAYLIST_SYNC_ACK)
+        val ack = Json.decodeFromString<WearPlaylistSyncAck>(String(bytesSlot.captured, Charsets.UTF_8))
+        assertThat(ack.playlistId).isEqualTo("p1")
+        assertThat(ack.requestId).isEqualTo("req-1")
+    }
+
+    @Test
+    fun `a sync with no requestId (old phone build) sends no ack`() = runTest {
+        coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
+
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1")),
+            sourceNodeId = "node-9",
+        )
+
+        verify(exactly = 0) { messageClient.sendMessage(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a failure sending the ack does not propagate out of onPlaylistSyncReceived`() = runTest {
+        coEvery { localPlaylistDao.getPlaylistById("p1") } returns null
+        every { messageClient.sendMessage(any(), any(), any()) } returns
+            Tasks.forException(RuntimeException("no route to node"))
+
+        // Should not throw — a lost ack just means the phone times out and resends the sync.
+        repository.onPlaylistSyncReceived(
+            WearPlaylistSync(playlistId = "p1", name = "Road trip", songIds = listOf("s1"), requestId = "req-1"),
+            sourceNodeId = "node-9",
+        )
     }
 }

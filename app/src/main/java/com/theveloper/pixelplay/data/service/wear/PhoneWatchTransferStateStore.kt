@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.data.service.wear
 
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -8,8 +9,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -73,7 +77,18 @@ class PhoneWatchTransferStateStore @Inject constructor() {
     private val _watchSongIds = MutableStateFlow<Set<String>>(emptySet())
     val watchSongIds: StateFlow<Set<String>> = _watchSongIds.asStateFlow()
 
+    // Replay a handful rather than 0: the ack can in principle arrive and be emitted before
+    // PlaylistWatchTransferCoordinator starts collecting for it (right after messageClient's own
+    // send call returns), and a plain event stream with no replay would silently drop it in that
+    // case instead of just delivering it a moment "late" to a fresh collector.
+    private val _playlistSyncAcks = MutableSharedFlow<WearPlaylistSyncAck>(replay = 8)
+    val playlistSyncAcks: SharedFlow<WearPlaylistSyncAck> = _playlistSyncAcks.asSharedFlow()
+
     private val cleanupJobs = ConcurrentHashMap<String, Job>()
+
+    fun onPlaylistSyncAckReceived(ack: WearPlaylistSyncAck) {
+        _playlistSyncAcks.tryEmit(ack)
+    }
 
     fun markRequested(
         requestId: String,

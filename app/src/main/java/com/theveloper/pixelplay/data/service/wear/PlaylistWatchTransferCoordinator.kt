@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.di.AppScope
 import com.theveloper.pixelplay.shared.WearCapabilities
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearPlaylistSync
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -185,6 +186,19 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         }
     }
 
+    /**
+     * `MessageClient.sendMessage()` succeeding only means the message was handed off locally, not
+     * that the watch received it — real hardware testing showed a sync sent while the watch was
+     * mid-reconnect (its Wi-Fi/ADB link drops intermittently under this app's own load) is
+     * silently lost: the watch ends up with every song's audio on disk but no playlist row to
+     * show them under, because nothing here ever knew the sync didn't land. Each node now gets a
+     * fresh [WearPlaylistSync.requestId] and this waits for the matching [WearPlaylistSyncAck]
+     * (see [WearTransferRepository][com.theveloper.pixelplay.data.WearTransferRepository]
+     * `.onPlaylistSyncReceived` on the watch side), retrying once — same shape as
+     * [transferSongToAllNodesWithRetry] — before giving up and logging it. Giving up doesn't fail
+     * the batch: songs still transfer either way, and the next explicit re-sync (or "update on
+     * watch") is idempotent and gets another chance.
+     */
     private suspend fun sendPlaylistSyncToNodes(
         nodes: List<Node>,
         playlistId: String,
@@ -192,17 +206,63 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         songIds: List<String>,
         songTitles: List<String>,
     ) {
-        val syncPayload = json.encodeToString(WearPlaylistSync(playlistId, playlistName, songIds, songTitles))
-            .toByteArray(Charsets.UTF_8)
         nodes.forEach { node ->
-            try {
-                messageClient.sendMessage(node.id, WearDataPaths.PLAYLIST_SYNC, syncPayload).await()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                Timber.tag(TAG).w(error, "Failed to send playlist sync to node=%s", node.id)
-            }
+            sendPlaylistSyncToNodeWithRetry(node, playlistId, playlistName, songIds, songTitles)
         }
+    }
+
+    private suspend fun sendPlaylistSyncToNodeWithRetry(
+        node: Node,
+        playlistId: String,
+        playlistName: String,
+        songIds: List<String>,
+        songTitles: List<String>,
+    ) {
+        if (sendPlaylistSyncToNodeAndAwaitAck(node, playlistId, playlistName, songIds, songTitles)) return
+
+        Timber.tag(TAG).w(
+            "Retrying playlist sync after missing ack: playlistId=%s node=%s",
+            playlistId,
+            node.id,
+        )
+        delay(RETRY_BACKOFF_MS)
+        val ackedOnRetry = sendPlaylistSyncToNodeAndAwaitAck(node, playlistId, playlistName, songIds, songTitles)
+        if (!ackedOnRetry) {
+            Timber.tag(TAG).w(
+                "Playlist sync unconfirmed after retry: playlistId=%s node=%s — songs will still " +
+                    "transfer, but the watch may not show this playlist until the next sync",
+                playlistId,
+                node.id,
+            )
+        }
+    }
+
+    /** Returns whether [node] acked this attempt within [PLAYLIST_SYNC_ACK_TIMEOUT_MS]. */
+    private suspend fun sendPlaylistSyncToNodeAndAwaitAck(
+        node: Node,
+        playlistId: String,
+        playlistName: String,
+        songIds: List<String>,
+        songTitles: List<String>,
+    ): Boolean {
+        val requestId = UUID.randomUUID().toString()
+        val syncPayload = json.encodeToString(
+            WearPlaylistSync(playlistId, playlistName, songIds, songTitles, requestId)
+        ).toByteArray(Charsets.UTF_8)
+
+        try {
+            messageClient.sendMessage(node.id, WearDataPaths.PLAYLIST_SYNC, syncPayload).await()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.tag(TAG).w(error, "Failed to send playlist sync to node=%s", node.id)
+            return false
+        }
+
+        val ack = withTimeoutOrNull(PLAYLIST_SYNC_ACK_TIMEOUT_MS) {
+            transferStateStore.playlistSyncAcks.first { it.requestId == requestId }
+        }
+        return ack != null
     }
 
     /**
@@ -402,6 +462,11 @@ class PlaylistWatchTransferCoordinator @Inject constructor(
         // giving up and resuming anyway. Short: this only avoids some wasted duplicate-rejected
         // round-trips, it's not load-bearing for correctness (the watch rejects duplicates itself).
         private const val WATCH_LIBRARY_RESOLVE_TIMEOUT_MS = 10_000L
+
+        // How long to wait for the watch's playlist-sync ack before retrying. Generous relative to
+        // a normal round-trip (which is near-instant) to tolerate a brief Wi-Fi/ADB reconnect blip
+        // without firing a spurious retry.
+        private const val PLAYLIST_SYNC_ACK_TIMEOUT_MS = 10_000L
 
         private val TERMINAL_STATUSES = setOf(
             WearTransferProgress.STATUS_COMPLETED,
