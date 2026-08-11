@@ -201,6 +201,18 @@ class WearPlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            // Recovers a queue/position that survived a process death mid-playback (see
+            // WearLocalPlayerRepository's KDoc) — a no-op whenever nothing was persisted, which
+            // is the overwhelming majority of app opens. `outputTarget` itself isn't persisted
+            // (WearStateRepository always starts at PHONE), so a successful restore is the
+            // signal that the user actually was on watch-local playback; it wouldn't otherwise
+            // be visible in `playerState` until switched here.
+            val restored = localPlayerRepository.restorePersistedPlaybackIfAvailable()
+            if (restored) {
+                stateRepository.setOutputTarget(WearOutputTarget.WATCH)
+            }
+        }
+        viewModelScope.launch {
             outputTarget.collect {
                 refreshActiveVolumeState()
             }

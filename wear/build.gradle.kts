@@ -119,6 +119,10 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // DataStore (persisting local playback state across process death — see
+    // WearPlaybackStatePersistence)
+    implementation(libs.androidx.datastore.preferences)
+
     // Image loading
     implementation(libs.coil.compose)
 
