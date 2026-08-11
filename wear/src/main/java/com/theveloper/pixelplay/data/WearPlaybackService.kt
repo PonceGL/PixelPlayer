@@ -18,6 +18,14 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
@@ -36,13 +44,14 @@ class WearPlaybackService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     // --- Audio offload state -------------------------------------------------------------
     // AUDIO_OFFLOAD_MODE_ENABLED (as opposed to _REQUIRED) is a *soft* request: if the watch's
     // audio HAL doesn't support offloading this format, ExoPlayer silently falls back to the
     // normal decode path on its own — no capability probing needed on our side for that case.
     // What ExoPlayer *doesn't* handle on its own is a HAL that accepts the offloaded track but
-    // then resets/stalls shortly after — that failure mode is exactly what motivated the phone's
+    // then resets/stalls — that failure mode is exactly what motivated the phone's
     // DualPlayerEngine to build a runtime fallback (see AudioOffloadPolicyTest in :app), so this
     // service mirrors that safety net rather than assuming Wear OS audio HALs are better-behaved.
     private var audioOffloadEnabled = true
@@ -50,10 +59,18 @@ class WearPlaybackService : MediaSessionService() {
     private var isPostSeekBuffering = false
     private var isPostMediaItemTransition = false
 
+    // --- Mid-song stall watchdog ----------------------------------------------------------
+    // See WearPlaybackStallWatchdog.kt: catches a stall AudioOffloadFallbackListener can't, one
+    // that happens well after playback started and never surfaces as STATE_BUFFERING.
+    private var stallWatchdogJob: Job? = null
+    private var lastWatchdogPositionMs = -1L
+    private var consecutiveStalledTicks = 0
+
     override fun onCreate() {
         super.onCreate()
         player = buildExoPlayer()
         mediaSession = buildMediaSession(player!!)
+        startStallWatchdog()
         Timber.tag(TAG).d("WearPlaybackService created")
     }
 
@@ -68,6 +85,8 @@ class WearPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        stallWatchdogJob?.cancel()
+        scope.cancel()
         mediaSession?.release()
         mediaSession = null
         player?.release()
@@ -151,19 +170,38 @@ class WearPlaybackService : MediaSessionService() {
     }
 
     /**
-     * Rebuilds the player with offload disabled after [AudioOffloadFallbackListener] reads a
-     * stall as a HAL reset, preserving playback state across the swap.
-     *
-     * [MediaSession.setPlayer] lets the existing session (and any connected `MediaController`,
-     * including the phone acting as a remote) keep its binder connection across the swap instead
-     * of tearing down and reconnecting — the rebuild is invisible to callers beyond a brief
-     * re-buffer.
+     * Rebuilds the player after [AudioOffloadFallbackListener] reads an early re-buffer as a HAL
+     * reset, disabling offload for the rest of the session.
      */
     private fun fallBackFromAudioOffload(reason: String) {
         if (!audioOffloadEnabled) return
-        val oldPlayer = player ?: return
         audioOffloadEnabled = false
         Timber.tag(TAG).w("Falling back from audio offload: %s", reason)
+        rebuildPlayerPreservingState()
+    }
+
+    /**
+     * Rebuilds the player after the stall watchdog sees position frozen for
+     * [STALL_TICKS_THRESHOLD] ticks in a row — the *mid-song* wedge [fallBackFromAudioOffload]
+     * can't see (see WearPlaybackStallWatchdog.kt). Unlike that early check, this doesn't gate on
+     * [audioOffloadEnabled]: if offload is still on, disabling it too is the best available guess
+     * at the cause, but the rebuild itself — a fresh ExoPlayer/AudioTrack instance — is the actual
+     * fix regardless, so it still runs even if offload was already off from an earlier fallback.
+     */
+    private fun recoverFromStalledPlayback(reason: String) {
+        Timber.tag(TAG).w("Recovering from stalled playback: %s", reason)
+        audioOffloadEnabled = false
+        rebuildPlayerPreservingState()
+    }
+
+    /**
+     * Preserves queue/position/play-state across a player rebuild. [MediaSession.setPlayer] lets
+     * the existing session (and any connected `MediaController`, including the phone acting as a
+     * remote) keep its binder connection across the swap instead of tearing down and
+     * reconnecting — the rebuild is invisible to callers beyond a brief re-buffer.
+     */
+    private fun rebuildPlayerPreservingState() {
+        val oldPlayer = player ?: return
 
         val mediaItems = ArrayList<MediaItem>(oldPlayer.mediaItemCount)
         for (i in 0 until oldPlayer.mediaItemCount) mediaItems.add(oldPlayer.getMediaItemAt(i))
@@ -185,6 +223,40 @@ class WearPlaybackService : MediaSessionService() {
         player = newPlayer
         mediaSession?.setPlayer(newPlayer)
         oldPlayer.release()
+
+        // The new player instance starts wherever setMediaItems/positionMs put it — don't let a
+        // stale reading from the old (just-released) player count as "no progress" against it.
+        lastWatchdogPositionMs = -1L
+        consecutiveStalledTicks = 0
+    }
+
+    /**
+     * Ticks once a second, comparing the player's own reported position against the last tick's —
+     * a stall that doesn't change [Player.getPlaybackState] (see WearPlaybackStallWatchdog.kt)
+     * has no listener callback to hook, so this is the only way to catch it.
+     */
+    private fun startStallWatchdog() {
+        stallWatchdogJob?.cancel()
+        stallWatchdogJob = scope.launch {
+            while (isActive) {
+                delay(STALL_TICK_INTERVAL_MS)
+                val current = player ?: continue
+                val isPlaying = current.isPlaying
+                val position = current.currentPosition
+                val positionAdvanced = position != lastWatchdogPositionMs
+                lastWatchdogPositionMs = position
+                consecutiveStalledTicks = wearPlaybackStalledTickCount(
+                    isPlaying = isPlaying,
+                    positionAdvancedSinceLastTick = positionAdvanced,
+                    previousConsecutiveStalledTicks = consecutiveStalledTicks,
+                )
+                if (consecutiveStalledTicks >= STALL_TICKS_THRESHOLD) {
+                    recoverFromStalledPlayback(
+                        "no position advance for ${STALL_TICK_INTERVAL_MS * STALL_TICKS_THRESHOLD}ms"
+                    )
+                }
+            }
+        }
     }
 
     private fun buildOpenAppIntent(): PendingIntent {
@@ -270,5 +342,11 @@ class WearPlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "WearPlaybackService"
         private const val MEDIA_SESSION_ID = "wear-local-playback"
+
+        // 3 consecutive 1s ticks with zero position movement while isPlaying=true — long enough
+        // that a legitimate single slow tick can't false-positive, short enough that a real wedge
+        // doesn't sit silent for long before recovering.
+        private const val STALL_TICK_INTERVAL_MS = 1_000L
+        private const val STALL_TICKS_THRESHOLD = 3
     }
 }
