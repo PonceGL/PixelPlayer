@@ -14,6 +14,7 @@ import com.theveloper.pixelplay.data.local.LocalSongEntity
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearLibraryState
 import com.theveloper.pixelplay.shared.WearPlaylistSync
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferMetadata
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import com.theveloper.pixelplay.shared.WearTransferRequest
@@ -888,8 +889,12 @@ class WearTransferRepository @Inject constructor(
      * start playing whatever's already local right away. Idempotent: re-syncing the same
      * [WearPlaylistSync.playlistId] (e.g. after the user edits the playlist on the phone) replaces
      * membership/order in one transaction rather than merging with the stale cross-refs.
+     *
+     * [sourceNodeId] is where the ack goes back to. Acking is best-effort and never blocks or
+     * fails this function — if [WearPlaylistSync.requestId] is empty (an old phone build) there's
+     * nothing to correlate an ack to, so none is sent.
      */
-    suspend fun onPlaylistSyncReceived(sync: WearPlaylistSync) {
+    suspend fun onPlaylistSyncReceived(sync: WearPlaylistSync, sourceNodeId: String) {
         val now = System.currentTimeMillis()
         val existing = localPlaylistDao.getPlaylistById(sync.playlistId)
         val entity = LocalPlaylistEntity(
@@ -915,6 +920,23 @@ class WearTransferRepository @Inject constructor(
             sync.name,
             sync.songIds.size,
         )
+
+        if (sync.requestId.isNotEmpty()) {
+            sendPlaylistSyncAck(sourceNodeId, sync.playlistId, sync.requestId)
+        }
+    }
+
+    private suspend fun sendPlaylistSyncAck(nodeId: String, playlistId: String, requestId: String) {
+        val ack = WearPlaylistSyncAck(playlistId = playlistId, requestId = requestId)
+        try {
+            val ackBytes = json.encodeToString(ack).toByteArray(Charsets.UTF_8)
+            messageClient.sendMessage(nodeId, WearDataPaths.PLAYLIST_SYNC_ACK, ackBytes).await()
+        } catch (e: Exception) {
+            // Not retried here: if this is lost too, the phone's own await-ack timeout fires and
+            // it resends the whole sync, which is idempotent — so the watch just gets another shot
+            // at acking rather than needing its own retry logic for the ack itself.
+            Timber.tag(TAG).w(e, "Failed to send playlist sync ack: playlistId=%s", playlistId)
+        }
     }
 
     /**

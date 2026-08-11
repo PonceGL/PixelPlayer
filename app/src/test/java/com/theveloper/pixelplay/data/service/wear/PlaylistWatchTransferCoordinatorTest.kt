@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearPlaylistSync
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -64,8 +65,14 @@ class PlaylistWatchTransferCoordinatorTest {
         every { watchAudioTranscoder.cleanup(any()) } just Runs
 
         // Tasks.forResult builds a real, already-completed Task — play-services-tasks has no
-        // Android framework dependency for this, so it resolves correctly off-device.
-        every { messageClient.sendMessage(any(), any(), any()) } returns Tasks.forResult(0)
+        // Android framework dependency for this, so it resolves correctly off-device. Playlist
+        // syncs additionally auto-ack (simulating a healthy watch) so every existing test here
+        // keeps its original one-send-per-node behavior; tests that care about the ack-timeout/
+        // retry path override this locally.
+        every { messageClient.sendMessage(any(), any(), any()) } answers {
+            autoAckIfPlaylistSync(thirdArg())
+            Tasks.forResult(0)
+        }
 
         every { musicRepository.getSongsByIds(any()) } answers {
             val requestedIds = firstArg<List<String>>()
@@ -84,6 +91,17 @@ class PlaylistWatchTransferCoordinatorTest {
         val song = Song.emptySong().copy(id = id, title = title)
         songsById[id] = song
         return song
+    }
+
+    /** Decodes [bytes] as a [WearPlaylistSync] and, if it carries a requestId, immediately acks it. */
+    private fun autoAckIfPlaylistSync(bytes: ByteArray) {
+        val sync = runCatching {
+            json.decodeFromString<WearPlaylistSync>(String(bytes, Charsets.UTF_8))
+        }.getOrNull() ?: return
+        if (sync.requestId.isEmpty()) return
+        transferStateStore.onPlaylistSyncAckReceived(
+            WearPlaylistSyncAck(playlistId = sync.playlistId, requestId = sync.requestId)
+        )
     }
 
     private fun stubReachableNodes(vararg nodeIds: String) {
@@ -185,6 +203,7 @@ class PlaylistWatchTransferCoordinatorTest {
         every { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) } answers {
             val bytes = thirdArg<ByteArray>()
             syncPayloads += json.decodeFromString<WearPlaylistSync>(String(bytes, Charsets.UTF_8))
+            autoAckIfPlaylistSync(bytes)
             Tasks.forResult(0)
         }
         val coordinator = buildCoordinator(this)
@@ -409,6 +428,77 @@ class PlaylistWatchTransferCoordinatorTest {
         val batch = transferStateStore.batchTransfers.value[batchId]
         assertThat(batch?.failedSongCount).isEqualTo(1)
         assertThat(batch?.completedSongCount).isEqualTo(0)
+    }
+
+    // --- Playlist sync reliability: ack + retry ---
+
+    @Test
+    fun `a playlist sync acked on the first attempt is sent only once`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1")
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        verify(exactly = 1) { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) }
+    }
+
+    @Test
+    fun `a playlist sync that's never acked is retried once, then given up on`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1")
+        // Overrides the auto-acking default stub — this node never acks, simulating the watch
+        // being mid-reconnect when both attempts go out.
+        every { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) } returns Tasks.forResult(0)
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        // One initial attempt plus exactly one retry — not retried indefinitely.
+        verify(exactly = 2) { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) }
+    }
+
+    @Test
+    fun `a playlist sync acked only on the retry stops after that retry`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1")
+        var attempt = 0
+        every { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) } answers {
+            attempt += 1
+            val bytes = thirdArg<ByteArray>()
+            if (attempt >= 2) autoAckIfPlaylistSync(bytes)
+            Tasks.forResult(0)
+        }
+        val coordinator = buildCoordinator(this)
+
+        coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        assertThat(attempt).isEqualTo(2)
+    }
+
+    @Test
+    fun `songs still transfer even when the playlist sync is never acked`() = runTest {
+        stubReachableNodes("node-1")
+        stubTransfersResolveTo(WearTransferProgress.STATUS_COMPLETED)
+        song("s1")
+        every { messageClient.sendMessage(any(), WearDataPaths.PLAYLIST_SYNC, any()) } returns Tasks.forResult(0)
+        val coordinator = buildCoordinator(this)
+
+        val batchId = coordinator.requestPlaylistTransfer("p1", "Playlist", listOf("s1"))
+        advanceUntilIdle()
+
+        // An unconfirmed playlist sync is a warning, not a batch failure — the song itself still
+        // lands on the watch, it just might not show up under the playlist until the next sync.
+        assertThat(transferredSongIdsInOrder).containsExactly("s1")
+        val batch = transferStateStore.batchTransfers.value[batchId]
+        assertThat(batch?.status).isEqualTo(WearTransferProgress.STATUS_COMPLETED)
+        assertThat(batch?.completedSongCount).isEqualTo(1)
     }
 
     // --- Persistence: resuming a batch interrupted by process death (PR7) ---
