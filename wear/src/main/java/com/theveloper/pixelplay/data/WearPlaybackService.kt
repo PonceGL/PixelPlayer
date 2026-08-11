@@ -3,9 +3,12 @@ package com.theveloper.pixelplay.data
 import android.app.ActivityManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.SystemClock
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -34,9 +37,46 @@ class WearPlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
 
+    // --- Audio offload state -------------------------------------------------------------
+    // AUDIO_OFFLOAD_MODE_ENABLED (as opposed to _REQUIRED) is a *soft* request: if the watch's
+    // audio HAL doesn't support offloading this format, ExoPlayer silently falls back to the
+    // normal decode path on its own — no capability probing needed on our side for that case.
+    // What ExoPlayer *doesn't* handle on its own is a HAL that accepts the offloaded track but
+    // then resets/stalls shortly after — that failure mode is exactly what motivated the phone's
+    // DualPlayerEngine to build a runtime fallback (see AudioOffloadPolicyTest in :app), so this
+    // service mirrors that safety net rather than assuming Wear OS audio HALs are better-behaved.
+    private var audioOffloadEnabled = true
+    private var lastPlayingAtMs = 0L
+    private var isPostSeekBuffering = false
+    private var isPostMediaItemTransition = false
+
     override fun onCreate() {
         super.onCreate()
+        player = buildExoPlayer()
+        mediaSession = buildMediaSession(player!!)
+        Timber.tag(TAG).d("WearPlaybackService created")
+    }
 
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // If the user swipes the app away while nothing is playing, there's nothing to keep alive.
+        val activePlayer = player
+        if (activePlayer == null || !activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) {
+            stopSelf()
+        }
+    }
+
+    override fun onDestroy() {
+        mediaSession?.release()
+        mediaSession = null
+        player?.release()
+        player = null
+        Timber.tag(TAG).d("WearPlaybackService destroyed")
+        super.onDestroy()
+    }
+
+    private fun buildExoPlayer(): ExoPlayer {
         val isLowRamDevice = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
         val bufferProfile = wearLoadControlBufferProfileFor(isLowRamDevice)
         val loadControl = DefaultLoadControl.Builder()
@@ -79,34 +119,72 @@ class WearPlaybackService : MediaSessionService() {
                 DefaultMediaSourceFactory(this, Mp4Extractor.newFactory(SubtitleParser.Factory.UNSUPPORTED))
             )
             .build()
-        player = exoPlayer
+        exoPlayer.trackSelectionParameters = trackSelectionParametersFor(audioOffloadEnabled)
+        exoPlayer.addListener(AudioOffloadFallbackListener())
+        return exoPlayer
+    }
 
-        mediaSession = MediaSession.Builder(this, exoPlayer)
+    private fun trackSelectionParametersFor(offloadEnabled: Boolean): TrackSelectionParameters {
+        return TrackSelectionParameters.DEFAULT.buildUpon()
+            .setAudioOffloadPreferences(
+                TrackSelectionParameters.AudioOffloadPreferences.Builder()
+                    .setAudioOffloadMode(
+                        if (offloadEnabled) {
+                            TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
+                        } else {
+                            TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
+                        }
+                    )
+                    .setIsGaplessSupportRequired(false)
+                    .setIsSpeedChangeSupportRequired(false)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun buildMediaSession(exoPlayer: ExoPlayer): MediaSession {
+        return MediaSession.Builder(this, exoPlayer)
             .setId(MEDIA_SESSION_ID)
             .setSessionActivity(buildOpenAppIntent())
             .setCallback(MediaItemUriRestoringCallback())
             .build()
-
-        Timber.tag(TAG).d("WearPlaybackService created")
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    /**
+     * Rebuilds the player with offload disabled after [AudioOffloadFallbackListener] reads a
+     * stall as a HAL reset, preserving playback state across the swap.
+     *
+     * [MediaSession.setPlayer] lets the existing session (and any connected `MediaController`,
+     * including the phone acting as a remote) keep its binder connection across the swap instead
+     * of tearing down and reconnecting — the rebuild is invisible to callers beyond a brief
+     * re-buffer.
+     */
+    private fun fallBackFromAudioOffload(reason: String) {
+        if (!audioOffloadEnabled) return
+        val oldPlayer = player ?: return
+        audioOffloadEnabled = false
+        Timber.tag(TAG).w("Falling back from audio offload: %s", reason)
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        // If the user swipes the app away while nothing is playing, there's nothing to keep alive.
-        val activePlayer = player
-        if (activePlayer == null || !activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) {
-            stopSelf()
+        val mediaItems = ArrayList<MediaItem>(oldPlayer.mediaItemCount)
+        for (i in 0 until oldPlayer.mediaItemCount) mediaItems.add(oldPlayer.getMediaItemAt(i))
+        val currentIndex = oldPlayer.currentMediaItemIndex.coerceAtLeast(0)
+        val positionMs = oldPlayer.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = oldPlayer.playWhenReady
+        val repeatMode = oldPlayer.repeatMode
+        val shuffleModeEnabled = oldPlayer.shuffleModeEnabled
+
+        val newPlayer = buildExoPlayer()
+        if (mediaItems.isNotEmpty()) {
+            newPlayer.setMediaItems(mediaItems, currentIndex, positionMs)
+            newPlayer.repeatMode = repeatMode
+            newPlayer.shuffleModeEnabled = shuffleModeEnabled
+            newPlayer.prepare()
+            newPlayer.playWhenReady = playWhenReady
         }
-    }
 
-    override fun onDestroy() {
-        mediaSession?.release()
-        mediaSession = null
-        player?.release()
-        player = null
-        Timber.tag(TAG).d("WearPlaybackService destroyed")
-        super.onDestroy()
+        player = newPlayer
+        mediaSession?.setPlayer(newPlayer)
+        oldPlayer.release()
     }
 
     private fun buildOpenAppIntent(): PendingIntent {
@@ -119,6 +197,50 @@ class WearPlaybackService : MediaSessionService() {
             launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+    }
+
+    /**
+     * Watches for the early-buffering pattern [wearShouldFallBackFromAudioOffload] recognizes as
+     * an offload HAL reset, and triggers [fallBackFromAudioOffload] when it does.
+     */
+    private inner class AudioOffloadFallbackListener : Player.Listener {
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) {
+                lastPlayingAtMs = SystemClock.elapsedRealtime()
+                isPostSeekBuffering = false
+                isPostMediaItemTransition = false
+            }
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                isPostSeekBuffering = true
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            isPostMediaItemTransition = true
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState != Player.STATE_BUFFERING) return
+            val now = SystemClock.elapsedRealtime()
+            val shouldFallBack = wearShouldFallBackFromAudioOffload(
+                audioOffloadEnabled = audioOffloadEnabled,
+                lastPlayingAtMs = lastPlayingAtMs,
+                timeSincePlayingMs = now - lastPlayingAtMs,
+                isPostSeekBuffering = isPostSeekBuffering,
+                isPostMediaItemTransition = isPostMediaItemTransition,
+            )
+            if (shouldFallBack) {
+                fallBackFromAudioOffload("early re-buffer ${now - lastPlayingAtMs}ms after playing")
+            }
+        }
     }
 
     /**
