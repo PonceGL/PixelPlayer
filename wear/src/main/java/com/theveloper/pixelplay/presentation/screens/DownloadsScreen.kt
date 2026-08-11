@@ -29,7 +29,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.Chip
@@ -87,14 +87,14 @@ fun DownloadsScreen(
     viewModel: WearDownloadsViewModel = hiltViewModel(),
     playerViewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
-    val localSongs by viewModel.localSongs.collectAsState()
-    val activeTransfers by viewModel.activeTransfers.collectAsState()
-    val deviceSongs by viewModel.deviceSongs.collectAsState()
-    val isDeviceLibraryLoading by viewModel.isDeviceLibraryLoading.collectAsState()
-    val deviceLibraryError by viewModel.deviceLibraryError.collectAsState()
-    val pendingPhonePlaybackSongId by viewModel.pendingPhonePlaybackSongId.collectAsState()
-    val playerState by playerViewModel.playerState.collectAsState()
-    val isPhoneConnected by playerViewModel.isPhoneConnected.collectAsState()
+    val localSongs by viewModel.localSongs.collectAsStateWithLifecycle()
+    val activeTransfers by viewModel.activeTransfers.collectAsStateWithLifecycle()
+    val deviceSongs by viewModel.deviceSongs.collectAsStateWithLifecycle()
+    val isDeviceLibraryLoading by viewModel.isDeviceLibraryLoading.collectAsStateWithLifecycle()
+    val deviceLibraryError by viewModel.deviceLibraryError.collectAsStateWithLifecycle()
+    val pendingPhonePlaybackSongId by viewModel.pendingPhonePlaybackSongId.collectAsStateWithLifecycle()
+    val playerState by playerViewModel.playerState.collectAsStateWithLifecycle()
+    val isPhoneConnected by playerViewModel.isPhoneConnected.collectAsStateWithLifecycle()
     val palette = LocalWearPalette.current
     val watchLibraryTitleFont = rememberWatchLibraryTitleFont()
     val columnState = rememberResponsiveColumnState()
