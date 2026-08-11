@@ -1,11 +1,16 @@
 package com.theveloper.pixelplay.data
 
+import android.app.ActivityManager
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -32,7 +37,23 @@ class WearPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
+        val isLowRamDevice = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+        val bufferProfile = wearLoadControlBufferProfileFor(isLowRamDevice)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                bufferProfile.minBufferMs,
+                bufferProfile.maxBufferMs,
+                bufferProfile.bufferForPlaybackMs,
+                bufferProfile.bufferForPlaybackAfterRebufferMs,
+            )
+            // Buffered *duration*, not buffered *bytes*, decides when to (re)start playback —
+            // matches the phone's DualPlayerEngine and is what makes the profile above meaningful
+            // across formats/bitrates instead of being overridden by ExoPlayer's byte threshold.
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         val exoPlayer = ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -44,6 +65,19 @@ class WearPlaybackService : MediaSessionService() {
             // Keep the CPU running while the watch dozes with the screen off, otherwise audio
             // decoding stalls a few seconds after the display turns off.
             .setWakeMode(C.WAKE_MODE_LOCAL)
+            // The default DefaultMediaSourceFactory registers ~15 extractor types (Matroska,
+            // FLV, AVI, MPEG-TS…) that this service never plays — every file here comes from
+            // [WatchAudioTranscoder] on the phone, which always writes plain (non-fragmented)
+            // MP4/AAC-LC. ART verifies each extractor class the first time DefaultExtractorsFactory
+            // touches it while sniffing the container, on the main thread; measured on-device this
+            // cost 120-300ms per unused class, ~2s total, stacked right on top of playback start.
+            // Scoping the factory to the one extractor we actually need removes that cost entirely.
+            .setMediaSourceFactory(
+                // Every other Mp4Extractor constructor/factory in this media3 version is
+                // deprecated in favor of newFactory(SubtitleParser.Factory); our files are
+                // audio-only, so subtitle parsing is simply unsupported.
+                DefaultMediaSourceFactory(this, Mp4Extractor.newFactory(SubtitleParser.Factory.UNSUPPORTED))
+            )
             .build()
         player = exoPlayer
 
