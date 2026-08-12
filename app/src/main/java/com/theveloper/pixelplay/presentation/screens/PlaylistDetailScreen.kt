@@ -250,6 +250,11 @@ fun PlaylistDetailScreen(
     // being sent from what the user sees on screen — reorder/add/remove are disabled (not
     // removed, to avoid a layout jump) for the duration.
     val isTransferActive = activePlaylistTransfer != null
+    // Unlike isTransferActive above (this playlist only), this covers ANY playlist currently
+    // transferring — there's no real transfer queue yet (multiple batches would race over the
+    // watch's single Bluetooth link), so starting a second one is blocked entirely rather than
+    // silently running concurrently.
+    val isAnyBatchTransferActive = activeBatchTransfer != null
     LaunchedEffect(isTransferActive) {
         if (isTransferActive) {
             isReorderModeEnabled = false
@@ -952,6 +957,7 @@ fun PlaylistDetailScreen(
                     PlaylistActionItem(
                         icon = painterResource(R.drawable.rounded_watch_arrow_down_24),
                         label = if (isAnySongOnWatch) updateOnWatchLabel else sendToWatchLabel,
+                        enabled = !isAnyBatchTransferActive,
                         onClick = {
                             showPlaylistOptionsSheet = false
                             playlistViewModel.refreshWatchAvailability()
@@ -1060,7 +1066,7 @@ fun PlaylistDetailScreen(
         }
         val estimatedSizeText = android.text.format.Formatter.formatShortFileSize(context, estimate.estimatedBytes)
         val estimatedTimeText = formatListeningDurationCompact(estimate.estimatedTransferSeconds * 1000L)
-        val canSend = isPixelPlayWatchAvailable && estimate.pendingSongCount > 0
+        val canSend = isPixelPlayWatchAvailable && estimate.pendingSongCount > 0 && !isAnyBatchTransferActive
 
         AlertDialog(
             onDismissRequest = { showSendToWatchDialog = false },
@@ -1302,15 +1308,17 @@ fun PlaylistDetailScreen(
 private fun PlaylistActionItem(
     icon: Painter,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
+    val contentAlpha = if (enabled) 1f else 0.38f
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1324,14 +1332,14 @@ private fun PlaylistActionItem(
             Icon(
                 painter = icon,
                 contentDescription = label,
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha)
             )
         }
         Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
         )
     }
 }
