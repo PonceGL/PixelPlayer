@@ -91,6 +91,18 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
         }
     }
 
+    /**
+     * Substitutes the audio actually streamed to the watch with an already-transcoded file (see
+     * [WatchAudioTranscoder]), bypassing [isSongTransferEligible] and the song's own local-file
+     * resolution — the override file was just written locally by the transcoder, so it's
+     * unconditionally eligible regardless of what the original [Song]'s source was.
+     */
+    data class WatchAudioOverride(
+        val file: File,
+        val mimeType: String,
+        val bitrateBps: Int,
+    )
+
     fun startTransferToWatch(
         nodeId: String,
         requestId: String,
@@ -98,6 +110,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
         transferMode: String = WearTransferRequest.MODE_SAVE_TO_LIBRARY,
         startPositionMs: Long = 0L,
         autoPlay: Boolean = false,
+        audioOverride: WatchAudioOverride? = null,
     ) {
         transferStateStore.markRequested(
             requestId = requestId,
@@ -112,6 +125,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
                 transferMode = transferMode,
                 startPositionMs = startPositionMs,
                 autoPlay = autoPlay,
+                audioOverride = audioOverride,
             )
         }
     }
@@ -123,6 +137,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
         transferMode: String,
         startPositionMs: Long,
         autoPlay: Boolean,
+        audioOverride: WatchAudioOverride? = null,
     ) {
         var openedSongSource: OpenedSongSource? = null
         try {
@@ -138,6 +153,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
             }
 
             if (
+                audioOverride == null &&
                 transferMode == WearTransferRequest.MODE_SAVE_TO_LIBRARY &&
                 !isSongTransferEligible(song)
             ) {
@@ -150,19 +166,23 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
                 return
             }
 
-            val songSource = openSongSource(
-                song = song,
-                allowProxyStreaming = transferMode == WearTransferRequest.MODE_TEMPORARY_PLAYBACK,
-            )
+            val songSource = if (audioOverride != null) {
+                openOverrideSongSource(audioOverride)
+            } else {
+                openSongSource(
+                    song = song,
+                    allowProxyStreaming = transferMode == WearTransferRequest.MODE_TEMPORARY_PLAYBACK,
+                )
+            }
             if (songSource == null) {
                 sendTransferMetadataError(
                     nodeId = nodeId,
                     requestId = requestId,
                     songId = song.id,
-                    errorMessage = if (transferMode == WearTransferRequest.MODE_TEMPORARY_PLAYBACK) {
-                        "Cannot stream audio source to watch"
-                    } else {
-                        "Cannot read audio file"
+                    errorMessage = when {
+                        audioOverride != null -> "Cannot read transcoded audio file"
+                        transferMode == WearTransferRequest.MODE_TEMPORARY_PLAYBACK -> "Cannot stream audio source to watch"
+                        else -> "Cannot read audio file"
                     },
                 )
                 return
@@ -182,9 +202,9 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
                 album = song.album,
                 albumId = song.albumId,
                 duration = song.duration,
-                mimeType = song.mimeType ?: "audio/mpeg",
+                mimeType = audioOverride?.mimeType ?: (song.mimeType ?: "audio/mpeg"),
                 fileSize = fileSize,
-                bitrate = song.bitrate ?: 0,
+                bitrate = audioOverride?.bitrateBps ?: (song.bitrate ?: 0),
                 sampleRate = song.sampleRate ?: 0,
                 isFavorite = song.isFavorite,
                 paletteSeedArgb = paletteSeedArgb,
@@ -323,6 +343,15 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
 
         val streamUrl = resolveStreamUrl(song) ?: return null
         return openHttpSongSource(streamUrl)
+    }
+
+    private fun openOverrideSongSource(override: WatchAudioOverride): OpenedSongSource? {
+        val file = override.file.takeIf { it.isFile && it.canRead() && it.length() > 0L } ?: return null
+        return runCatching {
+            OpenedSongSource(inputStream = file.inputStream(), fileSize = file.length())
+        }.onFailure { error ->
+            Timber.tag(TAG).w(error, "Failed to open transcoded override file=%s", file.absolutePath)
+        }.getOrNull()
     }
 
     private fun openDirectSongSource(song: Song): OpenedSongSource? {

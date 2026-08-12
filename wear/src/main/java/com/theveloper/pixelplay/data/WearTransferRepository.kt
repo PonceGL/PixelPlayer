@@ -6,10 +6,15 @@ import android.webkit.MimeTypeMap
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.NodeClient
+import com.theveloper.pixelplay.data.local.LocalPlaylistDao
+import com.theveloper.pixelplay.data.local.LocalPlaylistEntity
+import com.theveloper.pixelplay.data.local.LocalPlaylistSongCrossRef
 import com.theveloper.pixelplay.data.local.LocalSongDao
 import com.theveloper.pixelplay.data.local.LocalSongEntity
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearLibraryState
+import com.theveloper.pixelplay.shared.WearPlaylistSync
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferMetadata
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import com.theveloper.pixelplay.shared.WearTransferRequest
@@ -70,6 +75,7 @@ data class TransferState(
 class WearTransferRepository @Inject constructor(
     private val application: Application,
     private val localSongDao: LocalSongDao,
+    private val localPlaylistDao: LocalPlaylistDao,
     private val channelClient: ChannelClient,
     private val messageClient: MessageClient,
     private val nodeClient: NodeClient,
@@ -120,6 +126,13 @@ class WearTransferRepository @Inject constructor(
 
     /** Failsafe timeout per transfer to avoid hanging states at 0%. */
     private val transferWatchdogs = ConcurrentHashMap<String, Job>()
+    /** The live audio InputStream for a request, while onAudioChannelOpened is reading it —
+     *  lets armTransferWatchdog actually interrupt a stuck read instead of just updating
+     *  bookkeeping while the real transfer keeps running unaware. */
+    private val openAudioStreams = ConcurrentHashMap<String, InputStream>()
+    /** Request IDs whose audio stream was closed by the watchdog, so onAudioChannelOpened's
+     *  catch block can report "Transfer timed out" instead of a generic stream-closed message. */
+    private val watchdogTimedOutRequestIds = ConcurrentHashMap.newKeySet<String>()
     /** Request IDs currently receiving bytes through ChannelClient. */
     private val activeChannelRequestIds = ConcurrentHashMap.newKeySet<String>()
     /** Cancelled request IDs retained briefly so late metadata/progress/channel events are ignored safely. */
@@ -483,6 +496,7 @@ class WearTransferRepository @Inject constructor(
         if (!musicDir.exists()) musicDir.mkdirs()
         val tempFile = File(musicDir, "$requestId.part")
         var metadata: WearTransferMetadata? = pendingMetadata[requestId]
+        openAudioStreams[requestId] = inputStream
 
         try {
             if (isTransferCancelled(requestId)) {
@@ -764,15 +778,18 @@ class WearTransferRepository @Inject constructor(
                 "Transfer complete: ${resolvedMetadata.title} ($actualSize bytes) → ${localFile.absolutePath}"
             )
         } catch (e: Exception) {
+            val timedOut = watchdogTimedOutRequestIds.remove(requestId)
             Timber.tag(TAG).e(e, "Failed to write transferred file")
             tempFile.delete()
             handleTransferError(
                 requestId = requestId,
                 songId = metadata?.songId ?: _activeTransfers.value[requestId]?.songId.orEmpty(),
-                message = e.message ?: "Write failed",
+                message = if (timedOut) "Transfer timed out" else (e.message ?: "Write failed"),
             )
         } finally {
             activeChannelRequestIds.remove(requestId)
+            openAudioStreams.remove(requestId)
+            watchdogTimedOutRequestIds.remove(requestId)
         }
     }
 
@@ -867,6 +884,62 @@ class WearTransferRepository @Inject constructor(
     }
 
     /**
+     * Called when a playlist sync arrives from the phone — sent once up front, before any of its
+     * songs' audio has necessarily finished transferring, so the watch can show the playlist and
+     * start playing whatever's already local right away. Idempotent: re-syncing the same
+     * [WearPlaylistSync.playlistId] (e.g. after the user edits the playlist on the phone) replaces
+     * membership/order in one transaction rather than merging with the stale cross-refs.
+     *
+     * [sourceNodeId] is where the ack goes back to. Acking is best-effort and never blocks or
+     * fails this function — if [WearPlaylistSync.requestId] is empty (an old phone build) there's
+     * nothing to correlate an ack to, so none is sent.
+     */
+    suspend fun onPlaylistSyncReceived(sync: WearPlaylistSync, sourceNodeId: String) {
+        val now = System.currentTimeMillis()
+        val existing = localPlaylistDao.getPlaylistById(sync.playlistId)
+        val entity = LocalPlaylistEntity(
+            playlistId = sync.playlistId,
+            name = sync.name,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now,
+        )
+        val crossRefs = sync.songIds.mapIndexed { index, songId ->
+            LocalPlaylistSongCrossRef(
+                playlistId = sync.playlistId,
+                songId = songId,
+                position = index,
+                // songTitles is a parallel list to songIds; an older phone build omits it
+                // entirely (defaults to emptyList()), so this falls back to "" per song rather
+                // than crashing on an index that isn't there.
+                pendingTitle = sync.songTitles.getOrElse(index) { "" },
+            )
+        }
+        localPlaylistDao.upsertPlaylist(entity, crossRefs)
+        Timber.tag(TAG).d(
+            "Playlist synced: %s (%d songs)",
+            sync.name,
+            sync.songIds.size,
+        )
+
+        if (sync.requestId.isNotEmpty()) {
+            sendPlaylistSyncAck(sourceNodeId, sync.playlistId, sync.requestId)
+        }
+    }
+
+    private suspend fun sendPlaylistSyncAck(nodeId: String, playlistId: String, requestId: String) {
+        val ack = WearPlaylistSyncAck(playlistId = playlistId, requestId = requestId)
+        try {
+            val ackBytes = json.encodeToString(ack).toByteArray(Charsets.UTF_8)
+            messageClient.sendMessage(nodeId, WearDataPaths.PLAYLIST_SYNC_ACK, ackBytes).await()
+        } catch (e: Exception) {
+            // Not retried here: if this is lost too, the phone's own await-ack timeout fires and
+            // it resends the whole sync, which is idempotent — so the watch just gets another shot
+            // at acking rather than needing its own retry logic for the ack itself.
+            Timber.tag(TAG).w(e, "Failed to send playlist sync ack: playlistId=%s", playlistId)
+        }
+    }
+
+    /**
      * Called when artwork bytes arrive over the dedicated artwork channel.
      * If song row exists, artwork is persisted immediately; otherwise cached until audio finishes.
      */
@@ -941,6 +1014,8 @@ class WearTransferRepository @Inject constructor(
         pendingArtworkByRequestId.remove(requestId)
         clearTransferWatchdog(requestId)
         activeChannelRequestIds.remove(requestId)
+        openAudioStreams.remove(requestId)
+        watchdogTimedOutRequestIds.remove(requestId)
     }
 
     private fun handleTransferError(requestId: String, songId: String, message: String) {
@@ -962,6 +1037,8 @@ class WearTransferRepository @Inject constructor(
         pendingArtworkByRequestId.remove(requestId)
         clearTransferWatchdog(requestId)
         activeChannelRequestIds.remove(requestId)
+        openAudioStreams.remove(requestId)
+        watchdogTimedOutRequestIds.remove(requestId)
     }
 
     private fun resolveTemporaryPlaybackStartPosition(
@@ -1044,7 +1121,25 @@ class WearTransferRepository @Inject constructor(
         transferWatchdogs[requestId] = scope.launch {
             delay(TRANSFER_IDLE_TIMEOUT_MS)
             if (_activeTransfers.value.containsKey(requestId)) {
-                handleTransferError(requestId, songId, "Transfer timed out")
+                val stream = openAudioStreams[requestId]
+                if (stream != null) {
+                    // A live audio stream is genuinely stuck: close it so the blocking
+                    // read() in onAudioChannelOpened unblocks with an IOException and routes
+                    // through that function's own catch block for cleanup — a single,
+                    // consistent path instead of this watchdog declaring failure on its own
+                    // while the read loop keeps running in the background, unaware anything
+                    // happened. That's what let a "failed" transfer keep going and finish
+                    // seconds later anyway, or worse, strip pendingMetadata out from under
+                    // the still-running loop and turn a slow-but-fine transfer into a real
+                    // failure ("Transfer metadata missing" from the loop's own metadata
+                    // resolution not finding what this watchdog had just cleared).
+                    watchdogTimedOutRequestIds.add(requestId)
+                    runCatching { stream.close() }
+                } else {
+                    // No audio stream open yet (still waiting on metadata/channel) — nothing
+                    // to interrupt, so this is still the right place to declare failure.
+                    handleTransferError(requestId, songId, "Transfer timed out")
+                }
             }
         }
     }

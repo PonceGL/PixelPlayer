@@ -17,11 +17,13 @@ import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearFavoriteSyncResponse
 import com.theveloper.pixelplay.shared.WearPlaybackResult
 import com.theveloper.pixelplay.shared.WearPlayerState
+import com.theveloper.pixelplay.shared.WearPlaylistSync
 import com.theveloper.pixelplay.shared.WearTransferMetadata
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import com.theveloper.pixelplay.shared.WearTransferRequest
 import com.theveloper.pixelplay.shared.WearVolumeState
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -248,6 +250,20 @@ class WearDataListenerService : WearableListenerService() {
                         )
                     } catch (e: Exception) {
                         Timber.tag(TAG).e(e, "Failed to process transfer metadata")
+                    }
+                }
+            }
+
+            WearDataPaths.PLAYLIST_SYNC -> {
+                scope.launch {
+                    try {
+                        val syncJson = String(messageEvent.data, Charsets.UTF_8)
+                        val sync = json.decodeFromString<WearPlaylistSync>(syncJson)
+                        transferRepository.onPlaylistSyncReceived(sync, sourceNodeId = messageEvent.sourceNodeId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.tag(TAG).e(e, "Failed to process playlist sync")
                     }
                 }
             }

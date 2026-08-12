@@ -26,6 +26,7 @@ import com.theveloper.pixelplay.shared.WearBrowseResponse
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearLibraryItem
 import com.theveloper.pixelplay.shared.WearPlaybackCommand
+import com.theveloper.pixelplay.shared.WearPlaylistSyncAck
 import com.theveloper.pixelplay.shared.WearTransferMetadata
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import com.theveloper.pixelplay.shared.WearTransferRequest
@@ -97,6 +98,7 @@ class WearCommandReceiver : WearableListenerService() {
             WearDataPaths.BROWSE_REQUEST -> handleBrowseRequest(messageEvent)
             WearDataPaths.TRANSFER_REQUEST -> handleTransferRequest(messageEvent)
             WearDataPaths.TRANSFER_CANCEL -> handleTransferCancel(messageEvent)
+            WearDataPaths.PLAYLIST_SYNC_ACK -> handlePlaylistSyncAck(messageEvent)
             else -> Timber.tag(TAG).w("Unknown message path: ${messageEvent.path}")
         }
     }
@@ -522,6 +524,17 @@ class WearCommandReceiver : WearableListenerService() {
             startPositionMs = request.startPositionMs,
             autoPlay = request.autoPlay,
         )
+    }
+
+    private fun handlePlaylistSyncAck(messageEvent: MessageEvent) {
+        val ackJson = String(messageEvent.data, Charsets.UTF_8)
+        val ack = try {
+            json.decodeFromString<WearPlaylistSyncAck>(ackJson)
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to parse playlist sync ack")
+            return
+        }
+        transferStateStore.onPlaylistSyncAckReceived(ack)
     }
 
     private fun handleTransferCancel(messageEvent: MessageEvent) {
