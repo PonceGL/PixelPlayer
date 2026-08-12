@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.data.WearLifecycleState
 import com.theveloper.pixelplay.data.WearLocalQueueState
 import com.theveloper.pixelplay.data.WearLocalPlayerRepository
 import com.theveloper.pixelplay.data.WearOutputTarget
+import com.theveloper.pixelplay.data.WearPerformanceSettingsRepository
 import com.theveloper.pixelplay.data.WearPlaybackController
 import com.theveloper.pixelplay.data.WearStateRepository
 import com.theveloper.pixelplay.data.WearTransferRepository
@@ -49,6 +50,7 @@ class WearPlayerViewModel @Inject constructor(
     private val transferRepository: WearTransferRepository,
     private val volumeRepository: WearVolumeRepository,
     private val favoriteSyncRepository: WearFavoriteSyncRepository,
+    private val performanceSettingsRepository: WearPerformanceSettingsRepository,
 ) : ViewModel() {
     companion object {
         private const val PHONE_SYNC_BOOTSTRAP_ATTEMPTS = 3
@@ -128,6 +130,18 @@ class WearPlayerViewModel @Inject constructor(
         if (target == WearOutputTarget.PHONE) remoteState.themePalette else localThemePalette
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * Whether the play button's continuous rotation/ring animation should run. Only restricted
+     * during local playback — remote-controller mode never decodes anything heavy on the watch,
+     * so there's nothing to save there and the full animation always shows.
+     */
+    val showPlayButtonAnimation: StateFlow<Boolean> = combine(
+        stateRepository.outputTarget,
+        performanceSettingsRepository.playButtonAnimation,
+    ) { target, animationEnabled ->
+        target != WearOutputTarget.WATCH || animationEnabled
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     val isPhoneConnected: StateFlow<Boolean> = stateRepository.isPhoneConnected
     val phoneVolumeState: StateFlow<WearVolumeState> = stateRepository.volumeState
