@@ -76,6 +76,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     @Inject
     lateinit var playlistWatchTransferCoordinator: dagger.Lazy<PlaylistWatchTransferCoordinator>
 
+    @Inject
+    lateinit var wearPhoneTransferSender: dagger.Lazy<com.theveloper.pixelplay.data.service.wear.WearPhoneTransferSender>
+
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // AÑADE EL COMPANION OBJECT
@@ -147,6 +150,19 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "Failed to resume an interrupted playlist watch transfer")
+            }
+        }
+
+        startupScope.launch {
+            // Local Play Services call, not a network wait — resolved well before the user could
+            // navigate to a screen that needs it. Best-effort: watch-related UI just stays hidden
+            // this session if this fails, rather than crashing startup over it.
+            try {
+                wearPhoneTransferSender.get().refreshWatchPairingState()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to check watch pairing state at startup")
             }
         }
     }

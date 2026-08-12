@@ -222,4 +222,28 @@ class PhoneWatchTransferStateStoreTest {
         assertThat(store.batchTransfers.value["b1"]?.completedSongCount).isEqualTo(1)
         assertThat(store.batchTransfers.value["b2"]?.completedSongCount).isEqualTo(0)
     }
+
+    // --- isAnyWatchPaired: distinct from reachableWatchNodeIds (paired vs. reachable now) ---
+
+    @Test
+    fun `isAnyWatchPaired defaults to false`() {
+        assertThat(store.isAnyWatchPaired.value).isFalse()
+    }
+
+    @Test
+    fun `setAnyWatchPaired true flips the flag`() {
+        store.setAnyWatchPaired(true)
+
+        assertThat(store.isAnyWatchPaired.value).isTrue()
+    }
+
+    @Test
+    fun `setAnyWatchPaired is independent of reachableWatchNodeIds`() {
+        store.setAnyWatchPaired(true)
+        store.retainReachableWatchNodes(emptySet())
+
+        // A paired watch that's simply out of range right now shouldn't un-pair itself.
+        assertThat(store.isAnyWatchPaired.value).isTrue()
+        assertThat(store.reachableWatchNodeIds.value).isEmpty()
+    }
 }

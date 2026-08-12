@@ -107,6 +107,11 @@ class PlaylistViewModel @Inject constructor(
     private val _isRefreshingWatchAvailability = MutableStateFlow(false)
     val watchSongIds: StateFlow<Set<String>> = watchTransferStateStore.watchSongIds
 
+    /** Whether any watch has ever been paired with PixelPlay installed — as opposed to
+     *  [isPixelPlayWatchAvailable], which is "reachable right now". Gates whether watch-related
+     *  actions show at all, vs. showing disabled for a paired-but-out-of-range watch. */
+    val isAnyWatchPaired: StateFlow<Boolean> = watchTransferStateStore.isAnyWatchPaired
+
     /**
      * Whichever playlist batch transfer is currently active, regardless of which screen/ViewModel
      * instance started it — queried off the shared [PhoneWatchTransferStateStore] instead of
@@ -1281,6 +1286,9 @@ class PlaylistViewModel @Inject constructor(
             if (available) {
                 wearPhoneTransferSender.refreshWatchLibraryState()
             }
+        }
+        viewModelScope.launch {
+            wearPhoneTransferSender.refreshWatchPairingState()
         }
     }
 

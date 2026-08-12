@@ -55,6 +55,7 @@ class PlaylistViewModelTest {
         every { playlistPreferencesRepository.showTelegramCloudPlaylistsFlow } returns flowOf(true)
         every { playlistPreferencesRepository.telegramTopicDisplayModeFlow } returns
             flowOf(TelegramTopicDisplayMode.CHANNELS_AND_TOPICS)
+        coEvery { wearPhoneTransferSender.refreshWatchPairingState() } returns true
     }
 
     private fun buildViewModel() = PlaylistViewModel(
