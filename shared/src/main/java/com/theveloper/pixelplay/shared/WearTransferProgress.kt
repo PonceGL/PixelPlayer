@@ -25,6 +25,12 @@ data class WearTransferProgress(
         const val STATUS_FAILED = "failed"
         const val STATUS_CANCELLED = "cancelled"
         /**
+         * Sent from the watch to the phone right after it stores the [WearTransferMetadata] for a
+         * request, before the audio channel opens. Lets the phone confirm the metadata actually
+         * arrived instead of racing a blind delay against the audio stream.
+         */
+        const val STATUS_METADATA_RECEIVED = "metadata_received"
+        /**
          * Phone finished sending the bytes but hasn't yet heard the watch's own write-complete ack.
          * Local-only to the phone's in-memory/persisted transfer state — never serialized to the watch.
          */

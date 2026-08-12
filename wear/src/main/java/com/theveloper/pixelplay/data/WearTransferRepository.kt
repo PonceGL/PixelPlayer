@@ -116,6 +116,13 @@ class WearTransferRepository @Inject constructor(
     /** Pending metadata awaiting channel stream: requestId -> metadata */
     private val pendingMetadata = ConcurrentHashMap<String, WearTransferMetadata>()
 
+    /**
+     * requestId -> the node this request came from, recorded as soon as metadata arrives so
+     * later stages (audio-channel success/failure, the idle watchdog) can report the real
+     * outcome back to the phone without having to thread a nodeId through every call site.
+     */
+    private val requestIdToSourceNode = ConcurrentHashMap<String, String>()
+
     /** Mapping from songId -> requestId for tracking which song is being transferred */
     private val songToRequestId = ConcurrentHashMap<String, String>()
 
@@ -301,6 +308,34 @@ class WearTransferRepository @Inject constructor(
             songId,
             message,
         )
+        notifyPhoneTransferOutcome(
+            targetNodeId = targetNodeId,
+            requestId = requestId,
+            songId = songId,
+            status = WearTransferProgress.STATUS_FAILED,
+            error = message,
+        )
+    }
+
+    /**
+     * Tells the phone what actually happened to a transfer, over the same
+     * [WearDataPaths.TRANSFER_PROGRESS] path the phone uses to push its own send-side progress —
+     * the phone side ([com.theveloper.pixelplay.data.service.wear.WearCommandReceiver], app
+     * module) has a matching handler for messages arriving *from* the watch on this path. This is
+     * the only source of truth the phone trusts for whether a save-to-library transfer really
+     * landed: the phone no longer marks a song "present on watch" purely because it finished
+     * writing bytes to the channel — see `PhoneDirectWatchTransferCoordinator.streamFileToWatch`.
+     * Best-effort: if this message itself gets lost, the phone's own await timeout in
+     * `PlaylistWatchTransferCoordinator.transferSongToNode` still fails the request instead of
+     * hanging forever, and the coordinator's existing retry-once logic picks it up from there.
+     */
+    private suspend fun notifyPhoneTransferOutcome(
+        targetNodeId: String?,
+        requestId: String,
+        songId: String,
+        status: String,
+        error: String? = null,
+    ) {
         if (targetNodeId == null) return
 
         runCatching {
@@ -309,16 +344,16 @@ class WearTransferRepository @Inject constructor(
                 songId = songId,
                 bytesTransferred = 0L,
                 totalBytes = 0L,
-                status = WearTransferProgress.STATUS_FAILED,
-                error = message,
+                status = status,
+                error = error,
             )
             messageClient.sendMessage(
                 targetNodeId,
                 WearDataPaths.TRANSFER_PROGRESS,
                 json.encodeToString(progress).toByteArray(Charsets.UTF_8),
             ).await()
-        }.onFailure { error ->
-            Timber.tag(TAG).w(error, "Failed to report transfer failure to phone")
+        }.onFailure { sendError ->
+            Timber.tag(TAG).w(sendError, "Failed to report transfer outcome (%s) to phone", status)
         }
     }
 
@@ -329,6 +364,9 @@ class WearTransferRepository @Inject constructor(
         metadata: WearTransferMetadata,
         sourceNodeId: String? = null,
     ) {
+        if (sourceNodeId != null) {
+            requestIdToSourceNode[metadata.requestId] = sourceNodeId
+        }
         if (isTransferCancelled(metadata.requestId)) {
             cleanupCancelledTransfer(metadata.requestId, metadata.songId)
             return
@@ -344,12 +382,8 @@ class WearTransferRepository @Inject constructor(
             metadata.transferMode == WearTransferRequest.MODE_SAVE_TO_LIBRARY &&
             existingSong?.hasPlayableLocalFile() == true
         ) {
-            notifyPhoneTransferFailure(
-                targetNodeId = sourceNodeId,
-                requestId = metadata.requestId,
-                songId = metadata.songId,
-                message = WearTransferProgress.ERROR_ALREADY_ON_WATCH,
-            )
+            // handleTransferError() below reports this outcome to the phone itself now, using
+            // requestIdToSourceNode (populated a few lines up) — no separate notify call needed.
             handleTransferError(
                 requestId = metadata.requestId,
                 songId = metadata.songId,
@@ -360,6 +394,14 @@ class WearTransferRepository @Inject constructor(
 
         pendingMetadata[metadata.requestId] = metadata
         armTransferWatchdog(metadata.requestId, metadata.songId)
+        if (sourceNodeId != null) {
+            notifyPhoneTransferOutcome(
+                targetNodeId = sourceNodeId,
+                requestId = metadata.requestId,
+                songId = metadata.songId,
+                status = WearTransferProgress.STATUS_METADATA_RECEIVED,
+            )
+        }
         _activeTransfers.update { map ->
             val current = map[metadata.requestId] ?: TransferState(
                 requestId = metadata.requestId,
@@ -419,7 +461,9 @@ class WearTransferRepository @Inject constructor(
         }
 
         if (normalizedStatus == WearTransferProgress.STATUS_FAILED) {
-            handleTransferError(progress.requestId, progress.songId, progress.error ?: "Transfer failed")
+            val songId = progress.songId
+            val error = progress.error ?: "Transfer failed"
+            scope.launch { handleTransferError(progress.requestId, songId, error) }
         } else if (
             normalizedStatus == WearTransferProgress.STATUS_COMPLETED ||
             normalizedStatus == WearTransferProgress.STATUS_CANCELLED
@@ -699,6 +743,10 @@ class WearTransferRepository @Inject constructor(
                 _activeTransfers.update { it - requestId }
                 songToRequestId.remove(resolvedMetadata.songId)
                 clearTransferWatchdog(requestId)
+                // Temporary playback doesn't participate in the phone's "is this song saved on
+                // watch" bookkeeping, so it skips the outcome round-trip — just drop the
+                // now-unneeded node mapping.
+                requestIdToSourceNode.remove(requestId)
                 Timber.tag(TAG).d(
                     "Temporary playback ready: %s (%d bytes) → %s",
                     resolvedMetadata.title,
@@ -773,6 +821,18 @@ class WearTransferRepository @Inject constructor(
             _activeTransfers.update { it - requestId }
             songToRequestId.remove(resolvedMetadata.songId)
             clearTransferWatchdog(requestId)
+
+            // Only now — file written and inserted into Room, genuinely playable — does the
+            // phone get told this landed. It's what unblocks PlaylistWatchTransferCoordinator's
+            // await and is the only trigger for markSongPresentOnWatch() on the phone side.
+            requestIdToSourceNode.remove(requestId)?.let { nodeId ->
+                notifyPhoneTransferOutcome(
+                    targetNodeId = nodeId,
+                    requestId = requestId,
+                    songId = resolvedMetadata.songId,
+                    status = WearTransferProgress.STATUS_COMPLETED,
+                )
+            }
 
             Timber.tag(TAG).d(
                 "Transfer complete: ${resolvedMetadata.title} ($actualSize bytes) → ${localFile.absolutePath}"
@@ -849,6 +909,21 @@ class WearTransferRepository @Inject constructor(
                 Timber.tag(TAG).w(e, "Failed to send cancel request")
             }
             cleanupCancelledTransfer(requestId, songId)
+        }
+    }
+
+    /**
+     * Clears a finished (failed/cancelled) transfer from [activeTransfers] so its chip stops
+     * showing in the Downloads screen's "issues" section. Purely a local UI dismissal — doesn't
+     * touch the phone's own bookkeeping of what's actually saved, which already reflects reality
+     * independently (see [notifyPhoneTransferOutcome]). Safe to call for any requestId; a no-op
+     * if it's already gone or still in progress (nothing to dismiss either way).
+     */
+    fun dismissTransfer(requestId: String) {
+        _activeTransfers.update { map ->
+            val current = map[requestId] ?: return@update map
+            if (current.status == WearTransferProgress.STATUS_TRANSFERRING) return@update map
+            map - requestId
         }
     }
 
@@ -1018,7 +1093,7 @@ class WearTransferRepository @Inject constructor(
         watchdogTimedOutRequestIds.remove(requestId)
     }
 
-    private fun handleTransferError(requestId: String, songId: String, message: String) {
+    private suspend fun handleTransferError(requestId: String, songId: String, message: String) {
         Timber.tag(TAG).e("Transfer error: $message (requestId=$requestId, songId=$songId)")
         _activeTransfers.update { map ->
             val current = map[requestId]
@@ -1039,6 +1114,19 @@ class WearTransferRepository @Inject constructor(
         activeChannelRequestIds.remove(requestId)
         openAudioStreams.remove(requestId)
         watchdogTimedOutRequestIds.remove(requestId)
+        // Single funnel for every failure reason (empty file, metadata never arrived, write
+        // errors, duplicate rejection, idle timeout, ...) — the phone needs the real outcome so
+        // it stops believing a song landed just because it finished sending bytes. See
+        // notifyPhoneTransferOutcome's doc for why this is the source of truth now.
+        requestIdToSourceNode.remove(requestId)?.let { nodeId ->
+            notifyPhoneTransferOutcome(
+                targetNodeId = nodeId,
+                requestId = requestId,
+                songId = songId,
+                status = WearTransferProgress.STATUS_FAILED,
+                error = message,
+            )
+        }
     }
 
     private fun resolveTemporaryPlaybackStartPosition(

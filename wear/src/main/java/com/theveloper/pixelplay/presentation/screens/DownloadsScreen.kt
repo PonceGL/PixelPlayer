@@ -328,12 +328,12 @@ fun DownloadsScreen(
                         icon = {
                             Icon(
                                 imageVector = Icons.Rounded.ErrorOutline,
-                                contentDescription = null,
+                                contentDescription = stringResource(R.string.wear_transfer_dismiss_hint),
                                 tint = palette.textError,
                                 modifier = Modifier.size(18.dp),
                             )
                         },
-                        onClick = {},
+                        onClick = { viewModel.dismissTransfer(transfer.requestId) },
                         colors = ChipDefaults.chipColors(
                             backgroundColor = elevatedSurfaceContainer,
                             contentColor = palette.chipContent,

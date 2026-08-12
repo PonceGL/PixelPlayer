@@ -7,6 +7,7 @@
     <string name="wear_transfer_issues">Transfer issues</string>
     <string name="wear_transfer_cancelled">Cancelled</string>
     <string name="wear_transfer_failed">Transfer failed</string>
+    <string name="wear_transfer_dismiss_hint">Tap to dismiss</string>
     <string name="wear_saved_from_phone">Saved from phone</string>
     <string name="wear_songs_watch_storage">Songs on watch storage</string>
     <string name="wear_allow_audio_access">Allow audio access</string>
