@@ -246,6 +246,16 @@ fun PlaylistDetailScreen(
     val watchSongIds by playlistViewModel.watchSongIds.collectAsStateWithLifecycle()
     val activeBatchTransfer by playlistViewModel.activePlaylistBatchTransfer.collectAsStateWithLifecycle()
     val activePlaylistTransfer = activeBatchTransfer?.takeIf { it.playlistId == playlistId }
+    // Mutating the playlist while it's mid-transfer to the watch could desync what's actually
+    // being sent from what the user sees on screen — reorder/add/remove are disabled (not
+    // removed, to avoid a layout jump) for the duration.
+    val isTransferActive = activePlaylistTransfer != null
+    LaunchedEffect(isTransferActive) {
+        if (isTransferActive) {
+            isReorderModeEnabled = false
+            isRemoveModeEnabled = false
+        }
+    }
     val isAnySongOnWatch = remember(songsInPlaylist, watchSongIds) {
         songsInPlaylist.isNotEmpty() && songsInPlaylist.any { it.id in watchSongIds }
     }
@@ -398,14 +408,17 @@ fun PlaylistDetailScreen(
                     )
                 }
                 val actionButtonsHeight = 42.dp
-                val playbackControlBottomPadding = if (isFolderPlaylist) 8.dp else 6.dp
+                // Single gap value between every stacked section below (playback row, action
+                // row, search field, song list card) — previously each used its own ad-hoc
+                // value (6dp/8dp/2dp/12dp), which read as visually inconsistent spacing.
+                val sectionSpacing = 12.dp
                 if (searchQuery.isBlank()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(62.dp)
                         .padding(horizontal = 20.dp)
-                        .padding(bottom = playbackControlBottomPadding),
+                        .padding(bottom = sectionSpacing),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
@@ -496,7 +509,8 @@ fun PlaylistDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 20.dp, end = 20.dp, bottom = 8.dp, top = 2.dp),
+                            .padding(horizontal = 20.dp)
+                            .padding(bottom = sectionSpacing),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -528,6 +542,7 @@ fun PlaylistDetailScreen(
 
                         Button(
                             onClick = { showAddSongsSheet = true },
+                            enabled = !isTransferActive,
                             shape = CircleShape,
                             contentPadding = PaddingValues(horizontal = 12.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -593,6 +608,7 @@ fun PlaylistDetailScreen(
                                 content = {
                                     Button(
                                         onClick = { isRemoveModeEnabled = !isRemoveModeEnabled },
+                                        enabled = !isTransferActive,
                                         shape = RoundedCornerShape(removeCornerRadius),
                                         contentPadding = PaddingValues(horizontal = 8.dp),
                                         colors = ButtonDefaults.buttonColors(
@@ -623,6 +639,7 @@ fun PlaylistDetailScreen(
 
                                     Button(
                                         onClick = { isReorderModeEnabled = !isReorderModeEnabled },
+                                        enabled = !isTransferActive,
                                         shape = RoundedCornerShape(reorderCornerRadius),
                                         contentPadding = PaddingValues(horizontal = 8.dp),
                                         colors = ButtonDefaults.buttonColors(
@@ -708,7 +725,10 @@ fun PlaylistDetailScreen(
                 if (localReorderableSongs.isNotEmpty()) {
                     SearchFilterTextField(
                         searchQuery = searchQuery,
-                        onSearchQueryChange = { searchQuery = it }
+                        onSearchQueryChange = { searchQuery = it },
+                        modifier = Modifier.padding(bottom = sectionSpacing),
+                        horizontalPadding = 20.dp,
+                        verticalPadding = 0.dp,
                     )
                 }
 

@@ -28,7 +28,9 @@ fun SearchFilterTextField(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    label: String = stringResource(R.string.song_picker_search_label)
+    label: String = stringResource(R.string.song_picker_search_label),
+    horizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    verticalPadding: androidx.compose.ui.unit.Dp = 8.dp,
 ) {
     OutlinedTextField(
         value = searchQuery,
@@ -46,7 +48,7 @@ fun SearchFilterTextField(
         label = { Text(label) },
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
         shape = CircleShape,
         singleLine = true,
         leadingIcon = {
