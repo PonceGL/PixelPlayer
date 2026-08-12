@@ -1411,51 +1411,60 @@ class SettingsViewModel @Inject constructor(
     fun setWearShowAlbumArt(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setWearShowAlbumArt(enabled)
-            // Use the value we just wrote directly rather than re-reading uiState.value: the
-            // reactive collector that updates uiState from this same DataStore write hasn't
-            // necessarily run yet at this point, so uiState.value could still be stale.
-            wearPerformanceSettingsPublisher.publish(
-                showAlbumArt = enabled,
-                dynamicColorTheming = uiState.value.wearDynamicColorTheming,
-                playButtonAnimation = uiState.value.wearPlayButtonAnimation,
-            )
+            publishWearPerformanceSettings(showAlbumArtOverride = enabled)
         }
     }
 
     fun setWearDynamicColorTheming(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setWearDynamicColorTheming(enabled)
-            wearPerformanceSettingsPublisher.publish(
-                showAlbumArt = uiState.value.wearShowAlbumArt,
-                dynamicColorTheming = enabled,
-                playButtonAnimation = uiState.value.wearPlayButtonAnimation,
-            )
+            publishWearPerformanceSettings(dynamicColorThemingOverride = enabled)
         }
     }
 
     fun setWearPlayButtonAnimation(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setWearPlayButtonAnimation(enabled)
-            wearPerformanceSettingsPublisher.publish(
-                showAlbumArt = uiState.value.wearShowAlbumArt,
-                dynamicColorTheming = uiState.value.wearDynamicColorTheming,
-                playButtonAnimation = enabled,
-            )
+            publishWearPerformanceSettings(playButtonAnimationOverride = enabled)
         }
     }
 
     /**
-     * Re-announces the current (already-persisted) values without changing anything — called once
-     * when the "Watch" settings screen opens, so a watch that's freshly paired or reinstalled gets
-     * them without the user needing to toggle something first (DataItem sync only reaches nodes
-     * once something has actually been `putDataItem`'d at least once).
+     * Publishes the current watch performance settings to the watch. Called once when the
+     * "Watch" settings screen opens (no overrides — just re-announces whatever's persisted, so a
+     * freshly paired or reinstalled watch gets them without the user touching a toggle first,
+     * since DataItem sync only reaches a node once something's actually been `putDataItem`'d at
+     * least once), and after each individual setter above with that field's fresh value passed as
+     * an override.
+     *
+     * Deliberately reads the other (non-overridden) fields straight from
+     * [UserPreferencesRepository]'s flows via `.first()`, not from `uiState.value`: `uiState` is
+     * updated by a separate reactive collector that isn't guaranteed to have caught up to a write
+     * that just happened a moment ago on a *different* setter call — flipping two switches in
+     * quick succession could publish a stale value for whichever one's collector hadn't run yet,
+     * silently reverting it on the watch. Reading the repository directly has no such race: by
+     * the time this runs, every `set...()` call that's already returned has durably completed its
+     * `DataStore.edit`, so a fresh `.first()` always reflects it.
      */
+    private fun publishWearPerformanceSettings(
+        showAlbumArtOverride: Boolean? = null,
+        dynamicColorThemingOverride: Boolean? = null,
+        playButtonAnimationOverride: Boolean? = null,
+    ) {
+        viewModelScope.launch {
+            wearPerformanceSettingsPublisher.publish(
+                showAlbumArt = showAlbumArtOverride
+                    ?: userPreferencesRepository.wearShowAlbumArtFlow.first(),
+                dynamicColorTheming = dynamicColorThemingOverride
+                    ?: userPreferencesRepository.wearDynamicColorThemingFlow.first(),
+                playButtonAnimation = playButtonAnimationOverride
+                    ?: userPreferencesRepository.wearPlayButtonAnimationFlow.first(),
+            )
+        }
+    }
+
     fun publishWearPerformanceSettings() {
-        wearPerformanceSettingsPublisher.publish(
-            showAlbumArt = uiState.value.wearShowAlbumArt,
-            dynamicColorTheming = uiState.value.wearDynamicColorTheming,
-            playButtonAnimation = uiState.value.wearPlayButtonAnimation,
-        )
+        publishWearPerformanceSettings(null, null, null)
     }
 
     fun setBackupInfoDismissed(dismissed: Boolean) {
