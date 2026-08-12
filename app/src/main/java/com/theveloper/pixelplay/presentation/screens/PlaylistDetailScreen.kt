@@ -205,6 +205,12 @@ fun PlaylistDetailScreen(
         playlistViewModel.loadPlaylistDetails(playlistId)
     }
 
+    // So "Send to Watch" in the options sheet below can be gated on isAnyWatchPaired before the
+    // user ever opens that sheet, not only refreshed reactively once they tap it.
+    LaunchedEffect(Unit) {
+        playlistViewModel.refreshWatchAvailability()
+    }
+
     var showAddSongsSheet by remember { mutableStateOf(false) }
 
     var isReorderModeEnabled by remember { mutableStateOf(false) }
@@ -236,6 +242,7 @@ fun PlaylistDetailScreen(
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle() // Reintroducir favoriteIds aquí
     val isPixelPlayWatchAvailable by playlistViewModel.isPixelPlayWatchAvailable.collectAsStateWithLifecycle()
+    val isAnyWatchPaired by playlistViewModel.isAnyWatchPaired.collectAsStateWithLifecycle()
     val watchSongIds by playlistViewModel.watchSongIds.collectAsStateWithLifecycle()
     val activeBatchTransfer by playlistViewModel.activePlaylistBatchTransfer.collectAsStateWithLifecycle()
     val activePlaylistTransfer = activeBatchTransfer?.takeIf { it.playlistId == playlistId }
@@ -921,15 +928,17 @@ fun PlaylistDetailScreen(
                         showEditPlaylistDialog = true
                     }
                 )
-                PlaylistActionItem(
-                    icon = painterResource(R.drawable.rounded_watch_arrow_down_24),
-                    label = if (isAnySongOnWatch) updateOnWatchLabel else sendToWatchLabel,
-                    onClick = {
-                        showPlaylistOptionsSheet = false
-                        playlistViewModel.refreshWatchAvailability()
-                        showSendToWatchDialog = true
-                    }
-                )
+                if (isAnyWatchPaired) {
+                    PlaylistActionItem(
+                        icon = painterResource(R.drawable.rounded_watch_arrow_down_24),
+                        label = if (isAnySongOnWatch) updateOnWatchLabel else sendToWatchLabel,
+                        onClick = {
+                            showPlaylistOptionsSheet = false
+                            playlistViewModel.refreshWatchAvailability()
+                            showSendToWatchDialog = true
+                        }
+                    )
+                }
                 PlaylistActionItem(
                     icon = painterResource(R.drawable.rounded_delete_24),
                     label = deletePlaylistLabel,

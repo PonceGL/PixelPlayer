@@ -131,6 +131,8 @@ fun SettingsScreen(
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val launchTab = uiState.launchTab
     val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
+    val isAnyWatchPaired by settingsViewModel.isAnyWatchPaired.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { settingsViewModel.refreshWatchPairingState() }
 
     var showCornerRadiusOverlay by remember { mutableStateOf(false) }
 
@@ -214,8 +216,9 @@ fun SettingsScreen(
                 val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                 ExpressiveSettingsGroup {
                     val mainCategories = SettingsCategory.entries.filter {
-                        it != SettingsCategory.ABOUT && 
-                        it != SettingsCategory.DEVICE_CAPABILITIES
+                        it != SettingsCategory.ABOUT &&
+                        it != SettingsCategory.DEVICE_CAPABILITIES &&
+                        (it != SettingsCategory.WEAR_OS || isAnyWatchPaired)
                     }
 
                     val totalItems = mainCategories.size + 3 // Device + Accounts + About

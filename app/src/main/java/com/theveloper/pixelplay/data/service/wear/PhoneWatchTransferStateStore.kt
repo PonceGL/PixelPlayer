@@ -77,6 +77,17 @@ class PhoneWatchTransferStateStore @Inject constructor() {
     private val _watchSongIds = MutableStateFlow<Set<String>>(emptySet())
     val watchSongIds: StateFlow<Set<String>> = _watchSongIds.asStateFlow()
 
+    // Distinct from reachableWatchNodeIds: "ever paired" (CapabilityClient FILTER_ALL) vs
+    // "reachable right now" (FILTER_REACHABLE). Defaults to false — safer to hide watch-related
+    // UI for someone who's never paired a watch than to flash it on before the first check
+    // resolves. See WearPhoneTransferSender.refreshWatchPairingState().
+    private val _isAnyWatchPaired = MutableStateFlow(false)
+    val isAnyWatchPaired: StateFlow<Boolean> = _isAnyWatchPaired.asStateFlow()
+
+    fun setAnyWatchPaired(paired: Boolean) {
+        _isAnyWatchPaired.value = paired
+    }
+
     // Replay a handful rather than 0: the ack can in principle arrive and be emitted before
     // PlaylistWatchTransferCoordinator starts collecting for it (right after messageClient's own
     // send call returns), and a plain event stream with no replay would silently drop it in that

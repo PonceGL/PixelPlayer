@@ -195,11 +195,26 @@ class SettingsViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
     private val backupManager: BackupManager,
     private val wearPerformanceSettingsPublisher: com.theveloper.pixelplay.data.service.wear.WearPerformanceSettingsPublisher,
+    private val wearPhoneTransferSender: com.theveloper.pixelplay.data.service.wear.WearPhoneTransferSender,
+    private val watchTransferStateStore: com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferStateStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    /** Whether any watch has ever been paired with PixelPlay installed — gates whether the
+     *  "Watch" category even shows in the Settings hub. See PlaylistViewModel's identical field
+     *  for the full explanation of why this differs from "reachable right now". */
+    val isAnyWatchPaired: StateFlow<Boolean> = watchTransferStateStore.isAnyWatchPaired
+
+    /** Re-checks watch pairing state — call once when the Settings hub (or "Watch" category)
+     *  opens, on top of the app-startup check, in case a watch was paired mid-session. */
+    fun refreshWatchPairingState() {
+        viewModelScope.launch {
+            wearPhoneTransferSender.refreshWatchPairingState()
+        }
+    }
 
     // AI Provider State
     val aiProvider: StateFlow<String> = aiPreferencesRepository.aiProvider
