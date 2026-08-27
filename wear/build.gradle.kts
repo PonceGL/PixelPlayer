@@ -44,6 +44,28 @@ android {
                 checkReleaseBuilds = false
             }
         }
+
+        // Mirrors the app module's "personal" build type: this module shares
+        // applicationId with app, and a paired watch build is needed for the
+        // personal phone build to pair/sync with. Same applicationIdSuffix,
+        // release-like optimization; no dedicated signing here either, same
+        // as debug/release above.
+        create("personal") {
+            // :shared only declares debug/release; resolve its release variant here,
+            // same mechanism the app module's "benchmark" build type relies on.
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".dev"
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            lint {
+                abortOnError = false
+                checkReleaseBuilds = false
+            }
+        }
     }
 
     buildFeatures {
