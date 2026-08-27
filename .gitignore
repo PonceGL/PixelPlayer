@@ -40,6 +40,8 @@ CLAUDE.md
 markdown.xml
 .vscode/
 .agents/
+/graphify-out
+/.claude
 
 # Node/tooling dependencies and local env files
 **/node_modules/
