@@ -369,6 +369,9 @@ dependencies {
     testImplementation(libs.androidx.junit)
     testImplementation(libs.androidx.room.testing)
     testImplementation(kotlin("test"))
+    // OkHttp 5.x split MockWebServer into mockwebserver3 (new package, mockwebserver3.*).
+    // Same version as okhttp (F1.2, V24). Managed manually per test, no JUnit 5 extension.
+    testImplementation(libs.mockwebserver3)
 
     // Testing (Instrumentation)
     androidTestImplementation(libs.androidx.junit)

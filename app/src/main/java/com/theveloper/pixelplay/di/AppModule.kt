@@ -531,6 +531,66 @@ object AppModule {
     }
 
     /**
+     * OkHttpClient dedicated to cloud downloads (F1.2). Built from scratch with
+     * `OkHttpClient.Builder()` — never `client.newBuilder()` — because `newBuilder()` carries
+     * over every interceptor from the source client, including `provideOkHttpClient()`'s
+     * logging interceptor. That one only redacts `Authorization` in its log line at `HEADERS`
+     * level in debug; a downloads client built via `newBuilder()` would still log every other
+     * header of a request that legitimately needs to carry credentials on every call
+     * (`AND-SEC-01`, C4, C9).
+     *
+     * Its own `ConnectionPool` (R2): downloads saturating the shared pool would starve the
+     * lyrics and artwork lookups that share `provideOkHttpClient()`'s.
+     *
+     * `callTimeout(0)` is already OkHttp's default, but set explicitly so nobody "fixes" it
+     * later — any other value caps the *whole* transfer, and a 4 GB file on a slow connection
+     * can legitimately take longer than any timeout that would make sense for a normal
+     * request elsewhere in the app. `readTimeout`/`writeTimeout` are per read/write call, not
+     * cumulative, so 60 s still catches a connection that goes fully silent mid-transfer
+     * without capping one that is merely slow.
+     *
+     * Redirects are not followed at all (`followRedirects(false)`, `followSslRedirects(false)`):
+     * OkHttp strips `Authorization` on a cross-host redirect, and a Jellyfin instance behind a
+     * reverse proxy that redirects to another host would silently lose it, surfacing later as
+     * an unrelated 401 with no trace back to the redirect. Turning off *all* redirects, not
+     * only cross-host ones, means every 3xx reaches the caller as-is instead of this client
+     * quietly guessing which ones are safe to follow; classifying what a redirect means is
+     * F3.3's job, this provider only stops it from happening invisibly.
+     *
+     * No `HttpLoggingInterceptor`, not even behind `if (BuildConfig.DEBUG)`: every request
+     * this client makes carries a real user credential.
+     */
+    @Provides
+    @Singleton
+    @DownloadOkHttpClient
+    fun provideDownloadOkHttpClient(): OkHttpClient {
+        val connectionPool = okhttp3.ConnectionPool(
+            maxIdleConnections = 4,
+            keepAliveDuration = 60,
+            timeUnit = java.util.concurrent.TimeUnit.SECONDS
+        )
+
+        return OkHttpClient.Builder()
+            .connectionPool(connectionPool)
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            // Same User-Agent as the shared client, copied by hand — and nothing else.
+            .addInterceptor { chain ->
+                val originalRequest = chain.request()
+                val requestWithUserAgent = originalRequest.newBuilder()
+                    .header("User-Agent", "PixelPlayer/1.0 (Android; Music Player)")
+                    .build()
+                chain.proceed(requestWithUserAgent)
+            }
+            .build()
+    }
+
+    /**
      * Provee una instancia singleton de Retrofit para la API de LRCLIB.
      */
     @Provides
