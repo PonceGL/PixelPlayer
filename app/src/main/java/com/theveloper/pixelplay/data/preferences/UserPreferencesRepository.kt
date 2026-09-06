@@ -246,6 +246,9 @@ class UserPreferencesRepository @Inject constructor(
         val REPLAYGAIN_USE_ALBUM_GAIN = booleanPreferencesKey("replaygain_use_album_gain")
         val PAUSE_ON_VOLUME_ZERO = booleanPreferencesKey("pause_on_volume_zero")
         val SHOW_SCROLLBAR = booleanPreferencesKey("show_scrollbar")
+
+        // Cloud downloads (F1.1a)
+        val DOWNLOADS_ENABLED = booleanPreferencesKey("cloud_download_downloads_enabled")
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────
@@ -767,6 +770,22 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     suspend fun setShowScrollbar(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.SHOW_SCROLLBAR] = enabled
+        }
+    }
+
+    // ─── Cloud downloads (F1.1a) ────────────────────────────────────────────────
+
+    /**
+     * `null` when the user has never touched the downloads switch. This is deliberately
+     * **not** defaulted to `false`: [DownloadsFeatureGate][com.theveloper.pixelplay.data.download.DownloadsFeatureGate]
+     * needs to tell "never touched" apart from "explicitly turned off" (`PLAN.md` §F1 · 4.4).
+     */
+    val downloadsEnabledPreferenceFlow: Flow<Boolean?> =
+        pref { it[PreferencesKeys.DOWNLOADS_ENABLED] }
+
+    suspend fun setDownloadsEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.DOWNLOADS_ENABLED] = enabled
         }
     }
 
