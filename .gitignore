@@ -51,3 +51,6 @@ markdown.xml
 **/.env
 **/.env.*
 !**/.env.example
+
+# Planning docs for the offline-downloads feature (local only, not for upstream)
+docs/downloads/
