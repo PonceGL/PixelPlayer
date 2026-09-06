@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Rectangle
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -787,6 +788,39 @@ fun ExperimentalSettingsScreen(
                                }
                            }
                         }
+                    }
+                }
+            }
+
+            item(key = "cloud_downloads_section") {
+                SettingsSection(
+                    title = stringResource(R.string.cloud_download_settings_title),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = Color.Transparent,
+                        modifier = Modifier.padding(horizontal = 0.dp)
+                    ) {
+                        SwitchSettingItem(
+                            title = stringResource(R.string.cloud_download_settings_title),
+                            subtitle = stringResource(R.string.cloud_download_settings_subtitle),
+                            checked = uiState.downloadsEnabled,
+                            onCheckedChange = settingsViewModel::setDownloadsEnabled,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Download,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        )
                     }
                 }
             }
