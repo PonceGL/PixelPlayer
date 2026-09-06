@@ -129,6 +129,11 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            // Default value of the downloads preference, not an AND gate (F1.1a): a
+            // release user can still opt in, this only decides what an untouched
+            // preference reads as. On for debug so it's exercised by default while
+            // the feature is built out; off for release until it's complete (D-10).
+            buildConfigField("boolean", "DOWNLOADS_ENABLED_BY_DEFAULT", "true")
         }
 
         release {
@@ -144,6 +149,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("boolean", "DOWNLOADS_ENABLED_BY_DEFAULT", "false")
         }
 
         create("benchmark") {
