@@ -247,8 +247,10 @@ class UserPreferencesRepository @Inject constructor(
         val PAUSE_ON_VOLUME_ZERO = booleanPreferencesKey("pause_on_volume_zero")
         val SHOW_SCROLLBAR = booleanPreferencesKey("show_scrollbar")
 
-        // Cloud downloads (F1.1a)
+        // Cloud downloads (F1.1a, F1.1b)
         val DOWNLOADS_ENABLED = booleanPreferencesKey("cloud_download_downloads_enabled")
+        val DOWNLOADS_KILL_SWITCH_LAST_KNOWN =
+            booleanPreferencesKey("cloud_download_kill_switch_last_known")
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────
@@ -786,6 +788,23 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     suspend fun setDownloadsEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.DOWNLOADS_ENABLED] = enabled
+        }
+    }
+
+    /**
+     * The remote kill switch's value as of the last time it was read **successfully**.
+     * `null` means it has never been read successfully — never a network failure alone,
+     * since a failed read must never overwrite a previously known value (F1.1b, `PLAN.md`
+     * §F1 · 4.3: *"sin red al arrancar → se usa el último valor conocido"*). A sticky cache
+     * is what makes a kill switch trustworthy across a flaky connection; only "never fetched"
+     * defaults to not-killing, exactly like [downloadsEnabledPreferenceFlow]'s own `null`.
+     */
+    val downloadsKillSwitchLastKnownFlow: Flow<Boolean?> =
+        pref { it[PreferencesKeys.DOWNLOADS_KILL_SWITCH_LAST_KNOWN] }
+
+    suspend fun setDownloadsKillSwitchLastKnown(kill: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.DOWNLOADS_KILL_SWITCH_LAST_KNOWN] = kill
         }
     }
 

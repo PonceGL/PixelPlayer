@@ -1,15 +1,25 @@
 package com.theveloper.pixelplay.data.download
 
 import com.theveloper.pixelplay.BuildConfig
+import com.theveloper.pixelplay.data.github.GitHubAnnouncementPropertiesService
+import com.theveloper.pixelplay.data.github.booleanFlag
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.di.AppScope
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+private const val REMOTE_CONFIG_OWNER = "PixelPlayerHQ"
+private const val REMOTE_CONFIG_REPO = "PixelPlayer"
+private const val REMOTE_CONFIG_BRANCH = "master"
+private const val REMOTE_CONFIG_PATH = "remote-config/feature-flags.properties"
+private const val KILL_SWITCH_KEY = "downloads_kill_switch"
 
 /**
  * Whether cloud downloads are enabled, given the three independent inputs that can decide
@@ -56,27 +66,64 @@ fun resolveDownloadsEnabled(
  * of this flow is this `@Singleton`, not a `ViewModel` — which is exactly the exception that
  * rule carves out.
  *
- * The remote kill switch is not wired yet (F1.1b, needs `P.9`): until then this always
- * evaluates with `remoteKill = null`, which per [resolveDownloadsEnabled] can never disable
- * anyone.
+ * [remoteKill] comes from [UserPreferencesRepository.downloadsKillSwitchLastKnownFlow] — the
+ * last **successfully** read value, sticky across a failed refetch or a cold start with no
+ * network — combined with one refresh attempt fired at construction time
+ * ([remoteKillSwitchRefreshJob]), fire-and-forget (`GEN-CONC-01`: owned by the injected
+ * app scope, never `GlobalScope`). The refresh never blocks app startup and never
+ * blocks [isEnabled] from emitting immediately with whatever was last known (`PLAN.md` §F1 ·
+ * F1.1, case borde 5): a failed or slow fetch leaves the cached value exactly as it was,
+ * which is what makes the kill switch trustworthy across a flaky connection instead of
+ * accidentally un-killing itself the moment the network hiccups.
  */
 @Singleton
 class DownloadsFeatureGate @Inject constructor(
-    preferences: UserPreferencesRepository,
-    @AppScope appScope: CoroutineScope,
+    private val preferences: UserPreferencesRepository,
+    private val propertiesService: GitHubAnnouncementPropertiesService,
+    @AppScope private val appScope: CoroutineScope,
 ) {
-    val isEnabled: StateFlow<Boolean> = preferences.downloadsEnabledPreferenceFlow
-        .map { userChoice -> resolveWithCurrentDefault(userChoice) }
-        .stateIn(
-            scope = appScope,
-            started = SharingStarted.Eagerly,
-            initialValue = resolveWithCurrentDefault(userChoice = null),
-        )
-
-    private fun resolveWithCurrentDefault(userChoice: Boolean?): Boolean =
+    val isEnabled: StateFlow<Boolean> = combine(
+        preferences.downloadsEnabledPreferenceFlow,
+        preferences.downloadsKillSwitchLastKnownFlow,
+    ) { userChoice, remoteKill ->
         resolveDownloadsEnabled(
             buildDefault = BuildConfig.DOWNLOADS_ENABLED_BY_DEFAULT,
             userChoice = userChoice,
-            remoteKill = null,
+            remoteKill = remoteKill,
         )
+    }.stateIn(
+        scope = appScope,
+        started = SharingStarted.Eagerly,
+        initialValue = resolveDownloadsEnabled(
+            buildDefault = BuildConfig.DOWNLOADS_ENABLED_BY_DEFAULT,
+            userChoice = null,
+            remoteKill = null,
+        ),
+    )
+
+    /**
+     * The job backing the one-shot startup refresh (documented on [refreshRemoteKillSwitch]).
+     * `internal` purely so a test can `.join()` it deterministically instead of guessing how
+     * long a background fetch takes — nothing in production code should ever read this.
+     */
+    internal val remoteKillSwitchRefreshJob: Job = appScope.launch { refreshRemoteKillSwitch() }
+
+    /**
+     * One best-effort read of the remote kill switch. On success, persists whatever it says
+     * — `true` or `false` — as the new last-known value, so a maintainer turning the kill
+     * switch back off is reflected too, not just turning it on. On any failure (network, a
+     * non-2xx/404 status, an unreadable response), does nothing: [resolveDownloadsEnabled]
+     * already treats "couldn't read it" as "don't kill", and overwriting a previously known
+     * `true` with a guessed `false` here would defeat the point of a *sticky* kill switch.
+     */
+    private suspend fun refreshRemoteKillSwitch() {
+        propertiesService.fetchProperties(
+            owner = REMOTE_CONFIG_OWNER,
+            repo = REMOTE_CONFIG_REPO,
+            branch = REMOTE_CONFIG_BRANCH,
+            configPath = REMOTE_CONFIG_PATH,
+        ).onSuccess { properties ->
+            preferences.setDownloadsKillSwitchLastKnown(properties.booleanFlag(KILL_SWITCH_KEY))
+        }
+    }
 }
