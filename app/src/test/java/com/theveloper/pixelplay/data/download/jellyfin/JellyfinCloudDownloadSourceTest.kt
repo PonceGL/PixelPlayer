@@ -2,9 +2,12 @@ package com.theveloper.pixelplay.data.download.jellyfin
 
 import com.theveloper.pixelplay.data.database.SourceType
 import com.theveloper.pixelplay.data.download.CloudDownloadSourceRegistry
+import com.theveloper.pixelplay.data.download.DownloadServerCapabilitiesStore
 import com.theveloper.pixelplay.data.download.model.CloudDownloadQuality
 import com.theveloper.pixelplay.data.jellyfin.model.JellyfinCredentials
 import com.theveloper.pixelplay.data.network.jellyfin.JellyfinApiService
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -22,6 +25,7 @@ class JellyfinCloudDownloadSourceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var apiService: JellyfinApiService
+    private lateinit var serverCapabilities: DownloadServerCapabilitiesStore
     private lateinit var source: JellyfinCloudDownloadSource
 
     @BeforeEach
@@ -38,7 +42,11 @@ class JellyfinCloudDownloadSourceTest {
                 userId = "user-1",
             )
         )
-        source = JellyfinCloudDownloadSource(apiService)
+        // Never probed, by default: the same "unknown" a fresh install would see.
+        serverCapabilities = mockk {
+            coEvery { cachedSupportsRange(any(), any()) } returns null
+        }
+        source = JellyfinCloudDownloadSource(apiService, serverCapabilities)
     }
 
     @AfterEach
@@ -207,12 +215,47 @@ class JellyfinCloudDownloadSourceTest {
     }
 
     @Test
-    fun `buildDownloadRequest never assumes Range support`() = runTest {
+    fun `buildDownloadRequest never assumes Range support when it was never probed`() = runTest {
         server.enqueue(MockResponse.Builder().code(200).build())
 
         val result = source.buildDownloadRequest("item-1", CloudDownloadQuality.MAX)
 
         assertFalse(result.getOrThrow().supportsRange)
+    }
+
+    @Test
+    fun `buildDownloadRequest reports supportsRange true only on a confirmed probe`() = runTest {
+        serverCapabilities = mockk {
+            coEvery { cachedSupportsRange(any(), any()) } returns true
+        }
+        source = JellyfinCloudDownloadSource(apiService, serverCapabilities)
+        server.enqueue(MockResponse.Builder().code(200).build())
+
+        val result = source.buildDownloadRequest("item-1", CloudDownloadQuality.MAX)
+
+        assertTrue(result.getOrThrow().supportsRange)
+    }
+
+    @Test
+    fun `buildDownloadRequest reports supportsRange false when the cache explicitly says so`() = runTest {
+        serverCapabilities = mockk {
+            coEvery { cachedSupportsRange(any(), any()) } returns false
+        }
+        source = JellyfinCloudDownloadSource(apiService, serverCapabilities)
+        server.enqueue(MockResponse.Builder().code(200).build())
+
+        val result = source.buildDownloadRequest("item-1", CloudDownloadQuality.MAX)
+
+        assertFalse(result.getOrThrow().supportsRange)
+    }
+
+    @Test
+    fun `buildDownloadRequest sets serverKey to the server's own normalized URL`() = runTest {
+        server.enqueue(MockResponse.Builder().code(200).build())
+
+        val result = source.buildDownloadRequest("item-1", CloudDownloadQuality.MAX)
+
+        assertEquals(apiService.getServerUrl(), result.getOrThrow().serverKey)
     }
 
     @Test

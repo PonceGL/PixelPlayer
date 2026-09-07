@@ -598,6 +598,11 @@ object AppModule {
             .build()
     }
 
+    /** `AND-CONC-03`: injected `Dispatchers.IO`, first used by `F1.6b`'s `HttpFileDownloader`. */
+    @Provides
+    @IoDispatcher
+    fun provideIoDispatcher(): kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
+
     /**
      * Provee una instancia singleton de Retrofit para la API de LRCLIB.
      */
