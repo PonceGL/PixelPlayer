@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.download.jellyfin
 
 import com.theveloper.pixelplay.data.database.SourceType
 import com.theveloper.pixelplay.data.download.CloudDownloadSource
+import com.theveloper.pixelplay.data.download.DownloadServerCapabilitiesStore
 import com.theveloper.pixelplay.data.download.model.CloudDownloadQuality
 import com.theveloper.pixelplay.data.download.model.DownloadRequestSpec
 import com.theveloper.pixelplay.data.download.model.RemoteItemInfo
@@ -20,6 +21,7 @@ import org.json.JSONObject
 @Singleton
 class JellyfinCloudDownloadSource @Inject constructor(
     private val jellyfinApiService: JellyfinApiService,
+    private val serverCapabilities: DownloadServerCapabilitiesStore,
 ) : CloudDownloadSource {
 
     override val sourceType: Int = SourceType.JELLYFIN
@@ -68,11 +70,12 @@ class JellyfinCloudDownloadSource @Inject constructor(
     /**
      * Probes [JellyfinApiService.checkDownloadPermission] first (case borde 1, `F1.md` §F1.4):
      * a 403 there degrades the spec to [JellyfinApiService.getDirectPlayUrl] instead of
-     * throwing. [DownloadRequestSpec.supportsRange] is always `false` here — F1.4b owns
-     * probing and persisting the real per-server value (C10); this never guesses `true`.
-     * [DownloadRequestSpec.expectedBytes]/`container`/`mimeType` are left `null`: the caller
-     * already has them from an earlier [fetchItemInfo] call, and re-fetching them here would
-     * be the exact per-item request batching exists to avoid.
+     * throwing. [DownloadRequestSpec.supportsRange] now reads `F1.4b`'s
+     * [DownloadServerCapabilitiesStore] (a `null` — never probed, or stale — degrades to
+     * `false`, the safe default C10 asks for; only a **confirmed** `true` from a previous
+     * probe is ever reported). [DownloadRequestSpec.expectedBytes]/`container`/`mimeType` are
+     * left `null`: the caller already has them from an earlier [fetchItemInfo] call, and
+     * re-fetching them here would be the exact per-item request batching exists to avoid.
      */
     override suspend fun buildDownloadRequest(
         remoteId: String,
@@ -85,6 +88,10 @@ class JellyfinCloudDownloadSource @Inject constructor(
         }
         val authorization = jellyfinApiService.getAuthorizationHeader()
             ?: return Result.failure(IllegalStateException("Jellyfin is not authenticated"))
+        // Every other method here already assumes credentials are set once we get this far
+        // (getAuthorizationHeader already failed above otherwise); an empty key only happens
+        // in that same pathological case and just means this row never matches a cached probe.
+        val serverKey = jellyfinApiService.getServerUrl().orEmpty()
 
         return jellyfinApiService.checkDownloadPermission(remoteId).map { permitted ->
             val url = if (permitted) {
@@ -95,10 +102,11 @@ class JellyfinCloudDownloadSource @Inject constructor(
             DownloadRequestSpec(
                 url = url,
                 headers = mapOf("Authorization" to authorization),
-                supportsRange = false,
+                supportsRange = serverCapabilities.cachedSupportsRange(serverKey) == true,
                 expectedBytes = null,
                 container = null,
                 mimeType = null,
+                serverKey = serverKey,
             )
         }
     }
