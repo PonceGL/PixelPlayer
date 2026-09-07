@@ -15,6 +15,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.media3.common.Player
 import com.theveloper.pixelplay.data.equalizer.EqualizerPreset
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnostics
+import com.theveloper.pixelplay.data.download.model.ServerCapabilities
 import com.theveloper.pixelplay.data.model.FolderSource
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
 import com.theveloper.pixelplay.data.model.PlaybackQueueSnapshot
@@ -251,6 +252,10 @@ class UserPreferencesRepository @Inject constructor(
         val DOWNLOADS_ENABLED = booleanPreferencesKey("cloud_download_downloads_enabled")
         val DOWNLOADS_KILL_SWITCH_LAST_KNOWN =
             booleanPreferencesKey("cloud_download_kill_switch_last_known")
+
+        // Cloud downloads: per-server capabilities cache (F1.4b)
+        val DOWNLOAD_SERVER_CAPABILITIES =
+            stringPreferencesKey("cloud_download_server_capabilities_json")
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────
@@ -805,6 +810,25 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     suspend fun setDownloadsKillSwitchLastKnown(kill: Boolean) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.DOWNLOADS_KILL_SWITCH_LAST_KNOWN] = kill
+        }
+    }
+
+    /**
+     * Cached `Range`-support probe per cloud server (F1.4b, §4.5), keyed by the server's
+     * normalized URL — **never** one with an embedded token or credentials (`AND-SEC-01`); the
+     * caller (e.g. `JellyfinCredentials.normalizedServerUrl`) already guarantees that. This is
+     * a raw, unbounded-staleness read: [com.theveloper.pixelplay.data.download.DownloadServerCapabilitiesStore]
+     * is what enforces the 30-day TTL on top of it.
+     */
+    private val downloadServerCapabilitiesFlow: Flow<Map<String, ServerCapabilities>> =
+        pref { decodeJsonPref(it, PreferencesKeys.DOWNLOAD_SERVER_CAPABILITIES, emptyMap()) }
+
+    suspend fun downloadServerCapabilitiesFor(serverKey: String): ServerCapabilities? =
+        downloadServerCapabilitiesFlow.first()[serverKey]
+
+    suspend fun setDownloadServerCapabilities(serverKey: String, capabilities: ServerCapabilities) {
+        editJsonMap<ServerCapabilities>(PreferencesKeys.DOWNLOAD_SERVER_CAPABILITIES) {
+            put(serverKey, capabilities)
         }
     }
 
