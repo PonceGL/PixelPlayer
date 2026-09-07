@@ -646,4 +646,6 @@
     <string name="settings_volume_section">Volumen</string>
     <string name="settings_pause_on_volume_zero">Pausar cuando el volumen llegue a cero</string>
     <string name="settings_pause_on_volume_zero_desc">Pausar automáticamente la reproducción cuando el volumen sea 0</string>
+    <string name="cloud_download_settings_title">Descargas en la nube (experimental)</string>
+    <string name="cloud_download_settings_subtitle">Descarga canciones de tus fuentes en la nube conectadas para reproducirlas sin conexión. Los archivos se guardan en el almacenamiento privado de la app.</string>
 </resources>

@@ -12,6 +12,7 @@ import com.theveloper.pixelplay.data.backup.model.BackupHistoryEntry
 import com.theveloper.pixelplay.data.backup.model.RestorePlan
 import com.theveloper.pixelplay.data.backup.model.RestoreResult
 import com.theveloper.pixelplay.data.backup.model.ValidationError
+import com.theveloper.pixelplay.data.download.DownloadsFeatureGate
 import com.theveloper.pixelplay.data.preferences.AppThemeMode
 import com.theveloper.pixelplay.data.preferences.CarouselStyle
 import com.theveloper.pixelplay.data.preferences.LibraryNavigationMode
@@ -98,6 +99,10 @@ data class SettingsUiState(
     val animatedLyricsBlurEnabled: Boolean = true,
     val animatedLyricsBlurStrength: Float = 2.5f,
     val disableBlurAllOver: Boolean = false,
+    // Cloud downloads (F1.1c). Resolved value from DownloadsFeatureGate — accounts for the
+    // build default and (once F1.1b wires it) the remote kill switch, not just this raw
+    // preference — so the switch always shows what's actually in effect.
+    val downloadsEnabled: Boolean = false,
     val backupInfoDismissed: Boolean = false,
     val isDataTransferInProgress: Boolean = false,
     val restorePlan: RestorePlan? = null,
@@ -190,6 +195,7 @@ class SettingsViewModel @Inject constructor(
     private val lyricsRepository: LyricsRepository,
     private val musicRepository: MusicRepository,
     private val backupManager: BackupManager,
+    private val downloadsFeatureGate: DownloadsFeatureGate,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -731,6 +737,12 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            downloadsFeatureGate.isEnabled.collect { enabled ->
+                _uiState.update { it.copy(downloadsEnabled = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
             userPreferencesRepository.backupInfoDismissedFlow.collect { dismissed ->
                 _uiState.update { it.copy(backupInfoDismissed = dismissed) }
             }
@@ -1102,6 +1114,12 @@ class SettingsViewModel @Inject constructor(
     fun setUseAnimatedLyrics(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setUseAnimatedLyrics(enabled)
+        }
+    }
+
+    fun setDownloadsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDownloadsEnabled(enabled)
         }
     }
 
