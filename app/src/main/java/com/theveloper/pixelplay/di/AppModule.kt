@@ -46,6 +46,9 @@ import com.theveloper.pixelplay.data.repository.SongRepository
 import com.theveloper.pixelplay.data.repository.TransitionRepository
 import com.theveloper.pixelplay.data.repository.TransitionRepositoryImpl
 import com.theveloper.pixelplay.data.repository.FolderTreeBuilder
+import com.theveloper.pixelplay.data.database.SourceType
+import com.theveloper.pixelplay.data.download.CloudDownloadSource
+import com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource
 import com.theveloper.pixelplay.data.download.storage.AppPrivateDownloadStorage
 import com.theveloper.pixelplay.data.download.storage.DownloadStorageBackend
 import dagger.Module
@@ -54,6 +57,8 @@ import dagger.Lazy
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntKey
+import dagger.multibindings.IntoMap
 import dagger.multibindings.IntoSet
 import kotlinx.serialization.json.Json
 import javax.inject.Qualifier
@@ -660,4 +665,16 @@ object AppModule {
     fun provideAppPrivateDownloadStorage(
         appPrivateDownloadStorage: AppPrivateDownloadStorage
     ): DownloadStorageBackend = appPrivateDownloadStorage
+
+    /**
+     * Registers the Jellyfin source into [CloudDownloadSourceRegistry]'s multibinding map
+     * (F1.4a), keyed by its `SourceType` constant (C6). A second source later is one more
+     * `@Provides @IntoMap` entry; [CloudDownloadSourceRegistry] itself never changes.
+     */
+    @Provides
+    @IntoMap
+    @IntKey(SourceType.JELLYFIN)
+    fun provideJellyfinCloudDownloadSource(
+        jellyfinCloudDownloadSource: JellyfinCloudDownloadSource
+    ): CloudDownloadSource = jellyfinCloudDownloadSource
 }

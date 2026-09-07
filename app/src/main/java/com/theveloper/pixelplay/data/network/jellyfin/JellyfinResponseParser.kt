@@ -130,7 +130,12 @@ object JellyfinResponseParser {
         return jsonArray.map { parsePlaylist(it) }
     }
 
-    private fun containerToMimeType(container: String?): String? {
+    /**
+     * `internal`, not `private`: [com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource]
+     * reuses this exact mapping for `RemoteItemInfo.mimeType` instead of a second copy
+     * (`GEN-DES-08`).
+     */
+    internal fun containerToMimeType(container: String?): String? {
         if (container.isNullOrBlank()) return null
         return when (container.lowercase()) {
             "mp3" -> "audio/mpeg"
