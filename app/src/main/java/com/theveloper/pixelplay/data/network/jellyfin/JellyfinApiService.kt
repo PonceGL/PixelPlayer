@@ -335,6 +335,76 @@ class JellyfinApiService @Inject constructor(
                 "?maxWidth=$maxWidth&quality=90"
     }
 
+    // ─── Cloud downloads (F1.4a) ─────────────────────────────────────────
+
+    /**
+     * The literal, untranscoded file (D-02, R1). **No `api_key` here** — `Authorization` goes
+     * in the request header instead (C9): a token in the URL ends up in server access logs,
+     * proxy logs, and browser history.
+     */
+    fun getOriginalDownloadUrl(itemId: String): String {
+        val cred = credentials ?: throw IllegalStateException("No credentials configured")
+        return "${cred.normalizedServerUrl}/Items/$itemId/Download"
+    }
+
+    /**
+     * The degraded path for a server whose policy denies downloads outright (403 on
+     * [getOriginalDownloadUrl], case borde 1 of `F1.md` §F1.4) — the same bytes the app
+     * already streams with, direct-play, still no transcoding.
+     */
+    fun getDirectPlayUrl(itemId: String): String {
+        val cred = credentials ?: throw IllegalStateException("No credentials configured")
+        return "${cred.normalizedServerUrl}/Audio/$itemId/stream".toHttpUrl().newBuilder()
+            .addQueryParameter("static", "true")
+            .build().toString()
+    }
+
+    /**
+     * HEAD-probes whether the current user's Jellyfin policy allows downloading [itemId] at
+     * all: a server can have `EnableContentDownloading = false` in that user's policy, which
+     * the download endpoint itself reports as a 403 rather than refusing it anywhere else
+     * (case borde 1, `F1.md` §F1.4). `true` for anything but a 403 — a redirect or a transient
+     * 5xx isn't this method's call to make, only "was it *specifically* denied".
+     */
+    suspend fun checkDownloadPermission(itemId: String): Result<Boolean> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val cred = credentials ?: throw IllegalStateException("No credentials configured")
+                val request = Request.Builder()
+                    .url(getOriginalDownloadUrl(itemId))
+                    .header("Authorization", buildAuthorizationHeader())
+                    .head()
+                    .build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    Result.success(response.code != 403)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Batch item lookup with `MediaSources` — the real container and byte size Jellyfin has
+     * for each item right now, used by
+     * [com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource.fetchItemInfo]
+     * before enqueuing a download. [ids] becomes one comma-separated `Ids` filter in a single
+     * request; keeping the resulting URL under a safe byte budget (C14) is the caller's job —
+     * this method makes exactly the one request it's given.
+     */
+    suspend fun getItemsByIds(ids: List<String>): Result<List<JSONObject>> {
+        if (ids.isEmpty()) return Result.success(emptyList())
+        val cred = credentials ?: return Result.failure(Exception("No credentials"))
+        val params = mapOf(
+            "Ids" to ids.joinToString(","),
+            "Fields" to "MediaSources",
+        )
+        return requestJson("/Users/${cred.userId}/Items", params).map { response ->
+            val items = response.optJSONArray("Items")
+            (0 until (items?.length() ?: 0)).mapNotNull { items?.optJSONObject(it) }
+        }
+    }
+
     // ─── Lyrics API ──────────────────────────────────────────────────────
 
     suspend fun getLyrics(itemId: String): Result<String> {

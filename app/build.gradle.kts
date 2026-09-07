@@ -363,6 +363,13 @@ dependencies {
     testRuntimeOnly(libs.junitplatformlauncher)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    // The real org.json implementation for JVM unit tests: android.jar's org.json is a stub
+    // whose query methods (optJSONArray, optString, ...) return default values instead of
+    // throwing under unitTests.isReturnDefaultValues — the constructor works, but every
+    // getter silently returns null/empty regardless of the real content (found in F1.4a
+    // while testing JellyfinApiService/JellyfinCloudDownloadSource; no prior JVM test in this
+    // project exercised org.json at all). This is test-only: never packaged in the app.
+    testImplementation(libs.org.json)
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.androidx.test.core)
