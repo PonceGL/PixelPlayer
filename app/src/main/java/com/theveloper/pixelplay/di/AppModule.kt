@@ -46,12 +46,15 @@ import com.theveloper.pixelplay.data.repository.SongRepository
 import com.theveloper.pixelplay.data.repository.TransitionRepository
 import com.theveloper.pixelplay.data.repository.TransitionRepositoryImpl
 import com.theveloper.pixelplay.data.repository.FolderTreeBuilder
+import com.theveloper.pixelplay.data.download.storage.AppPrivateDownloadStorage
+import com.theveloper.pixelplay.data.download.storage.DownloadStorageBackend
 import dagger.Module
 import dagger.Provides
 import dagger.Lazy
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 import kotlinx.serialization.json.Json
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -646,4 +649,15 @@ object AppModule {
     ): ArtistImageRepository {
         return ArtistImageRepository(deezerApiService, musicDao)
     }
+
+    /**
+     * Registers the app-private storage backend into the [DownloadStorageRegistry]'s
+     * multibinding set (F1.5). F9 adds the SAF backend the same way, as its own
+     * `@Provides @IntoSet` — [DownloadStorageRegistry] itself never changes.
+     */
+    @Provides
+    @IntoSet
+    fun provideAppPrivateDownloadStorage(
+        appPrivateDownloadStorage: AppPrivateDownloadStorage
+    ): DownloadStorageBackend = appPrivateDownloadStorage
 }
