@@ -23,23 +23,29 @@ import androidx.compose.ui.unit.dp
 
 /**
  * A single row in an actions list (rename, delete, export, ...) for a library collection
- * (playlist, album, artist). `P.3`: extracted from `PlaylistDetailScreen`'s private
+ * (playlist, album, artist). Extracted from `PlaylistDetailScreen`'s private
  * `PlaylistActionItem` — the composable itself never depended on anything playlist-specific,
- * and F4's collection detail screens (album, artist) reuse the same row.
+ * and other collection detail screens (album, artist) reuse the same row.
+ *
+ * [enabled] mirrors the source `PlaylistActionItem`'s disabled visual (38% content alpha,
+ * `clickable` disabled) — needed by the "send to watch" row, which disables itself while a
+ * batch transfer is already running.
  */
 @Composable
 fun CollectionActionItem(
     icon: Painter,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
+    val contentAlpha = if (enabled) 1f else 0.38f
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -53,14 +59,14 @@ fun CollectionActionItem(
             Icon(
                 painter = icon,
                 contentDescription = label,
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha)
             )
         }
         Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
         )
     }
 }
