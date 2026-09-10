@@ -93,7 +93,13 @@ class JellyfinApiService @Inject constructor(
 
                 okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
-                        return@withContext Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
+                        return@withContext Result.failure(
+                            JellyfinHttpException(
+                                statusCode = response.code,
+                                retryAfter = response.header("Retry-After"),
+                                message = "HTTP ${response.code}: ${response.message}",
+                            )
+                        )
                     }
 
                     val responseBody = response.body.string()

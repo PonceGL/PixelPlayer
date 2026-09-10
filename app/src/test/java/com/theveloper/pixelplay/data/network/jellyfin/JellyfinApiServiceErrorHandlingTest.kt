@@ -101,11 +101,14 @@ class JellyfinApiServiceErrorHandlingTest {
         assertTrue(result.getOrThrow())
     }
 
-    // ─── Case borde: cancellation propagates instead of becoming a Result ───────
+    // ─── Cancellation before the call starts ────────────────────────────────────
     //
-    // Same deterministic pattern as `GitHubAnnouncementPropertiesServiceTest` (P.9): cancel the
+    // Same deterministic pattern as `GitHubAnnouncementPropertiesServiceTest`: cancel the
     // coroutine before the suspend function is even entered, so the cancellation check inside
     // `withContext` fires before any network code runs — no dependency on real socket timing.
+    // Note: this exercises `withContext`'s own pre-flight `ensureActive()`, not the
+    // `catch (e: CancellationException) { throw e }` lines below it — those are covered
+    // separately further down, by throwing mid-call instead of cancelling before the call.
 
     @Test
     fun `a coroutine cancelled before the call starts propagates cancellation, not a Result`() = runTest {
@@ -127,12 +130,8 @@ class JellyfinApiServiceErrorHandlingTest {
         assertTrue(sawCancellation)
     }
 
-    // Same bug, same fix, a different method in this file (surfaced by self-review, not R19 —
-    // authenticateByName() isn't part of F3.3's error taxonomy, but the cancellation-swallowing
-    // catch is identical and just as real).
-
     @Test
-    fun `authenticateByName also propagates cancellation instead of becoming a Result`() = runTest {
+    fun `authenticateByName also propagates cancellation before the call starts`() = runTest {
         val service = serviceRespondingWith(code = 200)
         var sawCancellation = false
 
@@ -149,5 +148,53 @@ class JellyfinApiServiceErrorHandlingTest {
 
         assertTrue(job.isCancelled)
         assertTrue(sawCancellation)
+    }
+
+    // ─── Cancellation surfacing mid-call ─────────────────────────────────────────
+    //
+    // The tests above cancel *before* `request()`/`authenticateByName()` are even entered, so
+    // they never actually reach the `catch (e: CancellationException) { throw e }` lines inside
+    // those functions — deleting those lines wouldn't fail either test above. This one makes
+    // the interceptor throw `CancellationException` from inside the blocking `execute()` call,
+    // landing directly in that catch block, so a regression (removing the rethrow, or
+    // reordering it after the generic `catch (e: Exception)`) actually fails a test.
+    //
+    // Only `request()` (via [ping]) is covered this way, not `authenticateByName()`: this
+    // module runs with `unitTests.isReturnDefaultValues = true`, so the unmocked
+    // `org.json.JSONObject` used to build `authenticateByName()`'s POST body returns `null`
+    // from `toString()` before the interceptor is ever reached — no JVM test can exercise
+    // that function's body beyond the pre-flight cancellation case above. Its catch-block
+    // ordering was fixed identically to `request()`'s and reviewed by eye; a real test needs
+    // either Robolectric or a JSON dependency for this module, out of scope here.
+
+    private fun serviceThrowingMidCall(exception: Throwable): JellyfinApiService {
+        val client = OkHttpClient.Builder()
+            .addInterceptor { throw exception }
+            .build()
+        return JellyfinApiService(client).apply {
+            setCredentials(
+                JellyfinCredentials(
+                    serverUrl = "http://example.invalid",
+                    username = "user",
+                    password = "pw",
+                    accessToken = "test-token",
+                    userId = "user-1",
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `a CancellationException thrown mid-call by request() propagates uncaught, not wrapped in a Result`() = runTest {
+        val service = serviceThrowingMidCall(CancellationException("simulated mid-call cancellation"))
+
+        var caught: CancellationException? = null
+        try {
+            service.ping()
+        } catch (e: CancellationException) {
+            caught = e
+        }
+
+        assertTrue(caught != null)
     }
 }
