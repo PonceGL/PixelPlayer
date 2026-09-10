@@ -65,15 +65,15 @@ class CloudDownloadKeyTest {
 
     @Test
     fun `the Jellyfin playlist path leaves Song jellyfinId null but cloudDownloadKey still works`() {
-        // Regression guard for the exact bug §4.6 documents: Song.jellyfinId is NOT a safe
-        // source of the key because JellyfinSongEntity.toSong() never populates it.
+        // Regression guard: Song.jellyfinId is NOT a safe source of the key because
+        // JellyfinSongEntity.toSong() never populates it.
         val song = jellyfinSongEntity("abc123-guid").toSong()
 
         assertNull(song.jellyfinId)
         assertEquals(CloudDownloadKey(SourceType.JELLYFIN, "abc123-guid"), song.cloudDownloadKey())
     }
 
-    // ─── Edge cases from F1.md §5 · F1.0 ─────────────────────────────────────────
+    // ─── Edge cases ─────────────────────────────────────────
 
     @Test
     fun `a local song has no cloudDownloadKey`() {
@@ -98,14 +98,14 @@ class CloudDownloadKeyTest {
 
     @Test
     fun `a remoteId containing a colon still round-trips through storageId derivation`() {
-        // The conversion is one-way on purpose (§4.6): storageId is not meant to be parsed
-        // back apart, but deriving it must not crash or silently truncate the id.
+        // The conversion is one-way on purpose: storageId is not meant to be parsed back
+        // apart, but deriving it must not crash or silently truncate the id.
         val key = CloudDownloadKey(sourceType = SourceType.JELLYFIN, remoteId = "guid:with:colons")
 
         assertEquals("6:guid:with:colons", key.storageId)
     }
 
-    // ─── SourceType coverage (R15: not an enum, no compiler exhaustiveness) ──────
+    // ─── SourceType coverage (not an enum, no compiler exhaustiveness) ──────
 
     @Test
     fun `every SourceType constant is a distinct value cloudDownloadKey could carry`() {

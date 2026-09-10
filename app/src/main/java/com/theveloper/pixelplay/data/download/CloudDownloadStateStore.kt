@@ -21,12 +21,12 @@ import kotlinx.coroutines.flow.update
 private const val SPEED_WINDOW_MILLIS = 5_000L
 
 /**
- * The live progress of every in-flight cloud download, entirely in memory (invariant I3):
+ * The live progress of every in-flight cloud download, entirely in memory:
  * `cloud_downloads` never sees a write from this class, structurally — it has no `DAO`
- * dependency to write one with. Only the engine (F1.6c) persists a coarse resume point.
+ * dependency to write one with. Only the download engine persists a coarse resume point.
  *
  * Shape calcada de `PhoneWatchTransferStateStore` (`@Singleton`, `MutableStateFlow` privados +
- * `asStateFlow()` públicos, `AND-CONC-06`). Two differences from that precedent, both
+ * `asStateFlow()` públicos). Two differences from that precedent, both
  * deliberate: no internal `CoroutineScope` — nothing here launches background work, so there
  * is none to own — and terminal entries are **not** auto-removed after a visibility delay:
  * `cloud_downloads`' own `state` column is the durable "is this done" answer once a row
@@ -58,7 +58,7 @@ class CloudDownloadStateStore @Inject constructor() {
     /**
      * Records a progress tick for [key]. [nowMillis] defaults to a monotonic clock
      * ([SystemClock.elapsedRealtime]) rather than wall-clock time, so a device clock change
-     * mid-download can't produce an absurd speed or ETA (`GEN-TEST-03`: overridable in tests).
+     * mid-download can't produce an absurd speed or ETA (overridable in tests).
      */
     fun update(
         key: CloudDownloadKey,
@@ -91,8 +91,7 @@ class CloudDownloadStateStore @Inject constructor() {
     /**
      * Drops [key]'s live progress. The only way an entry leaves [progressByDownloadId] — no
      * automatic expiry. Safe to call for a key that was never tracked, or was only ever
-     * updated once and cancelled before a second tick (`PLAN.md` §F1 · F1.7, case borde 1):
-     * either way, no entry remains.
+     * updated once and cancelled before a second tick: either way, no entry remains.
      */
     fun remove(key: CloudDownloadKey) {
         val downloadId = key.storageId
@@ -103,7 +102,8 @@ class CloudDownloadStateStore @Inject constructor() {
 
     /**
      * Declares which download ids belong to [subscriptionId], so [progressBySubscriptionId]
-     * can aggregate them. F4 is the first real caller; nothing here depends on F4 existing.
+     * can aggregate them. Collection downloads are the first real caller; nothing here depends
+     * on that feature existing yet.
      */
     fun registerSubscriptionMembers(subscriptionId: String, downloadIds: Set<String>) {
         subscriptionMembers[subscriptionId] = downloadIds
@@ -143,7 +143,7 @@ class CloudDownloadStateStore @Inject constructor() {
      * Speed over the trailing [SPEED_WINDOW_MILLIS] and the ETA it implies.
      *
      * - Terminal [state] (paused, blocked, failed, ...): `0` B/s — a real, reportable value —
-     *   and a `null` ETA, never `NaN`/`Infinity` (case borde 2).
+     *   and a `null` ETA, never `NaN`/`Infinity`.
      * - Fewer than two samples in the window yet (a download that just started): both `null`
      *   — genuinely unknown, which is a different fact from "known to be zero".
      * - Otherwise: `bytesDelta / elapsedMillis` over the window, and, when [expectedBytes] is

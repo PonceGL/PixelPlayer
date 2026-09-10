@@ -780,12 +780,12 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         }
     }
 
-    // ─── Cloud downloads (F1.1a) ────────────────────────────────────────────────
+    // ─── Cloud downloads ────────────────────────────────────────────────
 
     /**
      * `null` when the user has never touched the downloads switch. This is deliberately
      * **not** defaulted to `false`: [DownloadsFeatureGate][com.theveloper.pixelplay.data.download.DownloadsFeatureGate]
-     * needs to tell "never touched" apart from "explicitly turned off" (`PLAN.md` §F1 · 4.4).
+     * needs to tell "never touched" apart from "explicitly turned off".
      */
     val downloadsEnabledPreferenceFlow: Flow<Boolean?> =
         pref { it[PreferencesKeys.DOWNLOADS_ENABLED] }
@@ -799,10 +799,10 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     /**
      * The remote kill switch's value as of the last time it was read **successfully**.
      * `null` means it has never been read successfully — never a network failure alone,
-     * since a failed read must never overwrite a previously known value (F1.1b, `PLAN.md`
-     * §F1 · 4.3: *"sin red al arrancar → se usa el último valor conocido"*). A sticky cache
-     * is what makes a kill switch trustworthy across a flaky connection; only "never fetched"
-     * defaults to not-killing, exactly like [downloadsEnabledPreferenceFlow]'s own `null`.
+     * since a failed read must never overwrite a previously known value ("no network at
+     * startup" falls back to the last known value, not to off). A sticky cache is what makes
+     * a kill switch trustworthy across a flaky connection; only "never fetched" defaults to
+     * not-killing, exactly like [downloadsEnabledPreferenceFlow]'s own `null`.
      */
     val downloadsKillSwitchLastKnownFlow: Flow<Boolean?> =
         pref { it[PreferencesKeys.DOWNLOADS_KILL_SWITCH_LAST_KNOWN] }
@@ -814,9 +814,9 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
     }
 
     /**
-     * Cached `Range`-support probe per cloud server (F1.4b, §4.5), keyed by the server's
-     * normalized URL — **never** one with an embedded token or credentials (`AND-SEC-01`); the
-     * caller (e.g. `JellyfinCredentials.normalizedServerUrl`) already guarantees that. This is
+     * Cached `Range`-support probe per cloud server, keyed by the server's normalized URL —
+     * **never** one with an embedded token or credentials; the caller (e.g.
+     * `JellyfinCredentials.normalizedServerUrl`) already guarantees that. This is
      * a raw, unbounded-staleness read: [com.theveloper.pixelplay.data.download.DownloadServerCapabilitiesStore]
      * is what enforces the 30-day TTL on top of it.
      */

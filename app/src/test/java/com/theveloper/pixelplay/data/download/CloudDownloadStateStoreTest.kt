@@ -40,7 +40,7 @@ class CloudDownloadStateStoreTest {
     }
 
     @Test
-    fun `case borde 1 — cancelled before a second tick leaves no orphan entry`() {
+    fun `cancelled before a second tick leaves no orphan entry`() {
         val store = CloudDownloadStateStore()
 
         store.update(key, CloudDownloadState.PENDING, 0, null, nowMillis = 0)
@@ -212,11 +212,11 @@ class CloudDownloadStateStoreTest {
         }
     }
 
-    // ─── Case borde 5 (I3): never touches Room, by construction ───────────────────
+    // ─── Never touches Room, by construction ───────────────────
 
     @Test
     fun `a thousand consecutive updates never throw and only ever keep the latest value`() {
-        // I3 is enforced structurally here, not behaviorally: this class takes no DAO
+        // This is enforced structurally here, not behaviorally: this class takes no DAO
         // dependency at all, so there is nothing for it to write to Room with — a fake DAO
         // to "count writes against" would have nothing to attach to. What a burst of updates
         // can still break is the live map or the sliding window; this proves it doesn't.

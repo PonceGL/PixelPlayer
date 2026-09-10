@@ -54,7 +54,7 @@ class JellyfinCloudDownloadSourceTest {
         server.close()
     }
 
-    // ─── Identity and quality (D-02, R15) ────────────────────────────────────────
+    // ─── Identity and quality ────────────────────────────────────────
 
     @Test
     fun `reports its own SourceType constant`() {
@@ -69,10 +69,10 @@ class JellyfinCloudDownloadSourceTest {
 
     @Test
     fun `every SourceType constant either has a registered source or explicitly doesn't yet`() {
-        // D-07: the five other cloud sources are "coming soon" — not registered yet. This
-        // documents the current, honest state rather than pretending they exist (R15: no
-        // compiler exhaustiveness, so this is the only net over a constant silently missing
-        // from the registry once it *is* implemented).
+        // The five other cloud sources are "coming soon" — not registered yet. This
+        // documents the current, honest state rather than pretending they exist (SourceType
+        // isn't an enum, so there's no compiler exhaustiveness — this test is the only net
+        // over a constant silently missing from the registry once it *is* implemented).
         val registry = CloudDownloadSourceRegistry(mapOf(SourceType.JELLYFIN to source))
         val allSourceTypes = listOf(
             SourceType.LOCAL, SourceType.TELEGRAM, SourceType.NETEASE, SourceType.GDRIVE,
@@ -120,7 +120,7 @@ class JellyfinCloudDownloadSourceTest {
     }
 
     @Test
-    fun `fetchItemInfo case borde 3 — a missing size is null, not zero or a guess`() = runTest {
+    fun `fetchItemInfo — a missing size is null, not zero or a guess`() = runTest {
         server.enqueue(
             MockResponse.Builder()
                 .code(200)
@@ -153,7 +153,7 @@ class JellyfinCloudDownloadSourceTest {
     }
 
     @Test
-    fun `fetchItemInfo case borde 4 — one failed batch does not invalidate the others`() = runTest {
+    fun `fetchItemInfo — one failed batch does not invalidate the others`() = runTest {
         val ids = List(200) { "22222222-2222-2222-2222-22222222222$it" }
         server.enqueue(MockResponse.Builder().code(500).build()) // first batch fails
         server.enqueue(
@@ -178,7 +178,7 @@ class JellyfinCloudDownloadSourceTest {
         assertTrue(result.isFailure)
     }
 
-    // ─── buildDownloadRequest (case borde 1: 403 degrades, never throws) ──────────
+    // ─── buildDownloadRequest (403 degrades, never throws) ──────────
 
     @Test
     fun `buildDownloadRequest rejects an unsupported quality without a network call`() = runTest {

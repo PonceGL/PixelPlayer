@@ -155,8 +155,8 @@ private fun Properties.stringValue(key: String): String? {
 /**
  * `internal`, not `private`: this is the same truthy-spelling parser any other consumer of
  * [fetchProperties]'s [Properties] should use for its own boolean flags (e.g. the downloads
- * kill switch, F1.1b) — one definition of "truthy" for every `.properties` file this app
- * reads, not one per feature (`GEN-DES-08`).
+ * kill switch) — one definition of "truthy" for every `.properties` file this app reads, not
+ * one per feature.
  */
 internal fun Properties.booleanFlag(key: String): Boolean {
     return when (getProperty(key)?.trim()?.lowercase()) {

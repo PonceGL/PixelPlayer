@@ -7,24 +7,23 @@ import com.theveloper.pixelplay.data.download.model.StoredRef
 import java.io.File
 
 /**
- * Where a download's bytes actually live, abstracted away from the engine (`PLAN.md` §F1.5).
- * Two implementations share this contract: [AppPrivateDownloadStorage] (this task) and a SAF
- * backend for a user-chosen folder (F9, not written yet — this interface is designed knowing
- * it will exist).
+ * Where a download's bytes actually live, abstracted away from the engine. Two
+ * implementations share this contract: [AppPrivateDownloadStorage] and a SAF backend for a
+ * user-chosen folder (not written yet — this interface is designed knowing it will exist).
  *
  * **The structural decision that governs both implementations: the staging file is always a
  * plain [File], never a `content://` write stream.** `RandomAccessFile.seek()` for `Range`
  * resumption works identically on both backends this way, while append-mode writes through
  * `ContentResolver` are provider-dependent and unreliable on removable storage. Recovery after
  * a crash then has **one rule for both backends**: a staging file with no `COMPLETED` row for
- * it is garbage (invariant I5). The cost on SAF is that [publish] there is a full copy, not a
- * rename — a transient 2× size peak that the preflight (F3) has to budget for.
+ * it is garbage. The cost on SAF is that [publish] there is a full copy, not a rename — a
+ * transient 2× size peak that the preflight step has to budget for.
  *
  * A backend never throws for conditions its caller should expect and handle: a missing root,
- * an unmounted volume or a revoked permission are facts about storage, not programming errors
- * (`GEN-ERR-01`). [ensureReady] reports them as a failed [Result]; every other method that can
- * legitimately find nothing reports that as its return value (`false`, `null`, or an empty
- * list) rather than throwing.
+ * an unmounted volume or a revoked permission are facts about storage, not programming errors.
+ * [ensureReady] reports them as a failed [Result]; every other method that can legitimately
+ * find nothing reports that as its return value (`false`, `null`, or an empty list) rather
+ * than throwing.
  */
 interface DownloadStorageBackend {
 
@@ -35,7 +34,7 @@ interface DownloadStorageBackend {
      * Confirms [root] is currently usable (the volume it lives on is mounted, the SAF tree
      * permission still holds, ...) and creates it if it doesn't exist yet. Never throws: an
      * unusable root is a failed [Result], not an exception — a removed SD card is a normal
-     * state of the system (F1.5 §5, `PLAN.md`), not a bug.
+     * state of the system, not a bug.
      */
     suspend fun ensureReady(root: String): Result<Unit>
 
@@ -47,19 +46,20 @@ interface DownloadStorageBackend {
      * disk, on both backends — see the class doc. Never publishes anything by itself.
      *
      * A failed [Result], not an exception, when the destination directory can't be created —
-     * the disk being full mid-preflight is exactly the kind of expected failure `GEN-ERR-01`
-     * asks not to model as a thrown exception.
+     * the disk being full mid-preflight is exactly the kind of expected failure this models as
+     * a return value, not a thrown exception.
      */
     suspend fun createStaging(root: String, key: DownloadFileKey): Result<File>
 
     /**
      * Moves the finished [staging] file into its permanent place under [root] and returns the
      * [StoredRef] that identifies it from then on. A rename within the same volume on
-     * [AppPrivateDownloadStorage] (no byte copy); a full copy on SAF (F9).
+     * [AppPrivateDownloadStorage] (no byte copy); a full copy on a SAF backend, once one
+     * exists.
      *
      * A failed [Result] when the move itself fails — e.g. `File.renameTo` returning `false`
      * because [staging] unexpectedly ended up on a different volume than expected. The caller
-     * decides what that means (case borde 4, `F1.md` §5 · F1.5); this method only reports it.
+     * decides what that means; this method only reports it.
      */
     suspend fun publish(staging: File, root: String, key: DownloadFileKey): Result<StoredRef>
 

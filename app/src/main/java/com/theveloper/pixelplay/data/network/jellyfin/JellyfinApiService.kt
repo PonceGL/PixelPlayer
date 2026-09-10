@@ -335,12 +335,12 @@ class JellyfinApiService @Inject constructor(
                 "?maxWidth=$maxWidth&quality=90"
     }
 
-    // ─── Cloud downloads (F1.4a) ─────────────────────────────────────────
+    // ─── Cloud downloads ─────────────────────────────────────────
 
     /**
-     * The literal, untranscoded file (D-02, R1). **No `api_key` here** — `Authorization` goes
-     * in the request header instead (C9): a token in the URL ends up in server access logs,
-     * proxy logs, and browser history.
+     * The literal, untranscoded file. **No `api_key` here** — `Authorization` goes in the
+     * request header instead: a token in the URL ends up in server access logs, proxy logs,
+     * and browser history.
      */
     fun getOriginalDownloadUrl(itemId: String): String {
         val cred = credentials ?: throw IllegalStateException("No credentials configured")
@@ -349,8 +349,8 @@ class JellyfinApiService @Inject constructor(
 
     /**
      * The degraded path for a server whose policy denies downloads outright (403 on
-     * [getOriginalDownloadUrl], case borde 1 of `F1.md` §F1.4) — the same bytes the app
-     * already streams with, direct-play, still no transcoding.
+     * [getOriginalDownloadUrl]) — the same bytes the app already streams with, direct-play,
+     * still no transcoding.
      */
     fun getDirectPlayUrl(itemId: String): String {
         val cred = credentials ?: throw IllegalStateException("No credentials configured")
@@ -362,9 +362,9 @@ class JellyfinApiService @Inject constructor(
     /**
      * HEAD-probes whether the current user's Jellyfin policy allows downloading [itemId] at
      * all: a server can have `EnableContentDownloading = false` in that user's policy, which
-     * the download endpoint itself reports as a 403 rather than refusing it anywhere else
-     * (case borde 1, `F1.md` §F1.4). `true` for anything but a 403 — a redirect or a transient
-     * 5xx isn't this method's call to make, only "was it *specifically* denied".
+     * the download endpoint itself reports as a 403 rather than refusing it anywhere else.
+     * `true` for anything but a 403 — a redirect or a transient 5xx isn't this method's call
+     * to make, only "was it *specifically* denied".
      */
     suspend fun checkDownloadPermission(itemId: String): Result<Boolean> {
         return withContext(Dispatchers.IO) {
@@ -389,7 +389,7 @@ class JellyfinApiService @Inject constructor(
      * for each item right now, used by
      * [com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource.fetchItemInfo]
      * before enqueuing a download. [ids] becomes one comma-separated `Ids` filter in a single
-     * request; keeping the resulting URL under a safe byte budget (C14) is the caller's job —
+     * request; keeping the resulting URL under a safe byte budget is the caller's job —
      * this method makes exactly the one request it's given.
      */
     suspend fun getItemsByIds(ids: List<String>): Result<List<JSONObject>> {

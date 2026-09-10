@@ -16,10 +16,10 @@ private const val SERVER_A = "https://music.example.com"
 private const val SERVER_B = "https://other.example.org"
 
 /**
- * F1.4b: the per-server `Range`-support cache (§4.5, `C10`). No network here at all — the
- * "probe" itself is F1.6b's job; this only covers the store's read/write/staleness/invalidation
- * contract, against a real (temp-file) `DataStore`, exactly like [DownloadsFeatureGateTest] does
- * for `UserPreferencesRepository`.
+ * The per-server `Range`-support cache. No network here at all — the "probe" itself is the
+ * engine's job; this only covers the store's read/write/staleness/invalidation contract,
+ * against a real (temp-file) `DataStore`, exactly like [DownloadsFeatureGateTest] does for
+ * `UserPreferencesRepository`.
  */
 class DownloadServerCapabilitiesStoreTest {
 

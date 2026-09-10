@@ -7,12 +7,11 @@ private const val JELLYFIN_CONTENT_URI_PREFIX = "jellyfin://"
 
 /**
  * Identity of one cloud download: which source, which item on it. This is the shape of the
- * `cloud_downloads` primary key (`PLAN.md` §F1.3) — never `songs.id` (a 32-bit hash that can
- * collide, C2) and never `Song.jellyfinId` (populated by `SongEntity.toSong()` but left
- * `null` by `JellyfinSongEntity.toSong()` — verified against both files on 2026-09-06).
+ * `cloud_downloads` table's primary key — never `songs.id` (a 32-bit hash that can collide)
+ * and never `Song.jellyfinId` (populated by `SongEntity.toSong()` but left `null` by
+ * `JellyfinSongEntity.toSong()` — verified against both files directly).
  *
- * The only way to build one is [cloudDownloadKey]: nobody else derives this key
- * (`GEN-ARCH-04`).
+ * The only way to build one is [cloudDownloadKey]: nobody else derives this key.
  */
 data class CloudDownloadKey(
     val sourceType: Int,

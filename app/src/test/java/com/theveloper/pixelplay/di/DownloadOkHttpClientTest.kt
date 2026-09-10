@@ -52,7 +52,7 @@ class DownloadOkHttpClientTest {
         assertEquals(15_000, client.connectTimeoutMillis)
     }
 
-    // ─── Isolation from the shared client (R2) ───────────────────────────────────
+    // ─── Isolation from the shared client ───────────────────────────────────
 
     @Test
     fun `the connection pool is a different instance than the shared client's`() {
@@ -62,7 +62,7 @@ class DownloadOkHttpClientTest {
         assertNotSame(sharedClient.connectionPool, downloadClient.connectionPool)
     }
 
-    // ─── The test that matters most: no logging, ever (C4, AND-SEC-01) ───────────
+    // ─── The test that matters most: no logging, ever ───────────
     // This is the one that fails if provideDownloadOkHttpClient() is ever "simplified"
     // into sharedClient.newBuilder(): newBuilder() carries over every interceptor of its
     // source client, logging included.
@@ -75,7 +75,7 @@ class DownloadOkHttpClientTest {
         assertTrue(client.networkInterceptors.none { it is HttpLoggingInterceptor })
     }
 
-    // ─── Redirects are never auto-followed (case borde 3) ────────────────────────
+    // ─── Redirects are never auto-followed ────────────────────────
 
     @Test
     fun `a redirect response is returned as-is, never followed automatically`() {
@@ -96,7 +96,7 @@ class DownloadOkHttpClientTest {
         assertEquals(1, server.requestCount)
     }
 
-    // ─── Authorization survives; nothing adds api_key to the URL (C9) ────────────
+    // ─── Authorization survives; nothing adds api_key to the URL ────────────
 
     @Test
     fun `a request keeps its Authorization header and gains no api_key query param`() {

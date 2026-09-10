@@ -6,10 +6,10 @@ import javax.inject.Singleton
 
 /**
  * The one place that knows which [DownloadStorageBackend] handles which
- * [DownloadStorageBackendId] (`GEN-ARCH-04`). The engine (F1.6) depends on this, never
- * directly on [AppPrivateDownloadStorage] — adding the SAF backend in F9 means registering a
- * second [DownloadStorageBackend] into the Hilt multibinding set this reads from; nothing
- * that already calls [backendFor] changes.
+ * [DownloadStorageBackendId]. The download engine depends on this, never directly on
+ * [AppPrivateDownloadStorage] — adding a SAF backend later means registering a second
+ * [DownloadStorageBackend] into the Hilt multibinding set this reads from; nothing that
+ * already calls [backendFor] changes.
  */
 @Singleton
 class DownloadStorageRegistry @Inject constructor(

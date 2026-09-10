@@ -1,12 +1,11 @@
 package com.theveloper.pixelplay.data.download.model
 
 /**
- * Aggregated progress for a subscription's downloads — the shape banners read (`PLAN.md` §5,
- * F4/F5). Deliberately the **same field shape as
+ * Aggregated progress for a subscription's downloads — the shape banners read. Deliberately
+ * the **same field shape as
  * `com.theveloper.pixelplay.data.worker.SyncManager.SyncProgress`** so
  * `com.theveloper.pixelplay.presentation.components.SyncProgressBar` can render this without a
- * dedicated adapter composable — a call site just copies these four fields across
- * (`PLAN.md` §F1.7 aceptación).
+ * dedicated adapter composable — a call site just copies these four fields across.
  *
  * [currentCount] counts members whose latest known state is
  * [com.theveloper.pixelplay.data.download.model.CloudDownloadState.COMPLETED] — not "has a live

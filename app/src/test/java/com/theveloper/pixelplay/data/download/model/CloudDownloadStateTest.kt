@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 class CloudDownloadStateTest {
 
     @Test
-    fun `there are exactly the eleven states PLAN md §5 6 describes`() {
+    fun `there are exactly eleven states`() {
         assertEquals(11, CloudDownloadState.entries.size)
     }
 
@@ -30,8 +30,8 @@ class CloudDownloadStateTest {
 
     @Test
     fun `BLOCKED is terminal even though it eventually resumes`() {
-        // Distinguishes it from RETRY_WAIT per invariant I4: BLOCKED never consumes an
-        // attempt and only resumes when an external condition clears, not on a timer.
+        // Distinguishes it from RETRY_WAIT: BLOCKED never consumes an attempt and only
+        // resumes when an external condition clears, not on a timer.
         assertTrue(CloudDownloadState.BLOCKED.isTerminal)
     }
 

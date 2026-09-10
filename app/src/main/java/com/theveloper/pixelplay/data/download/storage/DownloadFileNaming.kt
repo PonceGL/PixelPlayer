@@ -4,10 +4,9 @@ package com.theveloper.pixelplay.data.download.storage
  * Turns a `remoteId` into a filesystem-safe file name segment, for both storage backends.
  *
  * A Jellyfin `remoteId` is already a safe GUID, but this has to hold for sources that aren't
- * Jellyfin too (`D-01`, written generic): anything outside `[A-Za-z0-9._-]` becomes `_`
- * (`PLAN.md` §F1.5, case borde 2), and the result always carries a short suffix derived from
- * the *original* `remoteId` (`PLAN.md` §F1.5, case borde 3) — never a counter, so it's
- * deterministic and never needs a lookup against what's already on disk.
+ * Jellyfin too — written generic: anything outside `[A-Za-z0-9._-]` becomes `_`, and the
+ * result always carries a short suffix derived from the *original* `remoteId` — never a
+ * counter, so it's deterministic and never needs a lookup against what's already on disk.
  *
  * The suffix does double duty: it's what makes two different ids that happen to sanitize to
  * the same string (e.g. `"a/b"` and `"a:b"`, both becoming `"a_b"`) end up with different file

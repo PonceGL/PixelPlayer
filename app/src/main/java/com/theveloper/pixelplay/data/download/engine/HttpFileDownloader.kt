@@ -27,10 +27,10 @@ sealed interface DownloadOutcome {
 
     /**
      * [reason] is deliberately not a `CloudDownloadState`: assigning one here would be doing
-     * F1.6c's (the engine's) and F3.3's (`DownloadErrorClassifier`'s) job early. This is only
-     * the raw fact of what happened at the HTTP/file layer — F1.6's own intro line applies:
-     * *"en F1 basta con distinguir 'reintentable' de 'no'"*, and even that coarser call is left
-     * to the caller, which has the row context this class doesn't.
+     * the engine's own job, and a future finer error classifier's, early. This is only the raw
+     * fact of what happened at the HTTP/file layer — for now it's enough to distinguish
+     * "retryable" from "not", and even that coarser call is left to the caller, which has the
+     * row context this class doesn't.
      */
     data class Failure(
         val reason: DownloadFailureReason,
@@ -42,7 +42,7 @@ sealed interface DownloadOutcome {
 enum class DownloadFailureReason {
     /** A network-level hiccup (timeout, reset, an unexpected HTTP status) — try again later. */
     TRANSIENT,
-    /** `Content-Type` wasn't an `audio/` type or `application/octet-stream` (C15 guard #1). */
+    /** `Content-Type` wasn't an `audio/` type or `application/octet-stream`. */
     UNEXPECTED_CONTENT_TYPE,
     /** A `Range` request got a `200` back instead of `206` — the server doesn't honor `Range`. */
     RANGE_NOT_HONORED,
@@ -57,25 +57,24 @@ enum class DownloadFailureReason {
 }
 
 /**
- * Bytes to disk, correct or nothing (`F1.6b`, `F1.md` §F1.6). Composes a [DownloadRequestSpec]
- * (F1.4) with a staging [File] (F1.5) — it knows about neither Jellyfin nor Room (I6): every
- * fact it needs travels in through its parameters.
+ * Bytes to disk, correct or nothing. Composes a [DownloadRequestSpec] with a staging [File] —
+ * it knows about neither Jellyfin nor Room: every fact it needs travels in through its
+ * parameters.
  *
  * **Single attempt per call.** Every condition below that needs "truncate and start over"
  * (a `Range` the server didn't honor, a `206` that doesn't check out, `416`) truncates the
  * staging file and returns a [DownloadOutcome.Failure] — it does **not** silently re-issue a
- * second request internally. The caller (`F1.6c`) decides whether and when to call [download]
- * again with `resumeFromBytes = 0`; this keeps every path here a single, deterministic HTTP
- * exchange, and keeps `416`'s "reintentable la primera vez, `FAILED_CORRUPT` la segunda"
- * escalation (`F1.md` §F1.6 case borde 3) counting across calls, in the caller — the same place
- * that owns the row that count belongs to.
+ * second request internally. The caller decides whether and when to call [download] again
+ * with `resumeFromBytes = 0`; this keeps every path here a single, deterministic HTTP
+ * exchange, and keeps `416`'s "retryable the first time, corrupt the second" escalation
+ * counting across calls, in the caller — the same place that owns the row that count belongs
+ * to.
  *
- * **Cancellation (`AND-CONC-04`).** `job.invokeOnCompletion { call.cancel() }` is registered
+ * **Cancellation.** `job.invokeOnCompletion { call.cancel() }` is registered
  * *before* [OkHttpClient.newCall]'s blocking [okhttp3.Call.execute] even starts, so a socket
- * blocked mid-`read()` unblocks immediately instead of waiting out `readTimeout` — this is what
- * the Wear precedent (`PhoneDirectWatchTransferCoordinator`) gets wrong by polling instead.
- * `ensureActive()` also runs every iteration of the copy loop, for the case where cancellation
- * lands between reads rather than during one.
+ * blocked mid-`read()` unblocks immediately instead of waiting out `readTimeout` — polling for
+ * cancellation instead would be strictly worse. `ensureActive()` also runs every iteration of
+ * the copy loop, for the case where cancellation lands between reads rather than during one.
  */
 @Singleton
 class HttpFileDownloader @Inject constructor(
@@ -88,9 +87,9 @@ class HttpFileDownloader @Inject constructor(
      * @param resumeFromBytes How many bytes of [staging] are already on disk and should be
      * kept. `0` means a fresh download. A `Range` request is only attempted when this is `> 0`
      * **and** [spec]'s server isn't cached as known-not-to-support it — `spec.supportsRange`
-     * itself already reflects that cache (`JellyfinCloudDownloadSource`, F1.6b), this is a
-     * second, request-time check because that cache can change between when the spec was built
-     * and when this actually runs.
+     * itself already reflects that cache (see [com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource]),
+     * this is a second, request-time check because that cache can change between when the spec
+     * was built and when this actually runs.
      */
     suspend fun download(
         staging: File,
@@ -139,8 +138,8 @@ class HttpFileDownloader @Inject constructor(
         }
 
         if (rangeRequested && response.code == 200) {
-            // The server ignored Range entirely (case borde 1, C10): what we already had on
-            // disk is worthless now, and so is trusting Range for this server going forward.
+            // The server ignored Range entirely: what we already had on disk is worthless now,
+            // and so is trusting Range for this server going forward.
             truncate(staging)
             serverCapabilities.invalidateSupportsRange(spec.serverKey)
             return DownloadOutcome.Failure(
@@ -165,8 +164,8 @@ class HttpFileDownloader @Inject constructor(
 
         // 416, and a Range request answered with 200 or a mismatched 206, are already handled
         // above. Anything else that isn't the plain success code for what was actually asked
-        // (5xx, a stray redirect, ...) is F3.3's finer classification to make — this is only
-        // the coarse "not what we asked for" bucket.
+        // (5xx, a stray redirect, ...) is a finer classification for the caller to make — this
+        // is only the coarse "not what we asked for" bucket.
         val expectedSuccessCode = if (rangeRequested) 206 else 200
         if (response.code != expectedSuccessCode) {
             return DownloadOutcome.Failure(
@@ -177,7 +176,7 @@ class HttpFileDownloader @Inject constructor(
 
         val contentType = response.header("Content-Type")
         if (!isAcceptableContentType(contentType)) {
-            // C15 guard #1: rejected before a single byte is written.
+            // Rejected before a single byte is written.
             return DownloadOutcome.Failure(
                 DownloadFailureReason.UNEXPECTED_CONTENT_TYPE,
                 "Unexpected Content-Type: $contentType",
@@ -208,8 +207,8 @@ class HttpFileDownloader @Inject constructor(
             )
         }
 
-        // C15 guard #2: expected_bytes is authoritative when the caller has it; Content-Length
-        // is only the last-resort fallback (it "se valida a sí mismo" — PLAN.md C15).
+        // expected_bytes is authoritative when the caller has it; Content-Length is only the
+        // last-resort fallback (it "se valida a sí mismo").
         val expectedFinalSize = spec.expectedBytes ?: declaredContentLength?.let { writeFromPosition + it }
         if (expectedFinalSize != null && totalBytes != expectedFinalSize) {
             return DownloadOutcome.Failure(
@@ -220,7 +219,7 @@ class HttpFileDownloader @Inject constructor(
 
         if (response.code == 206) {
             // A Range request that actually worked end to end confirms — and refreshes — the
-            // capability, resetting the 30-day TTL (F1.4b, §4.5).
+            // capability, resetting the 30-day TTL.
             serverCapabilities.recordProbeResult(spec.serverKey, supportsRange = true)
         }
 
@@ -229,9 +228,8 @@ class HttpFileDownloader @Inject constructor(
 
     /**
      * Writes [body] into [staging] starting at [fromPosition], `fsync`ing before returning —
-     * *always*, on every path out of this function, per F1.6's own lesson: a size check that
-     * passes on an un-synced file after a power cut is exactly the silent corruption C15/this
-     * task exist to prevent.
+     * *always*, on every path out of this function: a size check that passes on an un-synced
+     * file after a power cut is exactly the silent corruption this exists to prevent.
      */
     private suspend fun writeBody(staging: File, body: ResponseBody, fromPosition: Long): Long {
         RandomAccessFile(staging, "rw").use { raf ->

@@ -15,10 +15,10 @@ import com.theveloper.pixelplay.data.download.model.CloudDownloadState.VERIFYING
 import timber.log.Timber
 
 /**
- * The transition table over [CloudDownloadState] (`F1.6a`, `PLAN.md` §5.6). [CloudDownloadState]
+ * The transition table over [CloudDownloadState]. [CloudDownloadState]
  * itself only owns the closed set of values; this is the graph of which of them can follow which.
  *
- * Every edge below is traced straight from the §5.6 diagram — no edge is added on a hunch, and
+ * Every edge below is traced straight from the state diagram — no edge is added on a hunch, and
  * none of the diagram's edges is dropped:
  * ```
  * PENDING ──encolar──▶ QUEUED ──hueco──▶ RUNNING ──▶ VERIFYING ──▶ COMPLETED
@@ -46,7 +46,7 @@ object CloudDownloadStateMachine {
     /**
      * Edges drawn directly from the diagram, before the universal "→ `CANCELLING`" rule is
      * folded in by [legalTransitions]. `CANCELLING` itself has none: once cancelled, the row is
-     * deleted (`PLAN.md` §5.6) — there is nothing left in this enum to transition *from*.
+     * deleted — there is nothing left in this enum to transition *from*.
      */
     private val explicitTransitions: Map<CloudDownloadState, Set<CloudDownloadState>> = mapOf(
         PENDING to setOf(QUEUED),
@@ -72,15 +72,15 @@ object CloudDownloadStateMachine {
             if (from == CANCELLING) targets else targets + CANCELLING
         }
 
-    /** Whether `§5.6` allows moving directly from [from] to [to]. Never true for `from == to`. */
+    /** Whether the state diagram allows moving directly from [from] to [to]. Never true for `from == to`. */
     fun isLegal(from: CloudDownloadState, to: CloudDownloadState): Boolean =
         to in legalTransitions.getValue(from)
 
     /**
-     * Applies the transition if [isLegal], per `GEN-ERR-06`: an illegal one **throws** when
+     * Applies the transition if [isLegal]: an illegal one **throws** when
      * [throwOnIllegal] is true (defaults to [BuildConfig.DEBUG] — fail fast in development) and
      * otherwise **degrades**, logging the attempt and returning [from] unchanged rather than
-     * accepting a value `§5.6` never sanctioned. [throwOnIllegal] is a parameter, not a hardcoded
+     * accepting a value the state diagram never sanctioned. [throwOnIllegal] is a parameter, not a hardcoded
      * `BuildConfig.DEBUG` read, so both branches are exercised by a JVM test regardless of which
      * build variant runs it.
      */

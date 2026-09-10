@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class DownloadsFeatureGateTest {
 
-    // ─── The pure rule (PLAN.md §F1 · 4.4) ──────────────────────────────────────
+    // ─── The pure rule ──────────────────────────────────────
     //
     // Every combination of the three inputs, so nobody can quietly turn this into a
     // `buildDefault && userChoice` without a test failing. `null` and `false` for

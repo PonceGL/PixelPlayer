@@ -18,10 +18,10 @@ import org.junit.runner.RunWith
 
 /**
  * Exercises [AppPrivateDownloadStorage] against real files on the connected device/emulator —
- * this is exactly the kind of test D-22 keeps out of JVM (no Robolectric): volume state,
- * `getExternalFilesDirs`, and real renames only mean anything against a real filesystem.
+ * kept out of JVM (no Robolectric) on purpose: volume state, `getExternalFilesDirs`, and real
+ * renames only mean anything against a real filesystem.
  *
- * `PLAN.md` §F1.5 aceptación: `createStaging` → write → `publish` → `exists` is true and
+ * Acceptance covered here: `createStaging` → write → `publish` → `exists` is true and
  * `sizeOf` matches; `publish` doesn't copy bytes; `listOrphans` finds an untracked file;
  * `ensureReady` on a nonexistent root fails without throwing.
  */

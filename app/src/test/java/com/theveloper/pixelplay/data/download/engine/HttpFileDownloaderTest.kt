@@ -24,9 +24,9 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * F1.6b: `HttpFileDownloader`, against a real `MockWebServer` — the six documented edge cases
- * (`F1.md` §F1.6) plus the Content-Type guard (C15) and the capabilities-store interactions
- * (F1.4b). No fakes for OkHttp itself: the whole point of this class is real HTTP behavior.
+ * `HttpFileDownloader`, against a real `MockWebServer` — the documented edge cases plus the
+ * Content-Type guard and the capabilities-store interactions. No fakes for OkHttp itself: the
+ * whole point of this class is real HTTP behavior.
  */
 class HttpFileDownloaderTest {
 
@@ -314,7 +314,7 @@ class HttpFileDownloaderTest {
         assertEquals(DownloadFailureReason.TRANSIENT, (outcome as DownloadOutcome.Failure).reason)
     }
 
-    // ─── Case borde 6: cancellation in under 1 second (AND-CONC-04) ────────────
+    // ─── Cancellation in under 1 second ────────────
 
     @Test
     fun `cancelling mid-transfer interrupts the blocked read in under 1 second`() {

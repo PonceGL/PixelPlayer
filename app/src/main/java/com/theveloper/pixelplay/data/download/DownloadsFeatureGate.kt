@@ -55,26 +55,24 @@ fun resolveDownloadsEnabled(
 
 /**
  * Single source of truth for "are cloud downloads enabled right now". Every consumer reads
- * [isEnabled]; nobody else calls [resolveDownloadsEnabled] directly (`GEN-ARCH-04`).
+ * [isEnabled]; nobody else calls [resolveDownloadsEnabled] directly.
  *
- * Exposes [StateFlow], never a mutable one (`AND-CONC-06`): nothing downstream can write
- * this state, only observe it.
+ * Exposes [StateFlow], never a mutable one: nothing downstream can write this state, only
+ * observe it.
  *
  * Started with [SharingStarted.Eagerly] and kept alive for the process' lifetime instead of
- * `WhileSubscribed` (`AND-CONC-09`, *"cuándo se puede romper"*): the foreground service and
- * the scheduler worker need an up-to-date read with no UI ever collecting it, and the owner
- * of this flow is this `@Singleton`, not a `ViewModel` — which is exactly the exception that
- * rule carves out.
+ * `WhileSubscribed`: the foreground service and the scheduler worker need an up-to-date read
+ * with no UI ever collecting it, and the owner of this flow is this `@Singleton`, not a
+ * `ViewModel`.
  *
  * [remoteKill] comes from [UserPreferencesRepository.downloadsKillSwitchLastKnownFlow] — the
  * last **successfully** read value, sticky across a failed refetch or a cold start with no
  * network — combined with one refresh attempt fired at construction time
- * ([remoteKillSwitchRefreshJob]), fire-and-forget (`GEN-CONC-01`: owned by the injected
- * app scope, never `GlobalScope`). The refresh never blocks app startup and never
- * blocks [isEnabled] from emitting immediately with whatever was last known (`PLAN.md` §F1 ·
- * F1.1, case borde 5): a failed or slow fetch leaves the cached value exactly as it was,
- * which is what makes the kill switch trustworthy across a flaky connection instead of
- * accidentally un-killing itself the moment the network hiccups.
+ * ([remoteKillSwitchRefreshJob]), fire-and-forget (owned by the injected app scope, never
+ * `GlobalScope`). The refresh never blocks app startup and never blocks [isEnabled] from
+ * emitting immediately with whatever was last known: a failed or slow fetch leaves the cached
+ * value exactly as it was, which is what makes the kill switch trustworthy across a flaky
+ * connection instead of accidentally un-killing itself the moment the network hiccups.
  */
 @Singleton
 class DownloadsFeatureGate @Inject constructor(

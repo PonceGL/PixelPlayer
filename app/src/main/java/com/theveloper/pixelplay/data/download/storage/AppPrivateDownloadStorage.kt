@@ -23,9 +23,9 @@ private const val STAGING_SUFFIX = ".part"
 class VolumeUnavailableException(root: String) : IOException("Volume not mounted: $root")
 
 /**
- * The default backend (`PLAN.md` §F1.5): files under this app's own external-files directory,
- * invisible to other apps and removed on uninstall. No permission to lose, no revocation to
- * watch for — the tradeoffs a user-chosen SAF folder (F9) exists to trade away.
+ * The default backend: files under this app's own external-files directory, invisible to
+ * other apps and removed on uninstall. No permission to lose, no revocation to watch for —
+ * the tradeoffs a user-chosen SAF folder, if one is ever added, would trade away.
  *
  * Layout: `<root>/PixelPlay/<sourceType>/<sanitized remoteId>.<ext>` — named by id, never by
  * title, so a metadata change (a corrected artist name, say) never renames a file a
@@ -41,7 +41,7 @@ class AppPrivateDownloadStorage @Inject constructor(
 
     /**
      * The internal app-private music directory: index 0 of `getExternalFilesDirs`, which is
-     * always the primary/internal volume, never a removable card (`PLAN.md` §F1.5). `null`
+     * always the primary/internal volume, never a removable card. `null`
      * only when even that is missing — unlike an absent SD card, that means this device has
      * no usable external storage at all right now.
      */
@@ -102,8 +102,8 @@ class AppPrivateDownloadStorage @Inject constructor(
     }
 
     override suspend fun delete(ref: StoredRef) {
-        // A file that's already gone is success, not an error — I5 treats "no file" as the
-        // resting state a delete is trying to reach, not a failure to report.
+        // A file that's already gone is success, not an error — "no file" is the resting state
+        // a delete is trying to reach, not a failure to report.
         File(ref.value).delete()
     }
 

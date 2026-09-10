@@ -13,8 +13,8 @@ import javax.inject.Singleton
 import org.json.JSONObject
 
 /**
- * The Jellyfin [CloudDownloadSource] (D-01: first implementation, nothing here is assumed by
- * the engine). Every method here composes [JellyfinApiService]'s own suspend functions, which
+ * The Jellyfin [CloudDownloadSource] — the first implementation; nothing here is assumed by
+ * the engine. Every method here composes [JellyfinApiService]'s own suspend functions, which
  * are already main-safe (`withContext(Dispatchers.IO)` internally) — this class makes no
  * blocking call of its own, so it needs no dispatcher of its own either.
  */
@@ -34,7 +34,7 @@ class JellyfinCloudDownloadSource @Inject constructor(
     override suspend fun isAuthenticated(): Boolean = jellyfinApiService.hasCredentials()
 
     /**
-     * Batched per [batchIdsByUrlBudget] (C14): each batch becomes one
+     * Batched per [batchIdsByUrlBudget]: each batch becomes one
      * [JellyfinApiService.getItemsByIds] call. A failed batch's ids are simply absent from the
      * result — the ones from batches that succeeded are still returned. Only fails outright
      * when every batch failed, so the caller can tell "network is down" from "some items are
@@ -57,7 +57,7 @@ class JellyfinCloudDownloadSource @Inject constructor(
                 .onSuccess { items ->
                     items.forEach { item -> info[item.itemId()] = item.toRemoteItemInfo() }
                 }
-                .onFailure { lastFailure = it } // C14: one bad batch never invalidates the rest
+                .onFailure { lastFailure = it } // one bad batch never invalidates the rest
         }
 
         return if (info.isEmpty() && lastFailure != null) {
@@ -68,14 +68,14 @@ class JellyfinCloudDownloadSource @Inject constructor(
     }
 
     /**
-     * Probes [JellyfinApiService.checkDownloadPermission] first (case borde 1, `F1.md` §F1.4):
-     * a 403 there degrades the spec to [JellyfinApiService.getDirectPlayUrl] instead of
-     * throwing. [DownloadRequestSpec.supportsRange] now reads `F1.4b`'s
-     * [DownloadServerCapabilitiesStore] (a `null` — never probed, or stale — degrades to
-     * `false`, the safe default C10 asks for; only a **confirmed** `true` from a previous
-     * probe is ever reported). [DownloadRequestSpec.expectedBytes]/`container`/`mimeType` are
-     * left `null`: the caller already has them from an earlier [fetchItemInfo] call, and
-     * re-fetching them here would be the exact per-item request batching exists to avoid.
+     * Probes [JellyfinApiService.checkDownloadPermission] first: a 403 there degrades the spec
+     * to [JellyfinApiService.getDirectPlayUrl] instead of throwing.
+     * [DownloadRequestSpec.supportsRange] now reads [DownloadServerCapabilitiesStore] (a
+     * `null` — never probed, or stale — degrades to `false`, the safe default; only a
+     * **confirmed** `true` from a previous probe is ever reported).
+     * [DownloadRequestSpec.expectedBytes]/`container`/`mimeType` are left `null`: the caller
+     * already has them from an earlier [fetchItemInfo] call, and re-fetching them here would be
+     * the exact per-item request batching exists to avoid.
      */
     override suspend fun buildDownloadRequest(
         remoteId: String,
@@ -114,9 +114,8 @@ class JellyfinCloudDownloadSource @Inject constructor(
     private fun JSONObject.itemId(): String = optString("Id", "")
 
     private fun JSONObject.toRemoteItemInfo(): RemoteItemInfo {
-        // PLAN.md §F1.4 uses MediaSources[0]; an item with multiple versions (case borde 2)
-        // needs verifying against a real server before this can be more than a documented
-        // limitation — noted in F1.md, not solved here.
+        // This uses MediaSources[0]; an item with multiple versions needs verifying against a
+        // real server before this can be more than a documented limitation.
         val firstSource = optJSONArray("MediaSources")?.optJSONObject(0)
         val container = firstSource?.optString("Container")?.takeIf { it.isNotBlank() }
         return RemoteItemInfo(
@@ -136,9 +135,9 @@ class JellyfinCloudDownloadSource @Inject constructor(
 
 /**
  * Splits [ids] into batches whose resulting URL — [baseUrlOverheadBytes] plus the
- * comma-joined ids of one batch — stays under [maxUrlBytes] (C14: budgeted by URL size, not
- * item count — 300 GUIDs in one URL is over 10 KB, and a default nginx rejects a request line
- * well before that). `internal`: JVM-testable on its own, no network involved.
+ * comma-joined ids of one batch — stays under [maxUrlBytes] (budgeted by URL size, not item
+ * count — 300 GUIDs in one URL is over 10 KB, and a default nginx rejects a request line well
+ * before that). `internal`: JVM-testable on its own, no network involved.
  */
 internal fun batchIdsByUrlBudget(
     ids: List<String>,

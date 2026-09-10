@@ -132,8 +132,7 @@ object JellyfinResponseParser {
 
     /**
      * `internal`, not `private`: [com.theveloper.pixelplay.data.download.jellyfin.JellyfinCloudDownloadSource]
-     * reuses this exact mapping for `RemoteItemInfo.mimeType` instead of a second copy
-     * (`GEN-DES-08`).
+     * reuses this exact mapping for `RemoteItemInfo.mimeType` instead of a second copy.
      */
     internal fun containerToMimeType(container: String?): String? {
         if (container.isNullOrBlank()) return null

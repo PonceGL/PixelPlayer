@@ -6,15 +6,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * The per-server `Range`-support cache described in `F1.md` §4.5 (`C10`, `R-F1-7`): a
- * `DataStore` preference, not a fourth table — this is a cache with no need for transactions,
- * joins, or to survive being wrong (§4.5 rules out `cloud_download_server_caps` on exactly
- * those grounds).
+ * The per-server `Range`-support cache: a `DataStore` preference, not a fourth table — this
+ * is a cache with no need for transactions, joins, or to survive being wrong.
  *
  * Two halves of the same mechanism live on either side of this store, deliberately not both
- * here: `F1.4b` (this class) owns the cache and its invalidation; the actual "probe" is just a
- * live download attempt in `F1.6b` observing whether the server honored `Range` — there is no
- * dedicated probe request here, because a real attempt already answers the question for free.
+ * here: this class owns the cache and its invalidation; the actual "probe" is just a live
+ * download attempt observing whether the server honored `Range` — there is no dedicated probe
+ * request here, because a real attempt already answers the question for free.
  */
 @Singleton
 class DownloadServerCapabilitiesStore @Inject constructor(
@@ -53,11 +51,11 @@ class DownloadServerCapabilitiesStore @Inject constructor(
     }
 
     /**
-     * `F1.6b`'s trigger (§4.5): a live `Range` request that came back `200` instead of `206`
-     * proves the cached probe lied — a reverse proxy could have changed the server's behavior
-     * at any point since. Marks [serverKey] as **not** supporting `Range`, immediately and with
-     * a fresh [ServerCapabilities.probedAt], so the very next download for this server skips
-     * `Range` outright instead of repeating the truncate-and-restart loop `C10` describes.
+     * A live `Range` request that came back `200` instead of `206` proves the cached probe
+     * lied — a reverse proxy could have changed the server's behavior at any point since. Marks
+     * [serverKey] as **not** supporting `Range`, immediately and with a fresh
+     * [ServerCapabilities.probedAt], so the very next download for this server skips `Range`
+     * outright instead of repeating the truncate-and-restart loop.
      */
     suspend fun invalidateSupportsRange(serverKey: String, nowMillis: Long = System.currentTimeMillis()) =
         recordProbeResult(serverKey, supportsRange = false, nowMillis = nowMillis)

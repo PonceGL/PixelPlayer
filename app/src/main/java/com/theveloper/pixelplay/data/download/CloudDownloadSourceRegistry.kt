@@ -4,9 +4,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * The one place that maps a `SourceType` constant to its [CloudDownloadSource] (`GEN-ARCH-04`).
+ * The one place that maps a `SourceType` constant to its [CloudDownloadSource].
  * Mirrors [com.theveloper.pixelplay.data.download.storage.DownloadStorageRegistry]'s shape:
- * a Hilt `@IntoMap` multibinding (`@IntKey`, keyed by `SourceType` — R15, not an enum) read
+ * a Hilt `@IntoMap` multibinding (`@IntKey`, keyed by `SourceType` — not an enum) read
  * once here. Adding a second source later is one more `@Provides @IntoMap` entry; nothing
  * that calls [sourceFor] changes.
  */

@@ -18,13 +18,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * F1.6a: the transition table of §5.6, tested against an independently written-out expectation
- * (not by re-deriving [CloudDownloadStateMachine]'s own map) so a missing or superfluous edge in
- * the implementation actually fails a test instead of trivially agreeing with itself.
+ * The transition table, tested against an independently written-out expectation (not by
+ * re-deriving [CloudDownloadStateMachine]'s own map) so a missing or superfluous edge in the
+ * implementation actually fails a test instead of trivially agreeing with itself.
  */
 class CloudDownloadStateMachineTest {
 
-    /** Every legal edge of the §5.6 diagram, transcribed independently of the production map. */
+    /** Every legal edge of the state diagram, transcribed independently of the production map. */
     private val expectedEdges: Map<CloudDownloadState, Set<CloudDownloadState>> = mapOf(
         PENDING to setOf(QUEUED, CANCELLING),
         QUEUED to setOf(RUNNING, CANCELLING),
@@ -40,7 +40,7 @@ class CloudDownloadStateMachineTest {
     )
 
     @Test
-    fun `isLegal matches the §5-6 diagram for every pair of states`() {
+    fun `isLegal matches the state diagram for every pair of states`() {
         CloudDownloadState.entries.forEach { from ->
             CloudDownloadState.entries.forEach { to ->
                 val shouldBeLegal = to in expectedEdges.getValue(from)
@@ -102,7 +102,7 @@ class CloudDownloadStateMachineTest {
         assertEquals(COMPLETED, CloudDownloadStateMachine.transition(VERIFYING, COMPLETED))
     }
 
-    // ─── transition(): the illegal path (GEN-ERR-06) ───────────────────────────────
+    // ─── transition(): the illegal path ───────────────────────────────
 
     @Test
     fun `an illegal transition throws when throwOnIllegal is true`() {

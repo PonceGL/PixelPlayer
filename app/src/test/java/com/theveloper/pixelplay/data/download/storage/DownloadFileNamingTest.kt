@@ -31,8 +31,7 @@ class DownloadFileNamingTest {
 
     @Test
     fun `two ids that sanitize to the same body still produce different names`() {
-        // Both collapse to "a_b" once the separator is replaced — the exact motivating
-        // case from PLAN.md §F1.5, case borde 3.
+        // Both collapse to "a_b" once the separator is replaced — the exact motivating case.
         val first = sanitizeRemoteIdForFilename("a/b")
         val second = sanitizeRemoteIdForFilename("a:b")
 

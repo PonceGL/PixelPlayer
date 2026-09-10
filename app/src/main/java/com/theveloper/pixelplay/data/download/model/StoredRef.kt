@@ -2,7 +2,7 @@ package com.theveloper.pixelplay.data.download.model
 
 /**
  * Which [DownloadStorageBackend][com.theveloper.pixelplay.data.download.storage.DownloadStorageBackend]
- * owns a download's file. Persisted as `cloud_downloads.storage_backend` (`PLAN.md` §F1.3).
+ * owns a download's file. Persisted as `cloud_downloads.storage_backend`.
  */
 enum class DownloadStorageBackendId {
     APP_PRIVATE,
@@ -11,9 +11,9 @@ enum class DownloadStorageBackendId {
 
 /**
  * A published download's file, as its owning backend understands it. Persisted as
- * `cloud_downloads.storage_ref` alongside [backendId] (`PLAN.md` §F1.3): an absolute path for
+ * `cloud_downloads.storage_ref` alongside [backendId]: an absolute path for
  * [DownloadStorageBackendId.APP_PRIVATE], a `content://` URI string for
- * [DownloadStorageBackendId.SAF] (F9).
+ * [DownloadStorageBackendId.SAF] (once storage-access-framework support ships).
  *
  * Opaque to everyone except the backend that produced it — nobody parses [value]; it's
  * handed back to the same backend's [open][com.theveloper.pixelplay.data.download.storage.DownloadStorageBackend.open],

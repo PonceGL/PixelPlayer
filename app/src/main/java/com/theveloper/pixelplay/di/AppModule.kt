@@ -539,15 +539,14 @@ object AppModule {
     }
 
     /**
-     * OkHttpClient dedicated to cloud downloads (F1.2). Built from scratch with
+     * OkHttpClient dedicated to cloud downloads. Built from scratch with
      * `OkHttpClient.Builder()` — never `client.newBuilder()` — because `newBuilder()` carries
      * over every interceptor from the source client, including `provideOkHttpClient()`'s
      * logging interceptor. That one only redacts `Authorization` in its log line at `HEADERS`
      * level in debug; a downloads client built via `newBuilder()` would still log every other
-     * header of a request that legitimately needs to carry credentials on every call
-     * (`AND-SEC-01`, C4, C9).
+     * header of a request that legitimately needs to carry credentials on every call.
      *
-     * Its own `ConnectionPool` (R2): downloads saturating the shared pool would starve the
+     * Its own `ConnectionPool`: downloads saturating the shared pool would starve the
      * lyrics and artwork lookups that share `provideOkHttpClient()`'s.
      *
      * `callTimeout(0)` is already OkHttp's default, but set explicitly so nobody "fixes" it
@@ -562,8 +561,8 @@ object AppModule {
      * reverse proxy that redirects to another host would silently lose it, surfacing later as
      * an unrelated 401 with no trace back to the redirect. Turning off *all* redirects, not
      * only cross-host ones, means every 3xx reaches the caller as-is instead of this client
-     * quietly guessing which ones are safe to follow; classifying what a redirect means is
-     * F3.3's job, this provider only stops it from happening invisibly.
+     * quietly guessing which ones are safe to follow; classifying what a redirect means is a
+     * job for whoever calls this, this provider only stops it from happening invisibly.
      *
      * No `HttpLoggingInterceptor`, not even behind `if (BuildConfig.DEBUG)`: every request
      * this client makes carries a real user credential.
@@ -598,7 +597,7 @@ object AppModule {
             .build()
     }
 
-    /** `AND-CONC-03`: injected `Dispatchers.IO`, first used by `F1.6b`'s `HttpFileDownloader`. */
+    /** Injected `Dispatchers.IO`, first used by `HttpFileDownloader`. */
     @Provides
     @IoDispatcher
     fun provideIoDispatcher(): kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
@@ -672,8 +671,8 @@ object AppModule {
     ): DownloadStorageBackend = appPrivateDownloadStorage
 
     /**
-     * Registers the Jellyfin source into [CloudDownloadSourceRegistry]'s multibinding map
-     * (F1.4a), keyed by its `SourceType` constant (C6). A second source later is one more
+     * Registers the Jellyfin source into [CloudDownloadSourceRegistry]'s multibinding map,
+     * keyed by its `SourceType` constant. A second source later is one more
      * `@Provides @IntoMap` entry; [CloudDownloadSourceRegistry] itself never changes.
      */
     @Provides
