@@ -29,6 +29,15 @@ interface JellyfinDao {
     @Query("SELECT * FROM jellyfin_songs WHERE jellyfin_id = :jellyfinId LIMIT 1")
     suspend fun getSongByJellyfinId(jellyfinId: String): JellyfinSongEntity?
 
+    /**
+     * There can be several rows per Jellyfin item id — one per playlist membership, plus the
+     * library-wide row — and only some of them may have been synced since the file size started
+     * being persisted. This picks any one row that actually has a value rather than whichever
+     * row happens to come first, which could be an older one still sitting at `NULL`.
+     */
+    @Query("SELECT size FROM jellyfin_songs WHERE jellyfin_id = :jellyfinId AND size IS NOT NULL LIMIT 1")
+    suspend fun getKnownSongSize(jellyfinId: String): Long?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<JellyfinSongEntity>)
 
