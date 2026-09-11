@@ -36,10 +36,17 @@ class CloudDownloadSchedulerWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        if (shouldStartService(featureGate.isEnabled.value, engine.hasQueuedWork())) {
-            CloudDownloadForegroundService.start(applicationContext)
-        }
-        return Result.success()
+        val featureEnabled = featureGate.isEnabled.value
+        // `&&` short-circuits: hasQueuedWork()'s DB read never runs once the flag is already
+        // known off, instead of always paying for it only to discard the result.
+        val hasQueuedWork = featureEnabled && engine.hasQueuedWork()
+        if (!shouldStartService(featureEnabled, hasQueuedWork)) return Result.success()
+
+        // A caller with no visible UI of its own (this worker) can have the launch itself
+        // denied on API 31+ — see CloudDownloadForegroundService.start's own doc. Retrying
+        // gives the next backoff window a chance to land in a state where it isn't; there is
+        // no better signal available here than "it didn't work this time".
+        return if (CloudDownloadForegroundService.start(applicationContext)) Result.success() else Result.retry()
     }
 
     companion object {

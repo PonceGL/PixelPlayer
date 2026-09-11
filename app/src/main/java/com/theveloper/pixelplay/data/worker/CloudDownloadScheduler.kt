@@ -6,8 +6,10 @@ import com.theveloper.pixelplay.data.download.DownloadsFeatureGate
 import com.theveloper.pixelplay.di.AppScope
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * Keeps [CloudDownloadSchedulerWorker]'s periodic registration in `WorkManager` in sync with
@@ -33,16 +35,35 @@ class CloudDownloadScheduler @Inject constructor(
     init {
         appScope.launch {
             featureGate.isEnabled.collect { enabled ->
-                if (enabled) {
-                    workManager.enqueueUniquePeriodicWork(
-                        CloudDownloadSchedulerWorker.WORK_NAME,
-                        ExistingPeriodicWorkPolicy.KEEP,
-                        CloudDownloadSchedulerWorker.periodicWork(),
-                    )
-                } else {
-                    workManager.cancelUniqueWork(CloudDownloadSchedulerWorker.WORK_NAME)
+                // Caught here, not left to propagate: an exception escaping this lambda would
+                // terminate the whole collect — with no other code re-subscribing to
+                // isEnabled, every flag change for the rest of the process' life would then be
+                // silently ignored, not just this one enqueue/cancel call.
+                try {
+                    if (enabled) {
+                        // KEEP means a device that already has this unique work registered
+                        // ignores the request passed here entirely, constraints included — a
+                        // future change to periodicWork()'s constraints needs either a new
+                        // work name or ExistingPeriodicWorkPolicy.UPDATE to actually reach an
+                        // install that enqueued the old one, not just new installs.
+                        workManager.enqueueUniquePeriodicWork(
+                            CloudDownloadSchedulerWorker.WORK_NAME,
+                            ExistingPeriodicWorkPolicy.KEEP,
+                            CloudDownloadSchedulerWorker.periodicWork(),
+                        )
+                    } else {
+                        workManager.cancelUniqueWork(CloudDownloadSchedulerWorker.WORK_NAME)
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Throwable) {
+                    Timber.tag(TAG).e(error, "Failed to update the cloud download worker's schedule")
                 }
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "CloudDownloadSched"
     }
 }
