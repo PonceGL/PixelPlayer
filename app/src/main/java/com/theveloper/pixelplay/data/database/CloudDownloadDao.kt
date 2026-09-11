@@ -50,6 +50,12 @@ interface CloudDownloadDao {
     @Query("SELECT * FROM cloud_downloads WHERE state IN (:states)")
     suspend fun getRowsInStates(states: List<String>): List<CloudDownloadEntity>
 
+    /** Existence check without hydrating every column of every matching row — for callers
+     * (like [com.theveloper.pixelplay.data.download.engine.CloudDownloadEngine.hasActiveWork])
+     * that only need to know whether *any* row matches, not what's in them. */
+    @Query("SELECT COUNT(*) FROM cloud_downloads WHERE state IN (:states)")
+    suspend fun countInStates(states: List<String>): Int
+
     @Query("SELECT storage_ref FROM cloud_downloads WHERE storage_ref IS NOT NULL")
     suspend fun getAllPublishedRefs(): List<String>
 

@@ -7,6 +7,7 @@ import com.theveloper.pixelplay.data.download.CloudDownloadSourceRegistry
 import com.theveloper.pixelplay.data.download.CloudDownloadSource
 import com.theveloper.pixelplay.data.download.CloudDownloadStateStore
 import com.theveloper.pixelplay.data.download.DownloadServerCapabilitiesStore
+import com.theveloper.pixelplay.data.download.model.CloudDownloadKey
 import com.theveloper.pixelplay.data.download.model.CloudDownloadQuality
 import com.theveloper.pixelplay.data.download.model.CloudDownloadState
 import com.theveloper.pixelplay.data.download.model.DownloadFileKey
@@ -60,6 +61,9 @@ private class FakeCloudDownloadDao : CloudDownloadDao {
 
     override suspend fun getRowsInStates(states: List<String>): List<CloudDownloadEntity> =
         rows.values.filter { it.state in states }
+
+    override suspend fun countInStates(states: List<String>): Int =
+        rows.values.count { it.state in states }
 
     override suspend fun getAllPublishedRefs(): List<String> = rows.values.mapNotNull { it.storageRef }
 
@@ -521,6 +525,63 @@ class CloudDownloadEngineTest {
         val failed = dao.getById("$SOURCE_TYPE:item-1")!!
         assertEquals(CloudDownloadState.FAILED.name, failed.state)
         assertEquals("FAILED_CORRUPT", failed.errorCode)
+    }
+
+    // ─── CloudDownloadStateStore must mirror every persisted transition, not just
+    // ─── RUNNING and COMPLETED — otherwise a live surface (e.g. the foreground
+    // ─── service's notification) reads a download as still RUNNING forever after it
+    // ─── actually moved to RETRY_WAIT/BLOCKED/FAILED. ──────────────────────────
+
+    @Test
+    fun `a retried attempt updates the state store past RUNNING, not stuck there`() = runTest {
+        server.enqueue(MockResponse.Builder().code(500).build())
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.QUEUED)
+        val key = CloudDownloadKey(SOURCE_TYPE, "item-1")
+
+        engine.runQueue()
+
+        assertEquals(CloudDownloadState.RETRY_WAIT.name, dao.getById("$SOURCE_TYPE:item-1")!!.state)
+        val progress = stateStore.progressByDownloadId.value[key.storageId]
+        assertEquals(CloudDownloadState.RETRY_WAIT, progress?.state)
+    }
+
+    @Test
+    fun `a row blocked by an auth-portal response updates the state store to BLOCKED`() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body("<html>please log in</html>")
+                .addHeader("Content-Type", "text/html").build()
+        )
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.QUEUED)
+        val key = CloudDownloadKey(SOURCE_TYPE, "item-1")
+
+        engine.runQueue()
+
+        assertEquals(CloudDownloadState.BLOCKED.name, dao.getById("$SOURCE_TYPE:item-1")!!.state)
+        val progress = stateStore.progressByDownloadId.value[key.storageId]
+        assertEquals(CloudDownloadState.BLOCKED, progress?.state)
+    }
+
+    // ─── hasActiveWork() ────────────────────────────────────────────────────
+
+    @Test
+    fun `hasActiveWork is true while a row is QUEUED`() = runTest {
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.QUEUED)
+
+        assertTrue(engine.hasActiveWork())
+    }
+
+    @Test
+    fun `hasActiveWork is false when nothing but a RETRY_WAIT row remains`() = runTest {
+        // RETRY_WAIT deliberately doesn't count — see hasActiveWork()'s own doc for why:
+        // waking up for its backoff is a scheduler's job, not a reason to stay running idle.
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.RETRY_WAIT)
+
+        assertFalse(engine.hasActiveWork())
+    }
+
+    @Test
+    fun `hasActiveWork is false with an empty queue`() = runTest {
+        assertFalse(engine.hasActiveWork())
     }
 
     // ─── Structural: nothing under engine/ knows Jellyfin exists ──────────

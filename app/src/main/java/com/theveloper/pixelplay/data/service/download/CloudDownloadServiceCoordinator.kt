@@ -3,9 +3,11 @@ package com.theveloper.pixelplay.data.service.download
 import com.theveloper.pixelplay.data.download.engine.CloudDownloadEngine
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * The Android-framework-free half of [CloudDownloadForegroundService]: when to actually run an
@@ -32,12 +34,31 @@ class CloudDownloadServiceCoordinator @Inject constructor(
      * [CloudDownloadEngine.hasActiveWork], not the in-memory progress store, decides that,
      * because the store only reflects what this process has already touched and a fresh
      * restart's store is empty even with real pending work.
+     *
+     * A pass that throws is caught here, not left to propagate: [scope] is a live foreground
+     * `Service`'s scope with no installed exception handler, so an uncaught exception here
+     * would crash the whole app process over one broken engine pass, not just fail this pass.
+     * [onIdle] is deliberately **not** called on failure — a pass that never ran to completion
+     * hasn't actually confirmed the queue is empty, so the safer default is to leave the
+     * service running for the next trigger to retry, not to stop it on a false "nothing left".
+     * [CancellationException] is rethrown, never swallowed: a cancelled pass isn't a failure to
+     * log, it's the scope shutting down.
      */
     fun triggerPass(scope: CoroutineScope, onIdle: () -> Unit) {
         if (passJob?.isActive == true) return
         passJob = scope.launch {
-            engine.start()
-            if (!engine.hasActiveWork()) onIdle()
+            try {
+                engine.start()
+                if (!engine.hasActiveWork()) onIdle()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                Timber.tag(TAG).e(error, "Cloud downloads engine pass failed")
+            }
         }
+    }
+
+    private companion object {
+        const val TAG = "CloudDownloadCoord"
     }
 }

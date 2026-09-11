@@ -204,7 +204,7 @@ class CloudDownloadEngine @Inject constructor(
      * meantime. Used by whoever owns the foreground service's lifecycle.
      */
     suspend fun hasActiveWork(): Boolean =
-        dao.getRowsInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name)).isNotEmpty()
+        dao.countInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name)) > 0
 
     /**
      * Cancels [downloadId] — its in-flight transfer if one is running, then its row and files.
@@ -261,7 +261,6 @@ class CloudDownloadEngine @Inject constructor(
         val row = transitionAndPersist(pending, RUNNING) {
             it.copy(startedAt = it.startedAt ?: nowMillis)
         }
-        stateStore.update(key, RUNNING, downloadedBytes = 0L, expectedBytes = row.expectedBytes)
 
         val backend = resolveBackend(row)
         if (backend == null) {
@@ -302,14 +301,13 @@ class CloudDownloadEngine @Inject constructor(
         dao.update(staged)
 
         when (val outcome = downloader.download(staging, spec, resumeFromBytes = staging.length())) {
-            is DownloadOutcome.Success -> completeDownload(staged, key, staging, fileKey, backend, outcome, nowMillis)
+            is DownloadOutcome.Success -> completeDownload(staged, staging, fileKey, backend, outcome, nowMillis)
             is DownloadOutcome.Failure -> handleFailure(staged, outcome, nowMillis)
         }
     }
 
     private suspend fun completeDownload(
         row: CloudDownloadEntity,
-        key: CloudDownloadKey,
         staging: File,
         fileKey: DownloadFileKey,
         backend: DownloadStorageBackend,
@@ -317,7 +315,13 @@ class CloudDownloadEngine @Inject constructor(
         nowMillis: Long,
     ) {
         val verifying = transitionAndPersist(row, VERIFYING) {
-            it.copy(downloadedBytes = outcome.totalBytes, totalBytes = outcome.totalBytes)
+            // expectedBytes may still be null here (never fetched up front) — now that the
+            // transfer finished, its own final size is the best value there ever will be.
+            it.copy(
+                downloadedBytes = outcome.totalBytes,
+                totalBytes = outcome.totalBytes,
+                expectedBytes = it.expectedBytes ?: outcome.totalBytes,
+            )
         }
         val ref = backend.publish(staging, verifying.storageRoot, fileKey).getOrElse { error ->
             retryOrFail(verifying, reason = "PUBLISH_FAILED", message = error.message ?: "publish failed", nowMillis)
@@ -326,7 +330,6 @@ class CloudDownloadEngine @Inject constructor(
         transitionAndPersist(verifying, COMPLETED) {
             it.copy(storageRef = ref.value, stagingPath = null, completedAt = nowMillis)
         }
-        stateStore.update(key, COMPLETED, outcome.totalBytes, outcome.totalBytes)
     }
 
     /**
@@ -389,6 +392,13 @@ class CloudDownloadEngine @Inject constructor(
      * Applies [to] through [CloudDownloadStateMachine] (an illegal request degrades rather
      * than corrupting the row — see [CloudDownloadStateMachine.transition]), lets [extra]
      * change any other field, and persists the result in one write.
+     *
+     * Also mirrors the outcome onto [stateStore] — every write to `cloud_downloads.state` goes
+     * through here, so this is the one place that can guarantee the two never disagree.
+     * Without it, a row that leaves [RUNNING] for anything other than [COMPLETED] (a retry, a
+     * block, an outright failure) would leave [stateStore] reporting `RUNNING` forever: nothing
+     * else ever corrects it, and a live surface reading that store (the foreground service's
+     * notification) would count a dead download as still active indefinitely.
      */
     private suspend fun transitionAndPersist(
         row: CloudDownloadEntity,
@@ -398,6 +408,12 @@ class CloudDownloadEngine @Inject constructor(
         val actual = CloudDownloadStateMachine.transition(CloudDownloadState.valueOf(row.state), to)
         val updated = extra(row.copy(state = actual.name))
         dao.update(updated)
+        stateStore.update(
+            CloudDownloadKey(updated.sourceId, updated.remoteId),
+            actual,
+            downloadedBytes = updated.downloadedBytes,
+            expectedBytes = updated.expectedBytes,
+        )
         return updated
     }
 
