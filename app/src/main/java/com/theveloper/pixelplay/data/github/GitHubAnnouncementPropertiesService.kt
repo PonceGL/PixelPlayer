@@ -63,8 +63,12 @@ class GitHubAnnouncementPropertiesService @Inject constructor() {
         branch: String = "master",
         configPath: String = "remote-config/app-announcements.properties",
     ): Result<PlayStoreAnnouncementRemoteConfig> {
+        // .map, not .mapCatching: the mapping is a plain Properties-to-data-class read with no
+        // I/O and nothing expected to throw. mapCatching would catch Throwable, not just
+        // Exception — silently turning a genuine bug (or an OutOfMemoryError) into an ordinary
+        // Result.failure instead of letting it surface as the crash it should be.
         return fetchProperties(owner, repo, branch, configPath)
-            .mapCatching { it.toPlayStoreAnnouncementRemoteConfig() }
+            .map { it.toPlayStoreAnnouncementRemoteConfig() }
     }
 }
 

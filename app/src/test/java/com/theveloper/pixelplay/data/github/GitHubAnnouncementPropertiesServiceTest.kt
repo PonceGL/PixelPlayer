@@ -92,17 +92,24 @@ class GitHubAnnouncementPropertiesServiceTest {
         assertTrue(result.isFailure)
     }
 
-    // ─── Case borde: cancellation propagates instead of becoming a Result ───────
+    // ─── Cancellation before the fetch starts ───────────────────────────────────
     //
     // `HttpURLConnection` is a classic blocking-socket API and does not react to
     // `Thread.interrupt()`: cancelling the caller while it's genuinely blocked inside
     // `getResponseCode()` does not interrupt that call (verified empirically — attempts at
     // forcing it, including closing the connection from a completion handler, could not make
     // it happen reliably; documented as a known limitation on `fetchRawProperties`'s own KDoc).
-    // What *is* real, and what this task's fix actually targets, is that a `CancellationException`
-    // reaching this function's try/catch — however it gets there — is never rewrapped into a
-    // `Result.failure`. A coroutine cancelled before the call even starts exercises exactly that
-    // catch path deterministically, without depending on real socket timing.
+    //
+    // This test cancels *before* `fetchRawProperties` is even entered, so — unlike the OkHttp
+    // case in `JellyfinApiServiceErrorHandlingTest`, which can inject an exception straight from
+    // an interceptor — it does not reach the `catch (e: CancellationException) { throw e }`
+    // inside this function either: `withContext`'s own pre-flight `ensureActive()` throws first.
+    // `HttpURLConnection` has no equivalent seam to throw from mid-call, so that catch currently
+    // has no test that can reach it at all — it stays in place as a correct-by-construction
+    // guard (and the one thing that *would* exercise it, a suspending call appearing inside the
+    // try body, doesn't exist today). What this test verifies instead — a real and separate
+    // guarantee — is that cancelling the caller before this suspend function is even entered
+    // still propagates as cancellation, not as a silently-returned Result.
 
     @Test
     fun `a coroutine cancelled before the fetch starts propagates cancellation, not a Result`() = runTest {
