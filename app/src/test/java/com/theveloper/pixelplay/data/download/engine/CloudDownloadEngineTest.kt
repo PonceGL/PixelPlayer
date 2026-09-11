@@ -584,6 +584,38 @@ class CloudDownloadEngineTest {
         assertFalse(engine.hasActiveWork())
     }
 
+    // ─── hasQueuedWork() ────────────────────────────────────────────────────
+
+    @Test
+    fun `hasQueuedWork is true while a row is QUEUED`() = runTest {
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.QUEUED)
+
+        assertTrue(engine.hasQueuedWork())
+    }
+
+    @Test
+    fun `hasQueuedWork is true while nothing but a RETRY_WAIT row remains`() = runTest {
+        // Unlike hasActiveWork(), RETRY_WAIT counts here: this is what the periodic scheduler
+        // worker asks before deciding whether to start the service, and a row waiting out a
+        // backoff is exactly what needs that service running again once the wait is over.
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.RETRY_WAIT)
+
+        assertTrue(engine.hasQueuedWork())
+    }
+
+    @Test
+    fun `hasQueuedWork is false with an empty queue`() = runTest {
+        assertFalse(engine.hasQueuedWork())
+    }
+
+    @Test
+    fun `hasQueuedWork is false when every row is terminal`() = runTest {
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.COMPLETED)
+        dao.rows["$SOURCE_TYPE:item-2"] = row(remoteId = "item-2", state = CloudDownloadState.FAILED)
+
+        assertFalse(engine.hasQueuedWork())
+    }
+
     // ─── Structural: nothing under engine/ knows Jellyfin exists ──────────
 
     @Test
