@@ -663,7 +663,7 @@ private fun AboutHeroCard(
                         subtitle = stringResource(R.string.about_github_subtitle),
                         iconRes = R.drawable.github,
                         contentDescription = stringResource(R.string.about_cd_open_github_repo),
-                        onClick = { openUrl(context, "https://github.com/theovilardo/PixelPlayer") },
+                        onClick = { openUrl(context, "https://github.com/PixelPlayerHQ/PixelPlayer") },
                         modifier = Modifier.weight(1f),
                     )
                     SocialChip(
