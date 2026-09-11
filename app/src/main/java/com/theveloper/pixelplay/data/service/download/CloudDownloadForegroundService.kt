@@ -199,13 +199,22 @@ class CloudDownloadForegroundService : Service() {
         private const val NOTIFICATION_CHANNEL_ID = "pixelplay_cloud_downloads"
         private const val NOTIFICATION_ID = 1004
 
-        fun start(context: Context) {
+        /**
+         * Returns whether the launch call itself succeeded — not whether the service went on
+         * to reach the foreground (that's [startInForeground]'s own separate try/catch,
+         * covering a `POST_NOTIFICATIONS` denial). A caller with no visible UI of its own (the
+         * scheduler worker) needs this: `startForegroundService()` can throw on API 31+ when
+         * called from a background execution context with none of the platform's foreground-
+         * service-launch exemptions — this return value lets that caller react to it instead
+         * of silently losing the attempt.
+         */
+        fun start(context: Context): Boolean {
             val intent = Intent(context, CloudDownloadForegroundService::class.java)
-            runCatching {
+            return runCatching {
                 ContextCompat.startForegroundService(context, intent)
             }.onFailure { error ->
                 Timber.tag(TAG).w(error, "Failed to start the cloud downloads foreground service")
-            }
+            }.isSuccess
         }
     }
 }

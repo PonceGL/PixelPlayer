@@ -212,9 +212,16 @@ class CloudDownloadEngine @Inject constructor(
      * service is worth it — unlike [hasActiveWork], a row waiting out a backoff still counts
      * here: it's exactly the row that needs the service running again once its wait is over,
      * which the worker's periodic firing is what eventually delivers.
+     *
+     * [MISSING] and [CloudDownloadState.STALE] deliberately don't count, matching [CloudDownloadState.isTerminal]:
+     * both need the reconciler [CloudDownloadState]'s own doc describes — which doesn't exist
+     * yet anywhere in this codebase — to self-heal back to [QUEUED] before there's anything
+     * here for the scheduler to wake the service up *for*. A process killed while a row sits
+     * in either state stays stuck there until that reconciler ships; not something this
+     * function can paper over on its own.
      */
     suspend fun hasQueuedWork(): Boolean =
-        dao.countInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name, RETRY_WAIT.name)) > 0
+        dao.countInStates(NON_TERMINAL_STATE_NAMES) > 0
 
     /**
      * Cancels [downloadId] — its in-flight transfer if one is running, then its row and files.
