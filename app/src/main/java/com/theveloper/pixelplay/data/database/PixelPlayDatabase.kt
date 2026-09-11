@@ -793,7 +793,8 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_song_id` ON `cloud_downloads` (`song_id`)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_state` ON `cloud_downloads` (`state`)")
+                // No standalone index on `state`: the compound one below already serves a
+                // state-only query via its leftmost column.
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_state_next_retry_at` ON `cloud_downloads` (`state`, `next_retry_at`)")
 
                 db.execSQL(

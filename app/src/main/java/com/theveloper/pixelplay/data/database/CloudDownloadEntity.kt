@@ -23,7 +23,9 @@ import androidx.room.PrimaryKey
     tableName = "cloud_downloads",
     indices = [
         Index(value = ["song_id"]),
-        Index(value = ["state"]),
+        // No separate index on `state` alone: SQLite can already serve a state-only query from
+        // this compound index's leftmost column, so a second one would just be a redundant
+        // B-tree to maintain on every write to this table's busiest column.
         Index(value = ["state", "next_retry_at"]),
     ]
 )

@@ -242,13 +242,19 @@ class PixelPlayDatabaseMigrationTest {
         }
     }
 
+    /**
+     * Proves the schema's *declared* cascade shape, not current production behavior: the app's
+     * own `RoomDatabase` never enables per-connection foreign-key enforcement (see
+     * [CloudDownloadRefEntity]'s KDoc for why that's not done lightly), so this test forces it
+     * on for its own connection with the `PRAGMA` below. Until something enables it for real,
+     * a caller that deletes a subscription must delete its refs itself — this test documents
+     * the schema's intent, not a guarantee today's app code can rely on.
+     */
     @Test
     fun migration42To43DeletingSubscriptionCascadesRefsButNotDownloads() {
         val db = helper.createDatabase(DB_NAME_42_TO_43_CASCADE, 42)
         try {
             PixelPlayDatabase.MIGRATION_42_43.migrate(db)
-            // SQLite disables FK enforcement per connection by default; without this, the
-            // `ON DELETE CASCADE` declared in the schema would silently not fire below.
             db.execSQL("PRAGMA foreign_keys = ON")
 
             db.execSQL(
@@ -292,7 +298,9 @@ class PixelPlayDatabaseMigrationTest {
                 assertEquals(0, cursor.getInt(0))
             }
             // ...but the download row itself is untouched: there is no FK the other way, on
-            // purpose — F4's reconciler owns cleaning up a download nothing references anymore.
+            // purpose — cleaning up a download nothing references anymore is a reconciliation
+            // job for whichever future feature manages collections, not something a hard FK
+            // here should turn into a crash.
             db.query("SELECT COUNT(*) FROM cloud_downloads WHERE id = '6:item-1'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals(1, cursor.getInt(0))
