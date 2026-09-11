@@ -35,7 +35,13 @@ interface JellyfinDao {
      * being persisted. This picks any one row that actually has a value rather than whichever
      * row happens to come first, which could be an older one still sitting at `NULL`.
      */
-    @Query("SELECT size FROM jellyfin_songs WHERE jellyfin_id = :jellyfinId AND size IS NOT NULL LIMIT 1")
+    // Ordered by date_added: when two rows for the same item disagree (a library row and a
+    // playlist-membership row resynced at different times), the most recently synced one wins
+    // instead of whichever SQLite happens to return first.
+    // Ordered by date_added: when two rows for the same item disagree (a library row and a
+    // playlist-membership row resynced at different times), the most recently synced one wins
+    // instead of whichever SQLite happens to return first.
+    @Query("SELECT size FROM jellyfin_songs WHERE jellyfin_id = :jellyfinId AND size IS NOT NULL ORDER BY date_added DESC LIMIT 1")
     suspend fun getKnownSongSize(jellyfinId: String): Long?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
