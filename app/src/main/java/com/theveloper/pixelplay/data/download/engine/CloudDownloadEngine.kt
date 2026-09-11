@@ -92,7 +92,7 @@ class CloudDownloadEngine @Inject constructor(
         val knownRefs = (activeStagingPaths + publishedRefs).toSet()
 
         for ((backendIdRaw, root) in roots) {
-            val backendId = DownloadStorageBackendId.valueOf(backendIdRaw)
+            val backendId = resolveBackendId(backendIdRaw) ?: continue // unrecognized value; nothing safe to do with it
             val backend = storageRegistry.backendFor(backendId)
             backend.listOrphans(root, knownRefs).forEach { backend.delete(it) }
         }
@@ -105,13 +105,12 @@ class CloudDownloadEngine @Inject constructor(
      * immediate: the process dying isn't a reason to make the user wait out a real backoff.
      */
     suspend fun reapStaleActiveRows(nowMillis: Long = System.currentTimeMillis()) {
+        // errorCode/errorMessage are deliberately left as they were: stamping a synthetic
+        // "process restart" reason here would erase a RANGE_NOT_SATISFIABLE marker from the
+        // row's last real attempt, silently resetting handleFailure()'s consecutive-416 check
+        // on every unrelated process restart.
         transitionAll(listOf(RUNNING.name, VERIFYING.name), RETRY_WAIT) {
-            it.copy(
-                attemptCount = it.attemptCount + 1,
-                nextRetryAt = nowMillis,
-                errorCode = "PROCESS_RESTART",
-                errorMessage = "Resumed after the app process was killed mid-transfer",
-            )
+            it.copy(attemptCount = it.attemptCount + 1, nextRetryAt = nowMillis)
         }
     }
 
@@ -126,8 +125,16 @@ class CloudDownloadEngine @Inject constructor(
     suspend fun refreshCompletedRowHealth() {
         dao.getRowsInStates(listOf(COMPLETED.name)).forEach { row ->
             val ref = row.storageRef ?: return@forEach
-            val backendId = DownloadStorageBackendId.valueOf(row.storageBackend)
             val backend = resolveBackend(row)
+            if (backend == null) {
+                transitionAndPersist(row, BLOCKED) {
+                    it.copy(
+                        errorCode = "UNKNOWN_BACKEND",
+                        errorMessage = "storage_backend '${row.storageBackend}' is not recognized by this build",
+                    )
+                }
+                return@forEach
+            }
 
             if (backend.ensureReady(row.storageRoot).isFailure) {
                 transitionAndPersist(row, BLOCKED) {
@@ -135,7 +142,7 @@ class CloudDownloadEngine @Inject constructor(
                 }
                 return@forEach
             }
-            if (!backend.exists(StoredRef(backendId, ref))) {
+            if (!backend.exists(StoredRef(backend.id, ref))) {
                 transitionAndPersist(row, MISSING) {
                     it.copy(errorCode = "FILE_MISSING", errorMessage = "The published file is no longer there")
                 }
@@ -175,7 +182,7 @@ class CloudDownloadEngine @Inject constructor(
             counter.incrementAndGet()
             val job = launch {
                 try {
-                    processOne(row, source)
+                    processOne(row, source, nowMillis)
                 } finally {
                     counter.decrementAndGet()
                     globalSlots.release()
@@ -189,21 +196,33 @@ class CloudDownloadEngine @Inject constructor(
         jobs.joinAll()
     }
 
-    /** Cancels [downloadId] — its in-flight transfer if one is running, then its row and files. */
+    /**
+     * Cancels [downloadId] — its in-flight transfer if one is running, then its row and files.
+     * Cancels the job **before** reading the row: [cancelAndJoin] doesn't return until the job
+     * has fully finished (including any write [processOne] was mid-flight on), so the row this
+     * reads afterward is guaranteed current — not a stale snapshot a concurrent write could
+     * then clobber via this function's own whole-row update.
+     */
     suspend fun requestCancel(downloadId: String) {
+        activeJobs[downloadId]?.cancelAndJoin()
         val row = dao.getById(downloadId) ?: return
         transitionAndPersist(row, CANCELLING)
-        activeJobs[downloadId]?.cancelAndJoin()
 
-        val backendId = DownloadStorageBackendId.valueOf(row.storageBackend)
         val backend = resolveBackend(row)
-        row.stagingPath?.let { backend.delete(StoredRef(backendId, it)) }
-        row.storageRef?.let { backend.delete(StoredRef(backendId, it)) }
+        if (backend != null) {
+            row.stagingPath?.let { backend.delete(StoredRef(backend.id, it)) }
+            row.storageRef?.let { backend.delete(StoredRef(backend.id, it)) }
+        } // else: can't clean up files for a backend this build doesn't recognize — the row
+        // itself is still removed below; the files, if any, are picked up by a future
+        // sweepOrphans() once the app version that recognizes this backend runs it.
         dao.deleteById(downloadId)
         stateStore.remove(CloudDownloadKey(row.sourceId, row.remoteId))
     }
 
     private suspend fun promotePendingRows() {
+        // Unordered on purpose: runQueue() re-queries QUEUED rows by priority right after this
+        // runs, so the order rows are *promoted* in here never affects the order they're
+        // *processed* in.
         transitionAll(listOf(PENDING.name), QUEUED)
     }
 
@@ -227,14 +246,23 @@ class CloudDownloadEngine @Inject constructor(
         }
     }
 
-    private suspend fun processOne(pending: CloudDownloadEntity, source: CloudDownloadSource) {
+    private suspend fun processOne(pending: CloudDownloadEntity, source: CloudDownloadSource, nowMillis: Long) {
         val key = CloudDownloadKey(pending.sourceId, pending.remoteId)
         val row = transitionAndPersist(pending, RUNNING) {
-            it.copy(startedAt = it.startedAt ?: System.currentTimeMillis())
+            it.copy(startedAt = it.startedAt ?: nowMillis)
         }
         stateStore.update(key, RUNNING, downloadedBytes = 0L, expectedBytes = row.expectedBytes)
 
         val backend = resolveBackend(row)
+        if (backend == null) {
+            transitionAndPersist(row, FAILED) {
+                it.copy(
+                    errorCode = "UNKNOWN_BACKEND",
+                    errorMessage = "storage_backend '${row.storageBackend}' is not recognized by this build",
+                )
+            }
+            return
+        }
         if (backend.ensureReady(row.storageRoot).isFailure) {
             transitionAndPersist(row, BLOCKED) {
                 it.copy(errorCode = "UNMOUNTED", errorMessage = "Storage volume is not available")
@@ -243,7 +271,7 @@ class CloudDownloadEngine @Inject constructor(
         }
 
         val sourceSpec = source.buildDownloadRequest(row.remoteId, row.resolvedQuality()).getOrElse { error ->
-            retryOrFail(row, reason = "REQUEST_FAILED", message = error.message ?: "buildDownloadRequest failed")
+            retryOrFail(row, reason = "REQUEST_FAILED", message = error.message ?: "buildDownloadRequest failed", nowMillis)
             return
         }
         // The source deliberately leaves expectedBytes null (it would mean re-fetching what a
@@ -253,13 +281,19 @@ class CloudDownloadEngine @Inject constructor(
         val extension = row.container ?: spec.container ?: DEFAULT_EXTENSION
         val fileKey = DownloadFileKey(key, extension)
         val staging = backend.createStaging(row.storageRoot, fileKey).getOrElse { error ->
-            retryOrFail(row, reason = "STAGING_FAILED", message = error.message ?: "createStaging failed")
+            retryOrFail(row, reason = "STAGING_FAILED", message = error.message ?: "createStaging failed", nowMillis)
             return
         }
+        // Persisted immediately, before the transfer starts: sweepOrphans() and requestCancel()
+        // both recognize a live staging file only through this column. Without it here, a
+        // retried download's own .part file is indistinguishable from abandoned garbage the
+        // very next time either of those runs.
+        val staged = row.copy(stagingPath = staging.absolutePath)
+        dao.update(staged)
 
         when (val outcome = downloader.download(staging, spec, resumeFromBytes = staging.length())) {
-            is DownloadOutcome.Success -> completeDownload(row, key, staging, fileKey, backend, outcome)
-            is DownloadOutcome.Failure -> handleFailure(row, outcome)
+            is DownloadOutcome.Success -> completeDownload(staged, key, staging, fileKey, backend, outcome, nowMillis)
+            is DownloadOutcome.Failure -> handleFailure(staged, outcome, nowMillis)
         }
     }
 
@@ -270,16 +304,17 @@ class CloudDownloadEngine @Inject constructor(
         fileKey: DownloadFileKey,
         backend: DownloadStorageBackend,
         outcome: DownloadOutcome.Success,
+        nowMillis: Long,
     ) {
         val verifying = transitionAndPersist(row, VERIFYING) {
             it.copy(downloadedBytes = outcome.totalBytes, totalBytes = outcome.totalBytes)
         }
         val ref = backend.publish(staging, verifying.storageRoot, fileKey).getOrElse { error ->
-            retryOrFail(verifying, reason = "PUBLISH_FAILED", message = error.message ?: "publish failed")
+            retryOrFail(verifying, reason = "PUBLISH_FAILED", message = error.message ?: "publish failed", nowMillis)
             return
         }
         transitionAndPersist(verifying, COMPLETED) {
-            it.copy(storageRef = ref.value, stagingPath = null, completedAt = System.currentTimeMillis())
+            it.copy(storageRef = ref.value, stagingPath = null, completedAt = nowMillis)
         }
         stateStore.update(key, COMPLETED, outcome.totalBytes, outcome.totalBytes)
     }
@@ -293,7 +328,7 @@ class CloudDownloadEngine @Inject constructor(
      * truncate-and-restart, so a second one on the fresh attempt means the server itself is
      * inconsistent about this file, not that the retry was unlucky) becomes terminal.
      */
-    private suspend fun handleFailure(row: CloudDownloadEntity, failure: DownloadOutcome.Failure) {
+    private suspend fun handleFailure(row: CloudDownloadEntity, failure: DownloadOutcome.Failure, nowMillis: Long) {
         when (failure.reason) {
             DownloadFailureReason.UNEXPECTED_CONTENT_TYPE -> {
                 transitionAndPersist(row, BLOCKED) {
@@ -310,10 +345,10 @@ class CloudDownloadEngine @Inject constructor(
                         )
                     }
                 } else {
-                    retryOrFail(row, reason = failure.reason.name, message = failure.message)
+                    retryOrFail(row, reason = failure.reason.name, message = failure.message, nowMillis)
                 }
             }
-            else -> retryOrFail(row, reason = failure.reason.name, message = failure.message)
+            else -> retryOrFail(row, reason = failure.reason.name, message = failure.message, nowMillis)
         }
     }
 
@@ -367,8 +402,18 @@ class CloudDownloadEngine @Inject constructor(
         dao.getRowsInStates(states).forEach { transitionAndPersist(it, to, extra) }
     }
 
-    private fun resolveBackend(row: CloudDownloadEntity): DownloadStorageBackend =
-        storageRegistry.backendFor(DownloadStorageBackendId.valueOf(row.storageBackend))
+    /**
+     * `null`, not a thrown exception, for a `storage_backend` value this build doesn't
+     * recognize — the same "a row a newer version wrote" scenario [CloudDownloadQuality
+     * .fromCode] already documents for `quality`. [DownloadStorageRegistry.backendFor] itself
+     * still throws for an unregistered *known* id (a wiring bug, not a runtime fact) — this is
+     * only the string-to-enum step ahead of it, which is a data concern, not a wiring one.
+     */
+    private fun resolveBackend(row: CloudDownloadEntity): DownloadStorageBackend? =
+        resolveBackendId(row.storageBackend)?.let { storageRegistry.backendFor(it) }
+
+    private fun resolveBackendId(rawStorageBackend: String): DownloadStorageBackendId? =
+        runCatching { DownloadStorageBackendId.valueOf(rawStorageBackend) }.getOrNull()
 
     private fun CloudDownloadEntity.resolvedQuality(): CloudDownloadQuality =
         CloudDownloadQuality.fromCode(quality) ?: CloudDownloadQuality.MAX

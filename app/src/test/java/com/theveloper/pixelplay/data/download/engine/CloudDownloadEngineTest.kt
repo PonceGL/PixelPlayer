@@ -151,6 +151,7 @@ class CloudDownloadEngineTest {
         errorCode: String? = null,
         stagingPath: String? = null,
         storageRef: String? = null,
+        storageBackend: String = DownloadStorageBackendId.APP_PRIVATE.name,
     ) = CloudDownloadEntity(
         id = "$SOURCE_TYPE:$remoteId",
         sourceId = SOURCE_TYPE,
@@ -158,7 +159,7 @@ class CloudDownloadEngineTest {
         requestedQuality = CloudDownloadQuality.MAX.code,
         quality = CloudDownloadQuality.MAX.code,
         state = state.name,
-        storageBackend = DownloadStorageBackendId.APP_PRIVATE.name,
+        storageBackend = storageBackend,
         storageRoot = root.absolutePath,
         stagingPath = stagingPath,
         storageRef = storageRef,
@@ -451,6 +452,75 @@ class CloudDownloadEngineTest {
 
         assertNull(dao.getById("$SOURCE_TYPE:item-1"))
         assertFalse(staging.exists())
+    }
+
+    // ─── An unrecognized storage_backend degrades one row, never crashes the pass ─
+
+    /**
+     * A row with a `storage_backend` this build doesn't know (e.g. one written by a newer app
+     * version) must not throw `DownloadStorageBackendId.valueOf(...)` uncaught — that would
+     * take the whole `runQueue()` pass down with it, failing every other row's attempt too.
+     */
+    @Test
+    fun `a row with an unrecognized storage backend fails on its own, without crashing the pass`() = runTest {
+        server.enqueue(MockResponse.Builder().code(200).body("bytes").build())
+        dao.rows["$SOURCE_TYPE:unknown-backend"] =
+            row(remoteId = "unknown-backend", state = CloudDownloadState.QUEUED, storageBackend = "SOME_FUTURE_BACKEND")
+        dao.rows["$SOURCE_TYPE:item-1"] = row(remoteId = "item-1", state = CloudDownloadState.QUEUED)
+
+        engine.runQueue()
+
+        assertEquals(CloudDownloadState.FAILED.name, dao.getById("$SOURCE_TYPE:unknown-backend")!!.state)
+        // The other row's own attempt still ran to completion in the same pass.
+        assertEquals(CloudDownloadState.COMPLETED.name, dao.getById("$SOURCE_TYPE:item-1")!!.state)
+    }
+
+    // ─── A retried attempt's staging file must stay recognizable as "live" ─────
+
+    /**
+     * `sweepOrphans()` and `requestCancel()` only know a `.part` file is still owned by a row
+     * through `stagingPath` — if `processOne` never wrote it back onto the row, every retry's
+     * own staging file would look identical to abandoned garbage the very next sweep.
+     */
+    @Test
+    fun `a failed attempt still persists the staging file's path onto the row`() = runTest {
+        server.enqueue(MockResponse.Builder().code(500).build())
+        dao.rows["$SOURCE_TYPE:item-1"] = row(state = CloudDownloadState.QUEUED)
+
+        engine.runQueue()
+
+        val retried = dao.getById("$SOURCE_TYPE:item-1")!!
+        assertEquals(CloudDownloadState.RETRY_WAIT.name, retried.state)
+        // Not asserting the file itself exists on disk: a plain 500 never gets past the status
+        // check in HttpFileDownloader, so no bytes — and no staging file — are ever written.
+        // What this test is about is the *row* remembering the path it staged to.
+        assertTrue(retried.stagingPath != null)
+    }
+
+    // ─── The consecutive-416 marker must survive an unrelated process restart ─
+
+    @Test
+    fun `reapStaleActiveRows preserves a prior RANGE_NOT_SATISFIABLE marker`() = runTest {
+        dao.rows["$SOURCE_TYPE:item-1"] =
+            row(state = CloudDownloadState.RUNNING, errorCode = "RANGE_NOT_SATISFIABLE")
+
+        engine.reapStaleActiveRows(nowMillis = 5_000L)
+
+        assertEquals("RANGE_NOT_SATISFIABLE", dao.getById("$SOURCE_TYPE:item-1")!!.errorCode)
+    }
+
+    @Test
+    fun `a second 416 surviving a process restart still fails as corrupt, not retries forever`() = runTest {
+        dao.rows["$SOURCE_TYPE:item-1"] =
+            row(state = CloudDownloadState.RUNNING, errorCode = "RANGE_NOT_SATISFIABLE")
+        engine.reapStaleActiveRows(nowMillis = 1_000L)
+        server.enqueue(MockResponse.Builder().code(416).build())
+
+        engine.runQueue(nowMillis = 1_000L)
+
+        val failed = dao.getById("$SOURCE_TYPE:item-1")!!
+        assertEquals(CloudDownloadState.FAILED.name, failed.state)
+        assertEquals("FAILED_CORRUPT", failed.errorCode)
     }
 
     // ─── Structural: nothing under engine/ knows Jellyfin exists ──────────
