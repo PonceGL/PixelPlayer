@@ -197,6 +197,16 @@ class CloudDownloadEngine @Inject constructor(
     }
 
     /**
+     * Whether there's a row the queue is actively handling right now, or would pick up on the
+     * very next [runQueue] pass — `PENDING`/`QUEUED`/`RUNNING`/`VERIFYING`. A row sitting in
+     * `RETRY_WAIT` doesn't count: waking up for its backoff is a scheduler's job (whatever
+     * calls this to decide "can I stop now"), not a reason to keep running idle in the
+     * meantime. Used by whoever owns the foreground service's lifecycle.
+     */
+    suspend fun hasActiveWork(): Boolean =
+        dao.getRowsInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name)).isNotEmpty()
+
+    /**
      * Cancels [downloadId] — its in-flight transfer if one is running, then its row and files.
      * Cancels the job **before** reading the row: [cancelAndJoin] doesn't return until the job
      * has fully finished (including any write [processOne] was mid-flight on), so the row this
