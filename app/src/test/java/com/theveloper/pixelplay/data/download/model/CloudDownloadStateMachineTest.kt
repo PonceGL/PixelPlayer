@@ -30,7 +30,11 @@ class CloudDownloadStateMachineTest {
         QUEUED to setOf(RUNNING, CANCELLING),
         RUNNING to setOf(VERIFYING, RETRY_WAIT, BLOCKED, FAILED, CANCELLING),
         VERIFYING to setOf(COMPLETED, RETRY_WAIT, BLOCKED, FAILED, CANCELLING),
-        COMPLETED to setOf(MISSING, STALE, CANCELLING),
+        // BLOCKED added alongside MISSING/STALE once the download engine needed to tell "the
+        // file is actually gone" (MISSING, self-heals on its own) apart from "the file is fine
+        // but its volume isn't reachable right now" (BLOCKED, must not self-heal — retrying
+        // would leave two copies once the volume comes back).
+        COMPLETED to setOf(MISSING, STALE, BLOCKED, CANCELLING),
         RETRY_WAIT to setOf(QUEUED, CANCELLING),
         BLOCKED to setOf(QUEUED, CANCELLING),
         FAILED to setOf(QUEUED, CANCELLING),
