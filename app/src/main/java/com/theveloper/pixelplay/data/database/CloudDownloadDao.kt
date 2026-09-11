@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 
 /**
  * Deliberately minimal: enough to prove the schema and the one-row-per-remote-item invariant.
@@ -36,4 +37,22 @@ interface CloudDownloadDao {
 
     @Query("DELETE FROM cloud_downloads WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    /** Whole-row read-modify-write. The engine always reads a row before changing it, so a
+     * matching set of narrow `UPDATE ... SET x = :x` methods would only be more surface to
+     * keep in sync, never more correct. */
+    @Update
+    suspend fun update(entity: CloudDownloadEntity)
+
+    @Query("SELECT * FROM cloud_downloads WHERE state = :state ORDER BY priority DESC, enqueued_at ASC")
+    suspend fun getRowsInStateByPriority(state: String): List<CloudDownloadEntity>
+
+    @Query("SELECT * FROM cloud_downloads WHERE state IN (:states)")
+    suspend fun getRowsInStates(states: List<String>): List<CloudDownloadEntity>
+
+    @Query("SELECT storage_ref FROM cloud_downloads WHERE storage_ref IS NOT NULL")
+    suspend fun getAllPublishedRefs(): List<String>
+
+    @Query("SELECT staging_path FROM cloud_downloads WHERE staging_path IS NOT NULL AND state IN (:states)")
+    suspend fun getStagingPathsForStates(states: List<String>): List<String>
 }
