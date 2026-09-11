@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 43,
-    "identityHash": "c6aa11823f6767f0081200808895d780",
+    "identityHash": "bfe40ff56a2a808bdcc8a1cc0d84b16f",
     "entities": [
       {
         "tableName": "album_art_themes",
@@ -2914,15 +2914,6 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_cloud_downloads_song_id` ON `${TABLE_NAME}` (`song_id`)"
           },
           {
-            "name": "index_cloud_downloads_state",
-            "unique": false,
-            "columnNames": [
-              "state"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_cloud_downloads_state` ON `${TABLE_NAME}` (`state`)"
-          },
-          {
             "name": "index_cloud_downloads_state_next_retry_at",
             "unique": false,
             "columnNames": [
@@ -3093,7 +3084,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c6aa11823f6767f0081200808895d780')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'bfe40ff56a2a808bdcc8a1cc0d84b16f')"
     ]
   }
 }
