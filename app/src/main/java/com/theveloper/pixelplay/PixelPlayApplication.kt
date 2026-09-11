@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.diagnostics.AdvancedPerformanceDiagnosticsController
 import com.theveloper.pixelplay.data.repository.ArtistImageRepository
 import com.theveloper.pixelplay.data.telegram.TelegramRepository
+import com.theveloper.pixelplay.data.worker.CloudDownloadScheduler
 import com.theveloper.pixelplay.presentation.viewmodel.LibraryStateHolder
 import com.theveloper.pixelplay.presentation.viewmodel.ThemeStateHolder
 import com.theveloper.pixelplay.utils.AlbumArtCacheManager
@@ -72,6 +73,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
     @Inject
     lateinit var advancedPerformanceDiagnosticsController: dagger.Lazy<AdvancedPerformanceDiagnosticsController>
 
+    @Inject
+    lateinit var cloudDownloadScheduler: dagger.Lazy<CloudDownloadScheduler>
+
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // AÑADE EL COMPANION OBJECT
@@ -120,6 +124,9 @@ class PixelPlayApplication : Application(), ImageLoaderFactory, Configuration.Pr
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
         advancedPerformanceDiagnosticsController.get().start(startupScope)
+        // Forces this @Singleton into existence now — its init{} is what starts reacting to
+        // the downloads feature flag; nothing else in the app injects it.
+        cloudDownloadScheduler.get()
 
         startupScope.launch {
             AlbumArtUtils.migrateLegacyCacheLocation(this@PixelPlayApplication)

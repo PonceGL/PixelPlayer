@@ -207,6 +207,16 @@ class CloudDownloadEngine @Inject constructor(
         dao.countInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name)) > 0
 
     /**
+     * Whether `cloud_downloads` has anything left to do at all, [RETRY_WAIT] included. This is
+     * what the periodic scheduler worker asks before deciding whether starting the foreground
+     * service is worth it — unlike [hasActiveWork], a row waiting out a backoff still counts
+     * here: it's exactly the row that needs the service running again once its wait is over,
+     * which the worker's periodic firing is what eventually delivers.
+     */
+    suspend fun hasQueuedWork(): Boolean =
+        dao.countInStates(listOf(PENDING.name, QUEUED.name, RUNNING.name, VERIFYING.name, RETRY_WAIT.name)) > 0
+
+    /**
      * Cancels [downloadId] — its in-flight transfer if one is running, then its row and files.
      * Cancels the job **before** reading the row: [cancelAndJoin] doesn't return until the job
      * has fully finished (including any write [processOne] was mid-flight on), so the row this
