@@ -657,4 +657,12 @@
     <string name="settings_pause_on_volume_zero_desc">Automatically pause playback when the volume is set to 0</string>
     <string name="cloud_download_settings_title">Cloud downloads (experimental)</string>
     <string name="cloud_download_settings_subtitle">Download songs from connected cloud sources to play them offline. Files are stored in this app\'s private storage.</string>
+    <string name="cloud_download_channel_name">Cloud downloads</string>
+    <string name="cloud_download_channel_description">Progress notifications for songs downloading from a connected cloud source</string>
+    <string name="cloud_download_notification_starting">Starting downloads…</string>
+    <string name="cloud_download_notification_summary">%1$s of %2$s</string>
+    <plurals name="cloud_download_notification_title">
+        <item quantity="one">Downloading %d song</item>
+        <item quantity="other">Downloading %d songs</item>
+    </plurals>
 </resources>
