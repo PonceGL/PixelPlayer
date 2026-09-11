@@ -61,7 +61,10 @@ object JellyfinResponseParser {
             bitRate = firstSource?.optInt("Bitrate")?.let { it / 1000 }, // bps to kbps
             contentType = firstSource?.optString("Container")?.let { containerToMimeType(it) },
             path = firstSource?.optString("Path", "") ?: json.optString("Path", ""),
-            size = firstSource?.optLong("Size"),
+            // optLong("Size") with no default returns 0, not null, when the key is absent —
+            // indistinguishable from a genuine zero-byte file. The -1L sentinel is how
+            // JellyfinCloudDownloadSource.toRemoteItemInfo() already guards this exact field.
+            size = firstSource?.optLong("Size", -1L)?.takeIf { it >= 0 },
             playCount = json.optJSONObject("UserData")?.optInt("PlayCount", 0) ?: 0
         )
     }
