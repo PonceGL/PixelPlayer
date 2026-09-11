@@ -53,7 +53,14 @@ object CloudDownloadStateMachine {
         QUEUED to setOf(RUNNING),
         RUNNING to setOf(VERIFYING, RETRY_WAIT, BLOCKED, FAILED),
         VERIFYING to setOf(COMPLETED, RETRY_WAIT, BLOCKED, FAILED),
-        COMPLETED to setOf(MISSING, STALE),
+        // BLOCKED joins the two edges the original diagram drew (self-healing to MISSING/STALE)
+        // once a third case turned up while building the engine that consumes this table: a
+        // completed file that isn't *gone*, just unreachable right now (its volume unmounted).
+        // Re-downloading a file that still exists, just on a card that's temporarily out, would
+        // leave two copies once the card comes back — so that case must not self-heal the way
+        // MISSING does, and BLOCKED is exactly the state that already means "don't retry on your
+        // own, something external has to clear first".
+        COMPLETED to setOf(MISSING, STALE, BLOCKED),
         RETRY_WAIT to setOf(QUEUED),
         BLOCKED to setOf(QUEUED),
         FAILED to setOf(QUEUED),
