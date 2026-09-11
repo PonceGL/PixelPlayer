@@ -22,10 +22,14 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
 
 /**
- * A single row in an actions list (rename, delete, export, ...) for a library collection
- * (playlist, album, artist). `P.3`: extracted from `PlaylistDetailScreen`'s private
- * `PlaylistActionItem` — the composable itself never depended on anything playlist-specific,
- * and F4's collection detail screens (album, artist) reuse the same row.
+ * A single row in an actions list (rename, delete, export, ...) for a library collection.
+ * Extracted from `PlaylistDetailScreen`'s private `PlaylistActionItem` — the composable itself
+ * never depended on anything playlist-specific, so other collection detail screens (album,
+ * artist) can reuse it once they exist; `PlaylistDetailScreen` is the only caller today.
+ *
+ * [enabled] mirrors the source `PlaylistActionItem`'s disabled visual (38% content alpha,
+ * `clickable` disabled) — needed by the "send to watch" row, which disables itself while a
+ * batch transfer is already running.
  */
 @Composable
 fun CollectionActionItem(
