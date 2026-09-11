@@ -66,19 +66,14 @@ object AudioMetadataReader {
     }
 
     fun read(file: File, readArtwork: Boolean = true): AudioMetadata? =
-        PerformanceMetrics.time(PerformanceMetrics.Timings.METADATA_READ) {
-            try {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                    buildAudioMetadata(
-                        dupFd = { fd.dup().detachFd() },
-                        readArtwork = readArtwork,
-                        logLabel = file.name,
-                        jAudioTaggerFallbackFile = file,
-                    )
-                }
-            } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Unable to read metadata from file: ${file.absolutePath}")
-                null
+        timedRead("file: ${file.absolutePath}") {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                buildAudioMetadata(
+                    pfd = fd,
+                    readArtwork = readArtwork,
+                    logLabel = file.name,
+                    jAudioTaggerFallbackFile = file,
+                )
             }
         }
 
@@ -104,32 +99,46 @@ object AudioMetadataReader {
      * different descriptors stay distinguishable in logcat. Defaults to a generic tag.
      */
     fun read(pfd: ParcelFileDescriptor, readArtwork: Boolean = true, label: String = "descriptor"): AudioMetadata? =
+        timedRead("descriptor") {
+            buildAudioMetadata(
+                pfd = pfd,
+                readArtwork = readArtwork,
+                logLabel = label,
+                jAudioTaggerFallbackFile = null,
+            )
+        }
+
+    /**
+     * Times [block] under [PerformanceMetrics.Timings.METADATA_READ] and turns any exception it
+     * throws into a logged `null` — the shared wrapper for both [read] overloads. [errorContext]
+     * is only used in that log line (e.g. "file: /path/to/song.mp3" or "descriptor").
+     */
+    private inline fun timedRead(errorContext: String, block: () -> AudioMetadata): AudioMetadata? =
         PerformanceMetrics.time(PerformanceMetrics.Timings.METADATA_READ) {
             try {
-                buildAudioMetadata(
-                    dupFd = { pfd.dup().detachFd() },
-                    readArtwork = readArtwork,
-                    logLabel = label,
-                    jAudioTaggerFallbackFile = null,
-                )
+                block()
             } catch (error: Exception) {
-                Timber.tag(TAG).e(error, "Unable to read metadata from descriptor")
+                Timber.tag(TAG).e(error, "Unable to read metadata from $errorContext")
                 null
             }
         }
 
     /**
-     * Shared TagLib read path for both [read] overloads. [dupFd] must return a *fresh* duplicated
-     * native descriptor on every call — never the same one twice, and never one the caller still
-     * needs. [jAudioTaggerFallbackFile], when non-null, is used if TagLib leaves essential fields
-     * or requested artwork unresolved.
+     * Shared TagLib read path for both [read] overloads. Every TagLib call goes through
+     * [pfd]`.dup().detachFd()` — a fresh native descriptor per call, never the same one twice
+     * and never a bare `detachFd()` on [pfd] itself — so [pfd] is never consumed here; it is
+     * owned by the caller, who is free to close it (in their own `use { }`) once this returns.
+     * [jAudioTaggerFallbackFile], when non-null, is used if TagLib leaves essential fields or
+     * requested artwork unresolved.
      */
     private fun buildAudioMetadata(
-        dupFd: () -> Int,
+        pfd: ParcelFileDescriptor,
         readArtwork: Boolean,
         logLabel: String,
         jAudioTaggerFallbackFile: File?,
     ): AudioMetadata {
+        fun dupFd(): Int = pfd.dup().detachFd()
+
         // Get audio properties for duration
         val audioProperties = TagLib.getAudioProperties(dupFd())
         val durationMs = audioProperties?.length?.takeIf { it > 0 }?.let { it * 1000L }
