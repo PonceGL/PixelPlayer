@@ -105,15 +105,13 @@ class CloudDownloadEngine @Inject constructor(
      * immediate: the process dying isn't a reason to make the user wait out a real backoff.
      */
     suspend fun reapStaleActiveRows(nowMillis: Long = System.currentTimeMillis()) {
-        dao.getRowsInStates(listOf(RUNNING.name, VERIFYING.name)).forEach { row ->
-            transitionAndPersist(row, RETRY_WAIT) {
-                it.copy(
-                    attemptCount = it.attemptCount + 1,
-                    nextRetryAt = nowMillis,
-                    errorCode = "PROCESS_RESTART",
-                    errorMessage = "Resumed after the app process was killed mid-transfer",
-                )
-            }
+        transitionAll(listOf(RUNNING.name, VERIFYING.name), RETRY_WAIT) {
+            it.copy(
+                attemptCount = it.attemptCount + 1,
+                nextRetryAt = nowMillis,
+                errorCode = "PROCESS_RESTART",
+                errorMessage = "Resumed after the app process was killed mid-transfer",
+            )
         }
     }
 
@@ -129,7 +127,7 @@ class CloudDownloadEngine @Inject constructor(
         dao.getRowsInStates(listOf(COMPLETED.name)).forEach { row ->
             val ref = row.storageRef ?: return@forEach
             val backendId = DownloadStorageBackendId.valueOf(row.storageBackend)
-            val backend = storageRegistry.backendFor(backendId)
+            val backend = resolveBackend(row)
 
             if (backend.ensureReady(row.storageRoot).isFailure) {
                 transitionAndPersist(row, BLOCKED) {
@@ -169,8 +167,7 @@ class CloudDownloadEngine @Inject constructor(
                 continue
             }
 
-            val quality = CloudDownloadQuality.fromCode(row.quality) ?: CloudDownloadQuality.MAX
-            val cap = source.maxConcurrency(quality)
+            val cap = source.maxConcurrency(row.resolvedQuality())
             val counter = perSourceInFlight.getOrPut(row.sourceId) { AtomicInteger(0) }
             if (counter.get() >= cap) continue // this source is at capacity; try it again next pass
             if (!globalSlots.tryAcquire()) break // no global slots left this pass
@@ -199,7 +196,7 @@ class CloudDownloadEngine @Inject constructor(
         activeJobs[downloadId]?.cancelAndJoin()
 
         val backendId = DownloadStorageBackendId.valueOf(row.storageBackend)
-        val backend = storageRegistry.backendFor(backendId)
+        val backend = resolveBackend(row)
         row.stagingPath?.let { backend.delete(StoredRef(backendId, it)) }
         row.storageRef?.let { backend.delete(StoredRef(backendId, it)) }
         dao.deleteById(downloadId)
@@ -207,7 +204,7 @@ class CloudDownloadEngine @Inject constructor(
     }
 
     private suspend fun promotePendingRows() {
-        dao.getRowsInStateByPriority(PENDING.name).forEach { row -> transitionAndPersist(row, QUEUED) }
+        transitionAll(listOf(PENDING.name), QUEUED)
     }
 
     /**
@@ -237,8 +234,7 @@ class CloudDownloadEngine @Inject constructor(
         }
         stateStore.update(key, RUNNING, downloadedBytes = 0L, expectedBytes = row.expectedBytes)
 
-        val backendId = DownloadStorageBackendId.valueOf(row.storageBackend)
-        val backend = storageRegistry.backendFor(backendId)
+        val backend = resolveBackend(row)
         if (backend.ensureReady(row.storageRoot).isFailure) {
             transitionAndPersist(row, BLOCKED) {
                 it.copy(errorCode = "UNMOUNTED", errorMessage = "Storage volume is not available")
@@ -246,8 +242,7 @@ class CloudDownloadEngine @Inject constructor(
             return
         }
 
-        val quality = CloudDownloadQuality.fromCode(row.quality) ?: CloudDownloadQuality.MAX
-        val sourceSpec = source.buildDownloadRequest(row.remoteId, quality).getOrElse { error ->
+        val sourceSpec = source.buildDownloadRequest(row.remoteId, row.resolvedQuality()).getOrElse { error ->
             retryOrFail(row, reason = "REQUEST_FAILED", message = error.message ?: "buildDownloadRequest failed")
             return
         }
@@ -299,20 +294,23 @@ class CloudDownloadEngine @Inject constructor(
      * inconsistent about this file, not that the retry was unlucky) becomes terminal.
      */
     private suspend fun handleFailure(row: CloudDownloadEntity, failure: DownloadOutcome.Failure) {
-        when {
-            failure.reason == DownloadFailureReason.UNEXPECTED_CONTENT_TYPE -> {
+        when (failure.reason) {
+            DownloadFailureReason.UNEXPECTED_CONTENT_TYPE -> {
                 transitionAndPersist(row, BLOCKED) {
                     it.copy(errorCode = failure.reason.name, errorMessage = failure.message)
                 }
             }
-            failure.reason == DownloadFailureReason.RANGE_NOT_SATISFIABLE &&
-                row.errorCode == DownloadFailureReason.RANGE_NOT_SATISFIABLE.name -> {
-                transitionAndPersist(row, FAILED) {
-                    it.copy(
-                        attemptCount = it.attemptCount + 1,
-                        errorCode = "FAILED_CORRUPT",
-                        errorMessage = failure.message,
-                    )
+            DownloadFailureReason.RANGE_NOT_SATISFIABLE -> {
+                if (row.errorCode == DownloadFailureReason.RANGE_NOT_SATISFIABLE.name) {
+                    transitionAndPersist(row, FAILED) {
+                        it.copy(
+                            attemptCount = it.attemptCount + 1,
+                            errorCode = "FAILED_CORRUPT",
+                            errorMessage = failure.message,
+                        )
+                    }
+                } else {
+                    retryOrFail(row, reason = failure.reason.name, message = failure.message)
                 }
             }
             else -> retryOrFail(row, reason = failure.reason.name, message = failure.message)
@@ -357,6 +355,23 @@ class CloudDownloadEngine @Inject constructor(
         dao.update(updated)
         return updated
     }
+
+    /** Every row currently in one of [states], moved to [to] (shared shape of
+     * [promotePendingRows] and [reapStaleActiveRows] — anything that also branches to a
+     * *different* target per row, like [refreshCompletedRowHealth], doesn't fit this shape). */
+    private suspend fun transitionAll(
+        states: List<String>,
+        to: CloudDownloadState,
+        extra: (CloudDownloadEntity) -> CloudDownloadEntity = { it },
+    ) {
+        dao.getRowsInStates(states).forEach { transitionAndPersist(it, to, extra) }
+    }
+
+    private fun resolveBackend(row: CloudDownloadEntity): DownloadStorageBackend =
+        storageRegistry.backendFor(DownloadStorageBackendId.valueOf(row.storageBackend))
+
+    private fun CloudDownloadEntity.resolvedQuality(): CloudDownloadQuality =
+        CloudDownloadQuality.fromCode(quality) ?: CloudDownloadQuality.MAX
 
     private companion object {
         const val MAX_CONCURRENT_DOWNLOADS = 3
