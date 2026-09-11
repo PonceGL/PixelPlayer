@@ -40,6 +40,7 @@ class JellyfinDaoTest {
         playlistId: String,
         jellyfinId: String = "item-1",
         size: Long? = null,
+        dateAdded: Long = 1_000L,
     ) = JellyfinSongEntity(
         id = rowId,
         jellyfinId = jellyfinId,
@@ -57,7 +58,7 @@ class JellyfinDaoTest {
         bitRate = null,
         mimeType = null,
         path = "/jellyfin/$jellyfinId",
-        dateAdded = 1_000L,
+        dateAdded = dateAdded,
         size = size,
     )
 
@@ -85,5 +86,22 @@ class JellyfinDaoTest {
         dao.insertSong(song(rowId = "playlist-1_item-1", playlistId = "playlist-1", size = 4_200_000L))
 
         assertEquals(4_200_000L, dao.getKnownSongSize("item-1"))
+    }
+
+    /**
+     * A stale row and a freshly-resynced row can disagree on size (the file changed on the
+     * server between two syncs). Without an explicit order, which one SQLite returns is
+     * unspecified — this pins it to the most recently synced row, never the stale one.
+     */
+    @Test
+    fun getKnownSongSize_prefersTheMostRecentlySyncedRow_whenTwoRowsDisagree() = runTest {
+        dao.insertSong(
+            song(rowId = "library_item-1", playlistId = "__library__", size = 1_000L, dateAdded = 1_000L)
+        )
+        dao.insertSong(
+            song(rowId = "playlist-1_item-1", playlistId = "playlist-1", size = 2_000L, dateAdded = 2_000L)
+        )
+
+        assertEquals(2_000L, dao.getKnownSongSize("item-1"))
     }
 }
