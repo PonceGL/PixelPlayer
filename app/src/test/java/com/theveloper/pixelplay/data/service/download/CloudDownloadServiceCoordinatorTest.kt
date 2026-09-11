@@ -80,4 +80,47 @@ class CloudDownloadServiceCoordinatorTest {
 
         coVerify(exactly = 2) { engine.start(any()) }
     }
+
+    /**
+     * [scope] is a live foreground `Service`'s scope with no installed exception handler in
+     * production — an engine pass that throws must not propagate out of [CoroutineScope.launch]
+     * and take the whole app process down with it over one broken pass.
+     */
+    @Test
+    fun `a pass that throws does not propagate out of the launched coroutine`() = runTest {
+        coEvery { engine.start(any()) } throws IllegalStateException("boom")
+
+        coordinator.triggerPass(this) {}
+        advanceUntilIdle() // must not rethrow here
+
+        assertTrue(true) // reaching this line at all is the assertion
+    }
+
+    @Test
+    fun `onIdle is not called when the pass fails`() = runTest {
+        coEvery { engine.start(any()) } throws IllegalStateException("boom")
+        var idleCalled = false
+
+        coordinator.triggerPass(this) { idleCalled = true }
+        advanceUntilIdle()
+
+        assertFalse(idleCalled)
+    }
+
+    /**
+     * A failed pass must still free [CloudDownloadServiceCoordinator]'s single-flight guard —
+     * otherwise one broken pass would permanently wedge every future trigger as "already
+     * running".
+     */
+    @Test
+    fun `a trigger after a failed pass starts a fresh one, not wedged by the failure`() = runTest {
+        coEvery { engine.start(any()) } throws IllegalStateException("boom")
+
+        coordinator.triggerPass(this) {}
+        advanceUntilIdle()
+        coordinator.triggerPass(this) {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { engine.start(any()) }
+    }
 }
