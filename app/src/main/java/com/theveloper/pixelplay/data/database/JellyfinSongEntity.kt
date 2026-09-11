@@ -32,7 +32,13 @@ data class JellyfinSongEntity(
     val bitRate: Int?,
     @ColumnInfo(name = "mime_type") val mimeType: String?,
     val path: String,
-    @ColumnInfo(name = "date_added") val dateAdded: Long
+    @ColumnInfo(name = "date_added") val dateAdded: Long,
+    // Nullable, no default value at the column level: existing rows stay NULL after the
+    // migration that adds this column, and so does every row created before the parser is
+    // wired to populate it. There can be several rows per Jellyfin song id (one per playlist
+    // membership), so a caller reading this back must pick one non-null value, not assume
+    // uniqueness.
+    val size: Long? = null
 )
 
 fun JellyfinSongEntity.toSong(): Song {

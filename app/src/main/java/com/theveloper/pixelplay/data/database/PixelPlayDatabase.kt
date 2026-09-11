@@ -34,9 +34,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         JellyfinSongEntity::class,
         JellyfinPlaylistEntity::class,
         AiCacheEntity::class,
-        AiUsageEntity::class
+        AiUsageEntity::class,
+        CloudDownloadEntity::class,
+        CloudDownloadSubscriptionEntity::class,
+        CloudDownloadRefEntity::class
     ],
-    version = 42,
+    version = 43,
     exportSchema = true
 )
 abstract class PixelPlayDatabase : RoomDatabase() {
@@ -55,6 +58,7 @@ abstract class PixelPlayDatabase : RoomDatabase() {
     abstract fun navidromeDao(): NavidromeDao
     abstract fun jellyfinDao(): JellyfinDao
     abstract fun aiCacheDao(): AiCacheDao
+    abstract fun cloudDownloadDao(): CloudDownloadDao
     abstract fun aiUsageDao(): AiUsageDao
 
     companion object {
@@ -744,6 +748,102 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_navidrome_songs_navidrome_id ON navidrome_songs(navidrome_id)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_navidrome_songs_playlist_id ON navidrome_songs(playlist_id)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_navidrome_songs_playlist_id_date_added ON navidrome_songs(playlist_id, date_added)")
+            }
+        }
+
+        // Cloud downloads (offline playback from a remote source, e.g. Jellyfin). Adds three
+        // new tables and one nullable column on an existing one. Every statement is guarded so
+        // this migration is safe to run twice, and so a database that already has some or all
+        // of this content (a previous partial attempt, or a repair migration reusing this same
+        // body under a different version number) doesn't fail or duplicate work.
+        val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS `cloud_downloads` (
+                            `id` TEXT NOT NULL,
+                            `source_id` INTEGER NOT NULL,
+                            `remote_id` TEXT NOT NULL,
+                            `song_id` INTEGER,
+                            `requested_quality` INTEGER NOT NULL,
+                            `quality` INTEGER NOT NULL,
+                            `state` TEXT NOT NULL,
+                            `storage_backend` TEXT NOT NULL,
+                            `storage_root` TEXT NOT NULL,
+                            `storage_ref` TEXT,
+                            `staging_path` TEXT,
+                            `expected_bytes` INTEGER,
+                            `downloaded_bytes` INTEGER NOT NULL DEFAULT 0,
+                            `total_bytes` INTEGER,
+                            `http_etag` TEXT,
+                            `http_last_modified` TEXT,
+                            `container` TEXT,
+                            `mime_type` TEXT,
+                            `has_embedded_art` INTEGER,
+                            `error_code` TEXT,
+                            `error_message` TEXT,
+                            `attempt_count` INTEGER NOT NULL DEFAULT 0,
+                            `next_retry_at` INTEGER,
+                            `priority` INTEGER NOT NULL DEFAULT 0,
+                            `enqueued_at` INTEGER NOT NULL,
+                            `started_at` INTEGER,
+                            `completed_at` INTEGER,
+                            PRIMARY KEY(`id`)
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_song_id` ON `cloud_downloads` (`song_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_state` ON `cloud_downloads` (`state`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_downloads_state_next_retry_at` ON `cloud_downloads` (`state`, `next_retry_at`)")
+
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS `cloud_download_subscriptions` (
+                            `id` TEXT NOT NULL,
+                            `source_id` INTEGER NOT NULL,
+                            `collection_type` TEXT NOT NULL,
+                            `remote_collection_id` TEXT NOT NULL,
+                            `display_name` TEXT NOT NULL,
+                            `quality` INTEGER NOT NULL,
+                            `storage_backend` TEXT NOT NULL,
+                            `storage_root` TEXT NOT NULL,
+                            `auto_sync` INTEGER NOT NULL DEFAULT 1,
+                            `state` TEXT NOT NULL,
+                            `created_at` INTEGER NOT NULL,
+                            `last_reconciled_at` INTEGER,
+                            `last_reconcile_error` TEXT,
+                            PRIMARY KEY(`id`)
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "`index_cloud_download_subscriptions_source_id_collection_type_remote_collection_id` " +
+                        "ON `cloud_download_subscriptions` (`source_id`, `collection_type`, `remote_collection_id`)"
+                )
+
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS `cloud_download_refs` (
+                            `subscription_id` TEXT NOT NULL,
+                            `download_id` TEXT NOT NULL,
+                            `added_at` INTEGER NOT NULL,
+                            PRIMARY KEY(`subscription_id`, `download_id`),
+                            FOREIGN KEY(`subscription_id`) REFERENCES `cloud_download_subscriptions`(`id`) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cloud_download_refs_download_id` ON `cloud_download_refs` (`download_id`)")
+
+                // Nullable, no default. Existing rows stay NULL until the next sync; every
+                // read of this column must tolerate that, and there can be several rows per
+                // song here, so any lookup needs its own "pick one non-null value" rule.
+                if (tableExists(db, "jellyfin_songs")) {
+                    val columns = getTableColumns(db, "jellyfin_songs")
+                    if ("size" !in columns) {
+                        db.execSQL("ALTER TABLE `jellyfin_songs` ADD COLUMN `size` INTEGER")
+                    }
+                }
             }
         }
 

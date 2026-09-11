@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.PixelPlayApplication
 import com.theveloper.pixelplay.data.database.AlbumArtThemeDao
 import com.theveloper.pixelplay.data.database.EngagementDao
+import com.theveloper.pixelplay.data.database.CloudDownloadDao
 import com.theveloper.pixelplay.data.database.FavoritesDao
 import com.theveloper.pixelplay.data.database.GDriveDao
 import com.theveloper.pixelplay.data.database.LyricsDao
@@ -173,7 +174,8 @@ object AppModule {
             PixelPlayDatabase.MIGRATION_38_39,
             PixelPlayDatabase.MIGRATION_39_40,
             PixelPlayDatabase.MIGRATION_40_41,
-            PixelPlayDatabase.MIGRATION_41_42
+            PixelPlayDatabase.MIGRATION_41_42,
+            PixelPlayDatabase.MIGRATION_42_43
         )
             .addCallback(PixelPlayDatabase.createRuntimeArtifactsCallback())
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
@@ -204,6 +206,12 @@ object AppModule {
     @Provides
     fun provideMusicDao(database: PixelPlayDatabase): MusicDao { // Proveer MusicDao
         return database.musicDao()
+    }
+
+    @Singleton
+    @Provides
+    fun provideCloudDownloadDao(database: PixelPlayDatabase): CloudDownloadDao {
+        return database.cloudDownloadDao()
     }
 
     @Singleton
