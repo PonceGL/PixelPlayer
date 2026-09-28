@@ -27,7 +27,8 @@ data class AudioMetadata(
     val sampleRate: Int?,
     val artwork: AudioMetadataArtwork?,
     val replayGainTrackGainDb: Float? = null,
-    val replayGainAlbumGainDb: Float? = null
+    val replayGainAlbumGainDb: Float? = null,
+    val metadataDateAddedMillis: Long? = null
 )
 
 data class AudioMetadataArtwork(
@@ -38,6 +39,10 @@ data class AudioMetadataArtwork(
 object AudioMetadataReader {
 
     private const val TAG = "AudioMetadataReader"
+
+    /** See [MetadataDateAddedParser] for why the key differs by container. */
+    private const val DATE_ADDED_VORBIS_KEY = "DATE_ADDED"
+    private const val DATE_ADDED_DESCRIPTION_KEY = "Date Added"
 
     /**
      * Per-file diagnostic logging (TagLib property maps, parsed fields, fallback hits)
@@ -109,6 +114,7 @@ object AudioMetadataReader {
                     propertyMap = propertyMap,
                     keys = listOf("REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_ALBUM_GAIN_DB", "R128_ALBUM_GAIN")
                 )
+                val metadataDateAddedMillis = MetadataDateAddedParser.parse(propertyMap)
 
                 if (VERBOSE) Log.w(TAG, "TagLib result for ${file.name}: title=$title, artist=$artist, album=$album, genre=$genre")
 
@@ -152,7 +158,8 @@ object AudioMetadataReader {
                     sampleRate = sampleRate ?: fallback?.sampleRate,
                     artwork = artwork ?: fallback?.artwork,
                     replayGainTrackGainDb = replayGainTrackGainDb ?: fallback?.replayGainTrackGainDb,
-                    replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb
+                    replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb,
+                    metadataDateAddedMillis = metadataDateAddedMillis ?: fallback?.metadataDateAddedMillis
                 )
             }
         } catch (error: Exception) {
@@ -195,6 +202,9 @@ object AudioMetadataReader {
                 ?.substringBefore('/')?.toIntOrNull()
             val year = tag?.getFirst(FieldKey.YEAR)?.takeIf { it.isNotBlank() }
                 ?.take(4)?.toIntOrNull()
+            val metadataDateAddedMillis = tag?.let {
+                CustomTextTagReader.read(it, DATE_ADDED_VORBIS_KEY, DATE_ADDED_DESCRIPTION_KEY)
+            }?.let(MetadataDateAddedParser::parse)
 
             val durationMs = header?.trackLength?.takeIf { it > 0 }?.let { it * 1000L }
             val bitrate = header?.bitRateAsNumber?.takeIf { it > 0 }?.toInt()?.let { it * 1000 }
@@ -231,7 +241,8 @@ object AudioMetadataReader {
                 year = year,
                 bitrate = bitrate,
                 sampleRate = sampleRate,
-                artwork = artwork
+                artwork = artwork,
+                metadataDateAddedMillis = metadataDateAddedMillis
             )
         } catch (e: Exception) {
             Log.e(TAG, "JAudioTagger fallback FAILED for: ${file.name}", e)
