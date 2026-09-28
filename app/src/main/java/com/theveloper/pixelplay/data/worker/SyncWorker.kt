@@ -1101,6 +1101,7 @@ constructor(
         var discNumber = raw.discNumber
         var year = raw.year
         var genre: String? = genreMap[raw.id] ?: raw.genre // Use mapped genre as default, or direct genre from main cursor
+        var metadataDateAddedMillis: Long? = null
 
         val shouldAugmentMetadata =
                 deepScan ||
@@ -1132,7 +1133,7 @@ constructor(
                         if (meta.trackNumber != null) trackNumber = meta.trackNumber
                         if (meta.discNumber != null) discNumber = meta.discNumber
                         if (meta.year != null) year = meta.year
-
+                        metadataDateAddedMillis = meta.metadataDateAddedMillis
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)
@@ -1162,6 +1163,7 @@ constructor(
                             if (seconds > 0) TimeUnit.SECONDS.toMillis(seconds)
                             else System.currentTimeMillis()
                         },
+                metadataDateAdded = metadataDateAddedMillis,
                 mimeType = audioMetadata?.mimeType ?: raw.mimeType,
                 sampleRate = audioMetadata?.sampleRate,
                 bitrate = audioMetadata?.bitrate,
