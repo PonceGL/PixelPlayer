@@ -368,7 +368,11 @@ fun ArtistDetailScreen(
                                         isCurrentSong = stablePlayerState.currentSong?.id == song.id,
                                         isPlaying = stablePlayerState.isPlaying,
                                         onSongClick = {
-                                            playerViewModel.showAndPlaySong(song, section.songs)
+                                            playerViewModel.showAndPlaySong(
+                                                song,
+                                                uiState.songsInAlbumOrder,
+                                                artist.name
+                                            )
                                         },
                                         onMoreOptionsClick = {
                                             playerViewModel.selectSongForInfo(song)
