@@ -27,18 +27,20 @@ class PixelPlayDatabaseMigrationTest {
     @After
     fun tearDown() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        for (version in 25..41) {
+        for (version in 25..42) {
             context.deleteDatabase(databaseNameFor(version))
         }
         context.deleteDatabase(DB_NAME_33_TO_34)
         context.deleteDatabase(DB_NAME_23_TO_24_DRIFTED)
         context.deleteDatabase(DB_NAME_35_TO_36)
         context.deleteDatabase(DB_NAME_39_TO_40)
+        context.deleteDatabase(DB_NAME_42_TO_43)
+        context.deleteDatabase("$DB_NAME_42_TO_43-existing-rows")
     }
 
     @Test
     fun migrateEveryExportedSchemaToLatest() {
-        for (startVersion in 25..41) {
+        for (startVersion in 25..42) {
             helper.createDatabase(databaseNameFor(startVersion), startVersion).close()
 
             helper.runMigrationsAndValidate(
@@ -81,6 +83,68 @@ class PixelPlayDatabaseMigrationTest {
                 cursor.close()
                 db.close()
             }
+        }
+    }
+
+    @Test
+    fun migration42To43AddsMetadataDateAddedColumnToSongs() {
+        helper.createDatabase(DB_NAME_42_TO_43, 42).close()
+
+        helper.runMigrationsAndValidate(
+            DB_NAME_42_TO_43,
+            43,
+            true,
+            PixelPlayDatabase.MIGRATION_42_43
+        ).let { db ->
+            val cursor = db.query("PRAGMA table_info(`songs`)")
+            try {
+                val nameIndex = cursor.getColumnIndex("name")
+                val defaultValueIndex = cursor.getColumnIndex("dflt_value")
+                var foundMetadataDateAdded = false
+                var defaultValue: String? = null
+
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameIndex) == "metadata_date_added") {
+                        foundMetadataDateAdded = true
+                        defaultValue = cursor.getString(defaultValueIndex)
+                        break
+                    }
+                }
+
+                assertTrue(foundMetadataDateAdded)
+                assertEquals("NULL", defaultValue)
+            } finally {
+                cursor.close()
+                db.close()
+            }
+        }
+    }
+
+    @Test
+    fun migration42To43PreservesExistingSongsWithNullMetadataDateAdded() {
+        val dbName = "$DB_NAME_42_TO_43-existing-rows"
+        helper.createDatabase(dbName, 42).use { db ->
+            db.execSQL(
+                """
+                    INSERT INTO songs (
+                        id, title, artist_name, artist_id, album_name, album_id,
+                        content_uri_string, duration, file_path, parent_directory_path
+                    ) VALUES (1, 'Title', 'Artist', 1, 'Album', 1, 'content://1', 1000, '/a', '/')
+                """.trimIndent()
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            dbName,
+            43,
+            true,
+            PixelPlayDatabase.MIGRATION_42_43
+        ).let { db ->
+            db.query("SELECT metadata_date_added FROM songs WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+            }
+            db.close()
         }
     }
 
@@ -304,7 +368,7 @@ class PixelPlayDatabaseMigrationTest {
     }
 
     private object PixelPlayDatabaseVersion {
-        const val LATEST = 42
+        const val LATEST = 43
     }
 
     companion object {
@@ -312,6 +376,7 @@ class PixelPlayDatabaseMigrationTest {
         private const val DB_NAME_33_TO_34 = "migration-test-33-to-34"
         private const val DB_NAME_35_TO_36 = "migration-test-35-to-36"
         private const val DB_NAME_39_TO_40 = "migration-test-39-to-40"
+        private const val DB_NAME_42_TO_43 = "migration-test-42-to-43"
 
         private val ALL_MIGRATIONS = arrayOf(
             PixelPlayDatabase.MIGRATION_25_26,
@@ -330,7 +395,8 @@ class PixelPlayDatabaseMigrationTest {
             PixelPlayDatabase.MIGRATION_38_39,
             PixelPlayDatabase.MIGRATION_39_40,
             PixelPlayDatabase.MIGRATION_40_41,
-            PixelPlayDatabase.MIGRATION_41_42
+            PixelPlayDatabase.MIGRATION_41_42,
+            PixelPlayDatabase.MIGRATION_42_43
         )
     }
 }
