@@ -106,7 +106,7 @@ object AudioMetadataReader {
                 // "ARTIST=" Vorbis comments); taking only the first silently drops
                 // the rest, so join every non-blank value instead.
                 val artist = joinMultiValue(propertyMap["ARTIST"])
-                val artistsFromTag = propertyMap[ARTISTS_TAG_KEY]?.filter { it.isNotBlank() } ?: emptyList()
+                val artistsFromTag = resolveArtistsFromTagPropertyMap(propertyMap)
                 val albumArtist = propertyMap["ALBUMARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["ALBUM ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["BAND"]?.firstOrNull()?.takeIf { it.isNotBlank() }
@@ -276,6 +276,29 @@ object AudioMetadataReader {
     /** Joins every non-blank value of a possibly multi-valued property field. */
     internal fun joinMultiValue(values: Array<String>?): String? =
         values?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }?.joinToString("; ")
+
+    /**
+     * ARTISTS is a true multi-value Vorbis field (confirmed on real FLAC files -
+     * TagLib already hands back separate array elements, no delimiter to
+     * split). Not confirmed for MP3/M4A via this native path specifically, so
+     * [CustomTextTagReader.splitMultiValue] runs over every element regardless:
+     * a no-op for an already-clean name, a real split for a single "; "/NUL
+     * joined element if that is what this path returns for those containers.
+     *
+     * No ARTISTS tag, but ARTIST itself was multiple physical values: that is
+     * just as unambiguous a signal (separate tag entries, no delimiter
+     * character to misinterpret), so treat it the same way instead of joining
+     * it into one string that only round-trips correctly if ";" is still one
+     * of the user's configured delimiters.
+     */
+    internal fun resolveArtistsFromTagPropertyMap(propertyMap: Map<String, Array<String>>): List<String> {
+        val artistsFromTagValues = propertyMap[ARTISTS_TAG_KEY]
+            ?.flatMap(CustomTextTagReader::splitMultiValue)
+            ?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+        val artistValues = propertyMap["ARTIST"]?.filter { it.isNotBlank() } ?: emptyList()
+        return artistsFromTagValues ?: artistValues.takeIf { it.size > 1 } ?: emptyList()
+    }
 
     private fun extractReplayGainDb(
         propertyMap: Map<String, Array<String>>,
