@@ -193,6 +193,31 @@ class CustomTextTagReaderTest {
     }
 
     @Test
+    fun readAll_id3v2Tag_txxxNulSeparated_returnsSplitValues() {
+        // ID3v2.4's own multi-value text-frame convention separates values with
+        // a NUL byte rather than "; " - support both, we don't have a real
+        // TXXX:ARTISTS sample confirming which one Picard actually uses.
+        val tag = ID3v24Tag()
+        val frame = ID3v24Frame(ID3v24Frames.FRAME_ID_USER_DEFINED_INFO)
+        frame.body = FrameBodyTXXX().apply {
+            setDescription(DESCRIPTION_KEY)
+            setText("Belinda\u0000Natanael Cano")
+        }
+        tag.setField(frame)
+
+        assertThat(CustomTextTagReader.readAll(tag, FLAT_KEY, DESCRIPTION_KEY))
+            .containsExactly("Belinda", "Natanael Cano")
+            .inOrder()
+    }
+
+    @Test
+    fun splitMultiValue_singleValueWithNoDelimiter_returnsOneElement() {
+        // A duo name with no ";" or NUL must not be torn apart.
+        assertThat(CustomTextTagReader.splitMultiValue("Wisin & Yandel"))
+            .containsExactly("Wisin & Yandel")
+    }
+
+    @Test
     fun readAll_id3v2Tag_singleValueNoSemicolon_returnsSingleElementList() {
         val tag = ID3v24Tag()
         val frame = ID3v24Frame(ID3v24Frames.FRAME_ID_USER_DEFINED_INFO)
