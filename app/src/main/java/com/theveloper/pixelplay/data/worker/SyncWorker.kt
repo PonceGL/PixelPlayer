@@ -219,7 +219,7 @@ constructor(
                     // Update every 50 songs or ~5% of library
                     val progressBatchSize = 50
 
-                    val songsToInsert =
+                    val (songsToInsert, artistsFromTagBySongId) =
                             fetchMusicFromMediaStore(
                                     fetchTimestamp,
                                     forceMetadata,
@@ -276,7 +276,8 @@ constructor(
                                         existingArtistMetadata = existingArtistMetadata,
                                         existingAlbums = allExistingAlbums,
                                         existingArtistIdMap = existingArtistIdMap,
-                                        initialMaxArtistId = maxArtistId
+                                        initialMaxArtistId = maxArtistId,
+                                        artistsFromTagBySongId = artistsFromTagBySongId
                                 )
 
                         // Use incrementalSyncMusicData for all modes except REBUILD
@@ -514,7 +515,8 @@ constructor(
             existingArtistMetadata: Map<Long, Pair<String?, String?>>,
             existingAlbums: List<AlbumEntity>,
             existingArtistIdMap: MutableMap<String, Long>,
-            initialMaxArtistId: Long
+            initialMaxArtistId: Long,
+            artistsFromTagBySongId: Map<Long, List<String>> = emptyMap()
     ): MultiArtistProcessResult {
         
         val nextArtistId = AtomicLong(initialMaxArtistId + 1)
@@ -524,6 +526,9 @@ constructor(
         val artistTrackCounts = mutableMapOf<Long, Int>()
         val albumMap = mutableMapOf<AlbumGroupingKey, Long>()
         val artistSplitCache = mutableMapOf<String, List<String>>()
+        // Feeds chooseAlbumDisplayArtist below so album-level attribution reuses
+        // this exact per-song resolution instead of re-deriving it independently.
+        val resolvedArtistsBySongId = mutableMapOf<Long, List<String>>()
         val correctedSongs = ArrayList<SongEntity>(songs.size)
 
         existingAlbums
@@ -538,17 +543,31 @@ constructor(
             val rawArtistName = song.artistName
             val songArtistNameTrimmed = rawArtistName.trim()
 
-            // Split artist field by character + word delimiters
-            val allArtistsForSong =
-                    artistSplitCache.getOrPut("$rawArtistName\u0000${song.title}\u0000$extractFromTitle") {
-                        collectArtistNames(
-                            rawArtistName = rawArtistName,
-                            title = song.title,
-                            artistDelimiters = artistDelimiters,
-                            wordDelimiters = wordDelimiters,
-                            extractFromTitle = extractFromTitle
-                        )
-                    }
+            // Prefer the file's own ARTISTS tag when present; otherwise split the
+            // ARTIST field by character + word delimiters (today's heuristic).
+            val artistsFromTag = artistsFromTagBySongId[song.id] ?: emptyList()
+            val allArtistsForSong = if (artistsFromTag.isNotEmpty()) {
+                resolveArtistsForSong(
+                    artistsFromTag = artistsFromTag,
+                    rawArtistName = rawArtistName,
+                    title = song.title,
+                    artistDelimiters = artistDelimiters,
+                    wordDelimiters = wordDelimiters,
+                    extractFromTitle = extractFromTitle
+                )
+            } else {
+                artistSplitCache.getOrPut("$rawArtistName\u0000${song.title}\u0000$extractFromTitle") {
+                    collectArtistNames(
+                        rawArtistName = rawArtistName,
+                        title = song.title,
+                        artistDelimiters = artistDelimiters,
+                        wordDelimiters = wordDelimiters,
+                        extractFromTitle = extractFromTitle
+                    )
+                }
+            }
+
+            resolvedArtistsBySongId[song.id] = allArtistsForSong
 
             allArtistsForSong.forEach { artistName ->
                 val normalizedName = artistName.trim()
@@ -621,8 +640,7 @@ constructor(
              val determinedAlbumArtist = chooseAlbumDisplayArtist(
                  songs = songsInAlbum,
                  preferAlbumArtist = groupByAlbumArtist,
-                 artistDelimiters = artistDelimiters,
-                 wordDelimiters = wordDelimiters
+                 resolvedArtistsBySongId = resolvedArtistsBySongId
              )
              val determinedAlbumArtistId = resolveAlbumDisplayArtistId(
                  displayArtist = determinedAlbumArtist,
@@ -770,6 +788,18 @@ constructor(
         genreMap
     }
 
+    /**
+     * [artistsFromTagBySongId] carries, per song id, artist names already split
+     * by that file's own ARTISTS (plural) tag when present - a stronger signal
+     * than the ARTIST-splitting heuristic, consumed once by
+     * [preProcessAndDeduplicateWithMultiArtist] then discarded. Absent from
+     * the map entirely when the song has no such tag.
+     */
+    private data class MediaStoreFetchResult(
+            val songs: List<SongEntity>,
+            val artistsFromTagBySongId: Map<Long, List<String>>
+    )
+
     /** Raw data extracted from cursor - lightweight class for fast iteration */
     private data class RawSongData(
             val id: Long,
@@ -817,8 +847,9 @@ constructor(
             isRebuild: Boolean,
             progressBatchSize: Int,
             onProgress: suspend (current: Int, total: Int, phaseOrdinal: Int) -> Unit
-    ): List<SongEntity> {
+    ): MediaStoreFetchResult {
         Trace.beginSection("SyncWorker.fetchMusicFromMediaStore")
+        val artistsFromTagBySongId = java.util.concurrent.ConcurrentHashMap<Long, List<String>>()
 
         val deepScan = forceMetadata
         val genreMap = fetchGenreMap() // Load genres upfront
@@ -947,7 +978,7 @@ constructor(
         if (rawDataList.isEmpty()) {
             Log.i(TAG, "MediaStore cursor produced 0 raw songs after directory filtering")
             Trace.endSection()
-            return emptyList()
+            return MediaStoreFetchResult(emptyList(), emptyMap())
         }
 
         // Phase 2: Identify changed songs and merge with existing data in chunks
@@ -986,7 +1017,7 @@ constructor(
         )
         if (totalCount == 0) {
             Trace.endSection()
-            return emptyList()
+            return MediaStoreFetchResult(emptyList(), emptyMap())
         }
 
         // Phase 3: Parallel processing of songs with metadata merging
@@ -1011,7 +1042,8 @@ constructor(
                                     raw = raw,
                                     genreMap = genreMap,
                                     deepScan = deepScan,
-                                    forceAlbumArtRefresh = deepScan || localSong != null
+                                    forceAlbumArtRefresh = deepScan || localSong != null,
+                                    artistsFromTagSink = artistsFromTagBySongId
                                 )
 
                             val song = if (localSong != null) {
@@ -1049,21 +1081,7 @@ constructor(
         }
 
         Trace.endSection()
-        return songs
-    }
-
-    /**
-     * Checks if a metadata field from MediaStore is a default/unknown placeholder.
-     * MediaStore uses `<unknown>` for unreadable fields, and our normalization
-     * may fall back to `"Unknown Artist"` / `"Unknown Album"` etc.
-     */
-    private fun isDefaultMetadata(value: String): Boolean {
-        val lower = value.trim().lowercase()
-        return lower.isEmpty() ||
-            lower == "<unknown>" ||
-            lower == "unknown" ||
-            lower == "unknown artist" ||
-            lower == "unknown album"
+        return MediaStoreFetchResult(songs, artistsFromTagBySongId)
     }
 
     /**
@@ -1074,7 +1092,8 @@ constructor(
             raw: RawSongData,
             genreMap: Map<Long, String>,
             deepScan: Boolean,
-            forceAlbumArtRefresh: Boolean
+            forceAlbumArtRefresh: Boolean,
+            artistsFromTagSink: MutableMap<Long, List<String>>
     ): SongEntity {
         val parentDir = java.io.File(raw.filePath).parent ?: ""
         val contentUriString =
@@ -1103,41 +1122,42 @@ constructor(
         var genre: String? = genreMap[raw.id] ?: raw.genre // Use mapped genre as default, or direct genre from main cursor
         var metadataDateAddedMillis: Long? = null
 
-        val shouldAugmentMetadata =
-                deepScan ||
-                        raw.filePath.endsWith(".wav", true) ||
-                        raw.filePath.endsWith(".opus", true) ||
-                        raw.filePath.endsWith(".ogg", true) ||
-                        raw.filePath.endsWith(".oga", true) ||
-                        raw.filePath.endsWith(".aiff", true) ||
-                        // Fallback: if MediaStore returned default/missing metadata,
-                        // try TagLib+JAudioTagger to read actual tags from the file.
-                        // MediaStore uses "<unknown>" for unreadable fields;
-                        // our normalization may produce "Unknown Artist"/"Unknown Album".
-                        isDefaultMetadata(raw.artist) ||
-                        isDefaultMetadata(raw.album)
-
-        if (shouldAugmentMetadata) {
-            val file = java.io.File(raw.filePath)
-            if (file.exists()) {
-                try {
-                    AudioMetadataReader.read(file, readArtwork = false)?.let { meta ->
-                        if (!meta.title.isNullOrBlank()) title = meta.title
-                        if (!meta.artist.isNullOrBlank()) artist = meta.artist
-                        if (!meta.album.isNullOrBlank()) album = meta.album
-                        albumArtist = resolveAlbumArtist(
-                            rawAlbumArtist = albumArtist,
-                            metadataAlbumArtist = meta.albumArtist
-                        )
-                        if (!meta.genre.isNullOrBlank()) genre = meta.genre
-                        if (meta.trackNumber != null) trackNumber = meta.trackNumber
-                        if (meta.discNumber != null) discNumber = meta.discNumber
-                        if (meta.year != null) year = meta.year
-                        metadataDateAddedMillis = meta.metadataDateAddedMillis
+        // Always read the file's own tags for every local song being processed here
+        // (new or changed - see the DATE_MODIFIED/DATE_ADDED filter in the caller's
+        // MediaStore query, incremental syncs never re-visit untouched songs). Used
+        // to be gated behind deepScan/a handful of extensions/default-metadata
+        // detection, meant to fill gaps MediaStore left - but that gate also meant
+        // ARTISTS and date_added (community tags with no MediaStore equivalent)
+        // silently never got read for a normal, well-tagged FLAC/MP3/M4A file.
+        // TagLib is the fast native path this already prefers; the JAudioTagger
+        // fallback only engages when TagLib itself leaves something unresolved.
+        val file = java.io.File(raw.filePath)
+        if (file.exists()) {
+            try {
+                AudioMetadataReader.read(file, readArtwork = false)?.let { meta ->
+                    if (VERBOSE_ARTIST_TAG_LOGGING) {
+                        Log.d(TAG, "AudioMetadataReader for ${file.name}: " +
+                                "artist=${meta.artist}, artistsFromTag=${meta.artistsFromTag}, " +
+                                "metadataDateAddedMillis=${meta.metadataDateAddedMillis}")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)
+                    if (!meta.title.isNullOrBlank()) title = meta.title
+                    if (!meta.artist.isNullOrBlank()) artist = meta.artist
+                    if (!meta.album.isNullOrBlank()) album = meta.album
+                    albumArtist = resolveAlbumArtist(
+                        rawAlbumArtist = albumArtist,
+                        metadataAlbumArtist = meta.albumArtist
+                    )
+                    if (!meta.genre.isNullOrBlank()) genre = meta.genre
+                    if (meta.trackNumber != null) trackNumber = meta.trackNumber
+                    if (meta.discNumber != null) discNumber = meta.discNumber
+                    if (meta.year != null) year = meta.year
+                    metadataDateAddedMillis = meta.metadataDateAddedMillis
+                    if (meta.artistsFromTag.isNotEmpty()) {
+                        artistsFromTagSink[raw.id] = meta.artistsFromTag
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)
             }
         }
 
@@ -1209,6 +1229,11 @@ constructor(
         const val PERIODIC_MAINTENANCE_WORK_NAME =
             "com.theveloper.pixelplay.data.worker.SyncWorker.PeriodicMaintenance"
         private const val TAG = "SyncWorker"
+        // Diagnostic-only: logs what AudioMetadataReader actually resolved per song
+        // (artist / artistsFromTag / metadataDateAddedMillis). Off by default - this
+        // is per-song, so it is far noisier than AudioMetadataReader's own VERBOSE
+        // flag on a large library. Flip to true only while diagnosing tag reads.
+        private const val VERBOSE_ARTIST_TAG_LOGGING = true
         const val INPUT_FORCE_METADATA = "input_force_metadata"
         const val INPUT_RUN_MAINTENANCE = "input_run_maintenance"
         const val INPUT_SYNC_MODE = "input_sync_mode"
@@ -1387,6 +1412,7 @@ constructor(
                     var realDuration = tSong.duration
                     var realBitrate: Int? = null
                     var realSampleRate: Int? = null
+                    var artistsFromTag: List<String> = emptyList()
                     var resolvedAlbumArtUri = tSong.resolveAlbumArtUri()
 
                     val file = java.io.File(tSong.filePath)
@@ -1409,6 +1435,7 @@ constructor(
                                 if (meta.durationMs != null && meta.durationMs > 0L) realDuration = meta.durationMs
                                 if (meta.bitrate != null && meta.bitrate > 0) realBitrate = meta.bitrate
                                 if (meta.sampleRate != null && meta.sampleRate > 0) realSampleRate = meta.sampleRate
+                                artistsFromTag = meta.artistsFromTag
                             }
                             resolvedAlbumArtUri = tSong.resolveAlbumArtUri()
                         } catch (e: Exception) {
@@ -1418,7 +1445,18 @@ constructor(
 
                     // 3. Multi-Artist Processing
                     val rawArtistName = if (realArtistName.isBlank()) "Unknown Artist" else realArtistName
-                    val splitArtists = rawArtistName.splitArtistsByDelimiters(delimiters, wordDelims)
+                    // Same precedence as local sync: prefer the file's own ARTISTS
+                    // tag when present (see resolveArtistsForSong) over the
+                    // delimiter heuristic, so the same file is grouped the same
+                    // way regardless of which sync path touched it.
+                    val splitArtists = resolveArtistsForSong(
+                        artistsFromTag = artistsFromTag,
+                        rawArtistName = rawArtistName,
+                        title = realTitle,
+                        artistDelimiters = delimiters,
+                        wordDelimiters = wordDelims,
+                        extractFromTitle = false
+                    )
                     var primaryArtistId = -1L
 
                     splitArtists.forEachIndexed { index, individualArtistName ->
