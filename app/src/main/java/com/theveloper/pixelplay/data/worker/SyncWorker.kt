@@ -1081,20 +1081,6 @@ constructor(
     }
 
     /**
-     * Checks if a metadata field from MediaStore is a default/unknown placeholder.
-     * MediaStore uses `<unknown>` for unreadable fields, and our normalization
-     * may fall back to `"Unknown Artist"` / `"Unknown Album"` etc.
-     */
-    private fun isDefaultMetadata(value: String): Boolean {
-        val lower = value.trim().lowercase()
-        return lower.isEmpty() ||
-            lower == "<unknown>" ||
-            lower == "unknown" ||
-            lower == "unknown artist" ||
-            lower == "unknown album"
-    }
-
-    /**
      * Process a single song's raw data into a SongEntity. This is the CPU/IO intensive work that
      * benefits from parallelization.
      */
@@ -1132,44 +1118,42 @@ constructor(
         var genre: String? = genreMap[raw.id] ?: raw.genre // Use mapped genre as default, or direct genre from main cursor
         var metadataDateAddedMillis: Long? = null
 
-        val shouldAugmentMetadata =
-                deepScan ||
-                        raw.filePath.endsWith(".wav", true) ||
-                        raw.filePath.endsWith(".opus", true) ||
-                        raw.filePath.endsWith(".ogg", true) ||
-                        raw.filePath.endsWith(".oga", true) ||
-                        raw.filePath.endsWith(".aiff", true) ||
-                        // Fallback: if MediaStore returned default/missing metadata,
-                        // try TagLib+JAudioTagger to read actual tags from the file.
-                        // MediaStore uses "<unknown>" for unreadable fields;
-                        // our normalization may produce "Unknown Artist"/"Unknown Album".
-                        isDefaultMetadata(raw.artist) ||
-                        isDefaultMetadata(raw.album)
-
-        if (shouldAugmentMetadata) {
-            val file = java.io.File(raw.filePath)
-            if (file.exists()) {
-                try {
-                    AudioMetadataReader.read(file, readArtwork = false)?.let { meta ->
-                        if (!meta.title.isNullOrBlank()) title = meta.title
-                        if (!meta.artist.isNullOrBlank()) artist = meta.artist
-                        if (!meta.album.isNullOrBlank()) album = meta.album
-                        albumArtist = resolveAlbumArtist(
-                            rawAlbumArtist = albumArtist,
-                            metadataAlbumArtist = meta.albumArtist
-                        )
-                        if (!meta.genre.isNullOrBlank()) genre = meta.genre
-                        if (meta.trackNumber != null) trackNumber = meta.trackNumber
-                        if (meta.discNumber != null) discNumber = meta.discNumber
-                        if (meta.year != null) year = meta.year
-                        metadataDateAddedMillis = meta.metadataDateAddedMillis
-                        if (meta.artistsFromTag.isNotEmpty()) {
-                            artistsFromTagSink[raw.id] = meta.artistsFromTag
-                        }
+        // Always read the file's own tags for every local song being processed here
+        // (new or changed - see the DATE_MODIFIED/DATE_ADDED filter in the caller's
+        // MediaStore query, incremental syncs never re-visit untouched songs). Used
+        // to be gated behind deepScan/a handful of extensions/default-metadata
+        // detection, meant to fill gaps MediaStore left - but that gate also meant
+        // ARTISTS and date_added (community tags with no MediaStore equivalent)
+        // silently never got read for a normal, well-tagged FLAC/MP3/M4A file.
+        // TagLib is the fast native path this already prefers; the JAudioTagger
+        // fallback only engages when TagLib itself leaves something unresolved.
+        val file = java.io.File(raw.filePath)
+        if (file.exists()) {
+            try {
+                AudioMetadataReader.read(file, readArtwork = false)?.let { meta ->
+                    if (VERBOSE_ARTIST_TAG_LOGGING) {
+                        Log.d(TAG, "AudioMetadataReader for ${file.name}: " +
+                                "artist=${meta.artist}, artistsFromTag=${meta.artistsFromTag}, " +
+                                "metadataDateAddedMillis=${meta.metadataDateAddedMillis}")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)
+                    if (!meta.title.isNullOrBlank()) title = meta.title
+                    if (!meta.artist.isNullOrBlank()) artist = meta.artist
+                    if (!meta.album.isNullOrBlank()) album = meta.album
+                    albumArtist = resolveAlbumArtist(
+                        rawAlbumArtist = albumArtist,
+                        metadataAlbumArtist = meta.albumArtist
+                    )
+                    if (!meta.genre.isNullOrBlank()) genre = meta.genre
+                    if (meta.trackNumber != null) trackNumber = meta.trackNumber
+                    if (meta.discNumber != null) discNumber = meta.discNumber
+                    if (meta.year != null) year = meta.year
+                    metadataDateAddedMillis = meta.metadataDateAddedMillis
+                    if (meta.artistsFromTag.isNotEmpty()) {
+                        artistsFromTagSink[raw.id] = meta.artistsFromTag
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)
             }
         }
 
@@ -1241,6 +1225,11 @@ constructor(
         const val PERIODIC_MAINTENANCE_WORK_NAME =
             "com.theveloper.pixelplay.data.worker.SyncWorker.PeriodicMaintenance"
         private const val TAG = "SyncWorker"
+        // Diagnostic-only: logs what AudioMetadataReader actually resolved per song
+        // (artist / artistsFromTag / metadataDateAddedMillis). Off by default - this
+        // is per-song, so it is far noisier than AudioMetadataReader's own VERBOSE
+        // flag on a large library. Flip to true only while diagnosing tag reads.
+        private const val VERBOSE_ARTIST_TAG_LOGGING = false
         const val INPUT_FORCE_METADATA = "input_force_metadata"
         const val INPUT_RUN_MAINTENANCE = "input_run_maintenance"
         const val INPUT_SYNC_MODE = "input_sync_mode"
