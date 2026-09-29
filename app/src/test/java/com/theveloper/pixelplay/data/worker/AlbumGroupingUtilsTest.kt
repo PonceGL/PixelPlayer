@@ -100,32 +100,47 @@ class AlbumGroupingUtilsTest {
     @Test
     fun `chooseAlbumDisplayArtist prefers dominant track artist when grouping is off`() {
         val songs = listOf(
-            testSong(artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
-            testSong(artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
-            testSong(artistName = "The Weeknd, Justice", albumArtist = "The Weeknd & Justice")
+            testSong(songId = 1L, artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
+            testSong(songId = 2L, artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
+            testSong(songId = 3L, artistName = "The Weeknd, Justice", albumArtist = "The Weeknd & Justice")
+        )
+        val resolvedArtists = mapOf(
+            1L to listOf("The Weeknd"),
+            2L to listOf("The Weeknd"),
+            3L to listOf("The Weeknd", "Justice")
         )
 
         val displayArtist = chooseAlbumDisplayArtist(
             songs = songs,
-            preferAlbumArtist = false
+            preferAlbumArtist = false,
+            resolvedArtistsBySongId = resolvedArtists
         )
 
         assertThat(displayArtist).isEqualTo("The Weeknd")
     }
 
     @Test
-    fun `chooseAlbumDisplayArtist uses primary parsed artist for feature-heavy albums`() {
+    fun `chooseAlbumDisplayArtist uses already-resolved primary artist for feature-heavy albums`() {
+        // Regression: this must read each song's already-resolved artist list
+        // (computed earlier in the same sync pass) rather than re-splitting the
+        // raw ARTIST field itself here - re-splitting independently can disagree
+        // with the per-song resolution (e.g. a duo kept together by an ARTISTS
+        // tag getting torn apart here by a delimiter that matched only part of it).
         val songs = listOf(
-            testSong(artistName = "Gorillaz feat. Stevie Nicks", albumArtist = null),
-            testSong(artistName = "Gorillaz feat. Thundercat", albumArtist = null),
-            testSong(artistName = "Gorillaz feat. Tame Impala", albumArtist = null)
+            testSong(songId = 1L, artistName = "Gorillaz feat. Stevie Nicks", albumArtist = null),
+            testSong(songId = 2L, artistName = "Gorillaz feat. Thundercat", albumArtist = null),
+            testSong(songId = 3L, artistName = "Gorillaz feat. Tame Impala", albumArtist = null)
+        )
+        val resolvedArtists = mapOf(
+            1L to listOf("Gorillaz", "Stevie Nicks"),
+            2L to listOf("Gorillaz", "Thundercat"),
+            3L to listOf("Gorillaz", "Tame Impala")
         )
 
         val displayArtist = chooseAlbumDisplayArtist(
             songs = songs,
             preferAlbumArtist = false,
-            artistDelimiters = listOf(";"),
-            wordDelimiters = listOf("feat.")
+            resolvedArtistsBySongId = resolvedArtists
         )
 
         assertThat(displayArtist).isEqualTo("Gorillaz")
@@ -134,16 +149,55 @@ class AlbumGroupingUtilsTest {
     @Test
     fun `chooseAlbumDisplayArtist prefers album artist when grouping is on`() {
         val songs = listOf(
-            testSong(artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
-            testSong(artistName = "The Weeknd, Justice", albumArtist = "The Weeknd & Justice")
+            testSong(songId = 1L, artistName = "The Weeknd", albumArtist = "The Weeknd & Justice"),
+            testSong(songId = 2L, artistName = "The Weeknd, Justice", albumArtist = "The Weeknd & Justice")
+        )
+        val resolvedArtists = mapOf(
+            1L to listOf("The Weeknd"),
+            2L to listOf("The Weeknd", "Justice")
         )
 
         val displayArtist = chooseAlbumDisplayArtist(
             songs = songs,
-            preferAlbumArtist = true
+            preferAlbumArtist = true,
+            resolvedArtistsBySongId = resolvedArtists
         )
 
         assertThat(displayArtist).isEqualTo("The Weeknd & Justice")
+    }
+
+    @Test
+    fun `chooseAlbumDisplayArtist does not re-split a duo kept together by the ARTISTS tag`() {
+        // The exact bug this fix targets: album-level attribution must not
+        // independently re-split "Wisin & Yandel" into "Wisin" just because "&"
+        // happens to be a configured delimiter - it must reuse the per-song
+        // resolution, which already correctly kept the duo as one artist.
+        val songs = listOf(
+            testSong(songId = 1L, artistName = "Wisin & Yandel", albumArtist = null)
+        )
+        val resolvedArtists = mapOf(1L to listOf("Wisin & Yandel"))
+
+        val displayArtist = chooseAlbumDisplayArtist(
+            songs = songs,
+            preferAlbumArtist = false,
+            resolvedArtistsBySongId = resolvedArtists
+        )
+
+        assertThat(displayArtist).isEqualTo("Wisin & Yandel")
+    }
+
+    @Test
+    fun `chooseAlbumDisplayArtist falls back to Unknown Artist when nothing resolved`() {
+        val songs = listOf(
+            testSong(songId = 1L, artistName = "", albumArtist = null)
+        )
+
+        val displayArtist = chooseAlbumDisplayArtist(
+            songs = songs,
+            preferAlbumArtist = false
+        )
+
+        assertThat(displayArtist).isEqualTo("Unknown Artist")
     }
 
     private fun testSong(
@@ -152,17 +206,18 @@ class AlbumGroupingUtilsTest {
         albumArtUriString: String? = null,
         parentDirectoryPath: String = "/music/default",
         albumName: String = "Hurry Up Tomorrow",
-        albumId: Long = 42L
+        albumId: Long = 42L,
+        songId: Long = albumId
     ): SongEntity {
         return SongEntity(
-            id = albumId,
+            id = songId,
             title = "Track",
             artistName = artistName,
             artistId = 1L,
             albumArtist = albumArtist,
             albumName = albumName,
             albumId = albumId,
-            contentUriString = "content://media/$albumId",
+            contentUriString = "content://media/$songId",
             albumArtUriString = albumArtUriString,
             duration = 180_000L,
             genre = null,

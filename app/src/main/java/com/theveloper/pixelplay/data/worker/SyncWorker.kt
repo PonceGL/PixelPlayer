@@ -526,6 +526,9 @@ constructor(
         val artistTrackCounts = mutableMapOf<Long, Int>()
         val albumMap = mutableMapOf<AlbumGroupingKey, Long>()
         val artistSplitCache = mutableMapOf<String, List<String>>()
+        // Feeds chooseAlbumDisplayArtist below so album-level attribution reuses
+        // this exact per-song resolution instead of re-deriving it independently.
+        val resolvedArtistsBySongId = mutableMapOf<Long, List<String>>()
         val correctedSongs = ArrayList<SongEntity>(songs.size)
 
         existingAlbums
@@ -563,6 +566,8 @@ constructor(
                     )
                 }
             }
+
+            resolvedArtistsBySongId[song.id] = allArtistsForSong
 
             allArtistsForSong.forEach { artistName ->
                 val normalizedName = artistName.trim()
@@ -635,8 +640,7 @@ constructor(
              val determinedAlbumArtist = chooseAlbumDisplayArtist(
                  songs = songsInAlbum,
                  preferAlbumArtist = groupByAlbumArtist,
-                 artistDelimiters = artistDelimiters,
-                 wordDelimiters = wordDelimiters
+                 resolvedArtistsBySongId = resolvedArtistsBySongId
              )
              val determinedAlbumArtistId = resolveAlbumDisplayArtistId(
                  displayArtist = determinedAlbumArtist,
@@ -1229,7 +1233,7 @@ constructor(
         // (artist / artistsFromTag / metadataDateAddedMillis). Off by default - this
         // is per-song, so it is far noisier than AudioMetadataReader's own VERBOSE
         // flag on a large library. Flip to true only while diagnosing tag reads.
-        private const val VERBOSE_ARTIST_TAG_LOGGING = false
+        private const val VERBOSE_ARTIST_TAG_LOGGING = true
         const val INPUT_FORCE_METADATA = "input_force_metadata"
         const val INPUT_RUN_MAINTENANCE = "input_run_maintenance"
         const val INPUT_SYNC_MODE = "input_sync_mode"
@@ -1408,6 +1412,7 @@ constructor(
                     var realDuration = tSong.duration
                     var realBitrate: Int? = null
                     var realSampleRate: Int? = null
+                    var artistsFromTag: List<String> = emptyList()
                     var resolvedAlbumArtUri = tSong.resolveAlbumArtUri()
 
                     val file = java.io.File(tSong.filePath)
@@ -1430,6 +1435,7 @@ constructor(
                                 if (meta.durationMs != null && meta.durationMs > 0L) realDuration = meta.durationMs
                                 if (meta.bitrate != null && meta.bitrate > 0) realBitrate = meta.bitrate
                                 if (meta.sampleRate != null && meta.sampleRate > 0) realSampleRate = meta.sampleRate
+                                artistsFromTag = meta.artistsFromTag
                             }
                             resolvedAlbumArtUri = tSong.resolveAlbumArtUri()
                         } catch (e: Exception) {
@@ -1439,7 +1445,18 @@ constructor(
 
                     // 3. Multi-Artist Processing
                     val rawArtistName = if (realArtistName.isBlank()) "Unknown Artist" else realArtistName
-                    val splitArtists = rawArtistName.splitArtistsByDelimiters(delimiters, wordDelims)
+                    // Same precedence as local sync: prefer the file's own ARTISTS
+                    // tag when present (see resolveArtistsForSong) over the
+                    // delimiter heuristic, so the same file is grouped the same
+                    // way regardless of which sync path touched it.
+                    val splitArtists = resolveArtistsForSong(
+                        artistsFromTag = artistsFromTag,
+                        rawArtistName = rawArtistName,
+                        title = realTitle,
+                        artistDelimiters = delimiters,
+                        wordDelimiters = wordDelims,
+                        extractFromTitle = false
+                    )
                     var primaryArtistId = -1L
 
                     splitArtists.forEachIndexed { index, individualArtistName ->

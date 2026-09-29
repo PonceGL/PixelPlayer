@@ -68,8 +68,7 @@ internal fun buildAlbumGroupingKeys(album: AlbumEntity): List<AlbumGroupingKey> 
 internal fun chooseAlbumDisplayArtist(
     songs: List<SongEntity>,
     preferAlbumArtist: Boolean,
-    artistDelimiters: List<String> = emptyList(),
-    wordDelimiters: List<String> = emptyList()
+    resolvedArtistsBySongId: Map<Long, List<String>> = emptyMap()
 ): String {
     if (songs.isEmpty()) return "Unknown Artist"
 
@@ -78,15 +77,17 @@ internal fun chooseAlbumDisplayArtist(
             song.albumArtist.normalizeMetadataText()?.takeIf { it.isNotBlank() }
         }
     )
+    // Reads each song's already-resolved primary artist (allArtistsForSong,
+    // computed moments earlier in the same sync pass) instead of re-deriving it
+    // here via collectArtistNames. Re-splitting the raw ARTIST field
+    // independently could disagree with the per-song resolution - e.g. a song
+    // whose ARTISTS tag keeps "Wisin & Yandel" together would have its album
+    // re-split that same string on "&" into just "Wisin", which then fails to
+    // match any registered artist id (GEN-ARCH-04: single source of truth for
+    // "what are this song's artists").
     val trackArtist = mostCommonValue(
-        songs.map { song ->
-            collectArtistNames(
-                rawArtistName = song.artistName,
-                title = song.title,
-                artistDelimiters = artistDelimiters,
-                wordDelimiters = wordDelimiters,
-                extractFromTitle = true
-            ).firstOrNull().normalizeMetadataTextOrEmpty()
+        songs.mapNotNull { song ->
+            resolvedArtistsBySongId[song.id]?.firstOrNull()?.normalizeMetadataText()
         }
     )
 
