@@ -28,7 +28,13 @@ data class AudioMetadata(
     val artwork: AudioMetadataArtwork?,
     val replayGainTrackGainDb: Float? = null,
     val replayGainAlbumGainDb: Float? = null,
-    val metadataDateAddedMillis: Long? = null
+    val metadataDateAddedMillis: Long? = null,
+    /**
+     * Artist names already split by the file's own ARTISTS (plural) tag
+     * (MusicBrainz Picard convention), if present. Empty when the file has
+     * no such tag - callers fall back to splitting [artist] heuristically.
+     */
+    val artistsFromTag: List<String> = emptyList()
 )
 
 data class AudioMetadataArtwork(
@@ -43,6 +49,14 @@ object AudioMetadataReader {
     /** See [MetadataDateAddedParser] for why the key differs by container. */
     private const val DATE_ADDED_VORBIS_KEY = "DATE_ADDED"
     private const val DATE_ADDED_DESCRIPTION_KEY = "Date Added"
+
+    /**
+     * Picard keeps the same tag name "ARTISTS" across containers, unlike
+     * DATE_ADDED above - inferred from AlbumArtist/ALBUMARTIST matching
+     * exactly in real Picard-tagged files; no direct sample confirms it for
+     * an ID3v2 TXXX:ARTISTS frame specifically (none of our test files have one).
+     */
+    private const val ARTISTS_TAG_KEY = "ARTISTS"
 
     /**
      * Per-file diagnostic logging (TagLib property maps, parsed fields, fallback hits)
@@ -88,7 +102,11 @@ object AudioMetadataReader {
                 if (VERBOSE) Log.w(TAG, "TagLib propertyMap keys for ${file.name}: ${propertyMap.keys}")
 
                 val title = propertyMap["TITLE"]?.firstOrNull()?.takeIf { it.isNotBlank() }
-                val artist = propertyMap["ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+                // Some files carry more than one physical ARTIST field (e.g. two
+                // "ARTIST=" Vorbis comments); taking only the first silently drops
+                // the rest, so join every non-blank value instead.
+                val artist = joinMultiValue(propertyMap["ARTIST"])
+                val artistsFromTag = propertyMap[ARTISTS_TAG_KEY]?.filter { it.isNotBlank() } ?: emptyList()
                 val albumArtist = propertyMap["ALBUMARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["ALBUM ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["BAND"]?.firstOrNull()?.takeIf { it.isNotBlank() }
@@ -159,7 +177,8 @@ object AudioMetadataReader {
                     artwork = artwork ?: fallback?.artwork,
                     replayGainTrackGainDb = replayGainTrackGainDb ?: fallback?.replayGainTrackGainDb,
                     replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb,
-                    metadataDateAddedMillis = metadataDateAddedMillis ?: fallback?.metadataDateAddedMillis
+                    metadataDateAddedMillis = metadataDateAddedMillis ?: fallback?.metadataDateAddedMillis,
+                    artistsFromTag = artistsFromTag.ifEmpty { fallback?.artistsFromTag ?: emptyList() }
                 )
             }
         } catch (error: Exception) {
@@ -205,6 +224,9 @@ object AudioMetadataReader {
             val metadataDateAddedMillis = tag?.let {
                 CustomTextTagReader.read(it, DATE_ADDED_VORBIS_KEY, DATE_ADDED_DESCRIPTION_KEY)
             }?.let(MetadataDateAddedParser::parse)
+            val artistsFromTag = tag?.let {
+                CustomTextTagReader.readAll(it, ARTISTS_TAG_KEY, ARTISTS_TAG_KEY)
+            } ?: emptyList()
 
             val durationMs = header?.trackLength?.takeIf { it > 0 }?.let { it * 1000L }
             val bitrate = header?.bitRateAsNumber?.takeIf { it > 0 }?.toInt()?.let { it * 1000 }
@@ -242,13 +264,18 @@ object AudioMetadataReader {
                 bitrate = bitrate,
                 sampleRate = sampleRate,
                 artwork = artwork,
-                metadataDateAddedMillis = metadataDateAddedMillis
+                metadataDateAddedMillis = metadataDateAddedMillis,
+                artistsFromTag = artistsFromTag
             )
         } catch (e: Exception) {
             Log.e(TAG, "JAudioTagger fallback FAILED for: ${file.name}", e)
             null
         }
     }
+
+    /** Joins every non-blank value of a possibly multi-valued property field. */
+    internal fun joinMultiValue(values: Array<String>?): String? =
+        values?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }?.joinToString("; ")
 
     private fun extractReplayGainDb(
         propertyMap: Map<String, Array<String>>,
