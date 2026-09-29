@@ -219,7 +219,7 @@ constructor(
                     // Update every 50 songs or ~5% of library
                     val progressBatchSize = 50
 
-                    val songsToInsert =
+                    val (songsToInsert, artistsFromTagBySongId) =
                             fetchMusicFromMediaStore(
                                     fetchTimestamp,
                                     forceMetadata,
@@ -276,7 +276,8 @@ constructor(
                                         existingArtistMetadata = existingArtistMetadata,
                                         existingAlbums = allExistingAlbums,
                                         existingArtistIdMap = existingArtistIdMap,
-                                        initialMaxArtistId = maxArtistId
+                                        initialMaxArtistId = maxArtistId,
+                                        artistsFromTagBySongId = artistsFromTagBySongId
                                 )
 
                         // Use incrementalSyncMusicData for all modes except REBUILD
@@ -514,7 +515,8 @@ constructor(
             existingArtistMetadata: Map<Long, Pair<String?, String?>>,
             existingAlbums: List<AlbumEntity>,
             existingArtistIdMap: MutableMap<String, Long>,
-            initialMaxArtistId: Long
+            initialMaxArtistId: Long,
+            artistsFromTagBySongId: Map<Long, List<String>> = emptyMap()
     ): MultiArtistProcessResult {
         
         val nextArtistId = AtomicLong(initialMaxArtistId + 1)
@@ -538,17 +540,29 @@ constructor(
             val rawArtistName = song.artistName
             val songArtistNameTrimmed = rawArtistName.trim()
 
-            // Split artist field by character + word delimiters
-            val allArtistsForSong =
-                    artistSplitCache.getOrPut("$rawArtistName\u0000${song.title}\u0000$extractFromTitle") {
-                        collectArtistNames(
-                            rawArtistName = rawArtistName,
-                            title = song.title,
-                            artistDelimiters = artistDelimiters,
-                            wordDelimiters = wordDelimiters,
-                            extractFromTitle = extractFromTitle
-                        )
-                    }
+            // Prefer the file's own ARTISTS tag when present; otherwise split the
+            // ARTIST field by character + word delimiters (today's heuristic).
+            val artistsFromTag = artistsFromTagBySongId[song.id] ?: emptyList()
+            val allArtistsForSong = if (artistsFromTag.isNotEmpty()) {
+                resolveArtistsForSong(
+                    artistsFromTag = artistsFromTag,
+                    rawArtistName = rawArtistName,
+                    title = song.title,
+                    artistDelimiters = artistDelimiters,
+                    wordDelimiters = wordDelimiters,
+                    extractFromTitle = extractFromTitle
+                )
+            } else {
+                artistSplitCache.getOrPut("$rawArtistName\u0000${song.title}\u0000$extractFromTitle") {
+                    collectArtistNames(
+                        rawArtistName = rawArtistName,
+                        title = song.title,
+                        artistDelimiters = artistDelimiters,
+                        wordDelimiters = wordDelimiters,
+                        extractFromTitle = extractFromTitle
+                    )
+                }
+            }
 
             allArtistsForSong.forEach { artistName ->
                 val normalizedName = artistName.trim()
@@ -770,6 +784,18 @@ constructor(
         genreMap
     }
 
+    /**
+     * [artistsFromTagBySongId] carries, per song id, artist names already split
+     * by that file's own ARTISTS (plural) tag when present - a stronger signal
+     * than the ARTIST-splitting heuristic, consumed once by
+     * [preProcessAndDeduplicateWithMultiArtist] then discarded. Absent from
+     * the map entirely when the song has no such tag.
+     */
+    private data class MediaStoreFetchResult(
+            val songs: List<SongEntity>,
+            val artistsFromTagBySongId: Map<Long, List<String>>
+    )
+
     /** Raw data extracted from cursor - lightweight class for fast iteration */
     private data class RawSongData(
             val id: Long,
@@ -817,8 +843,9 @@ constructor(
             isRebuild: Boolean,
             progressBatchSize: Int,
             onProgress: suspend (current: Int, total: Int, phaseOrdinal: Int) -> Unit
-    ): List<SongEntity> {
+    ): MediaStoreFetchResult {
         Trace.beginSection("SyncWorker.fetchMusicFromMediaStore")
+        val artistsFromTagBySongId = java.util.concurrent.ConcurrentHashMap<Long, List<String>>()
 
         val deepScan = forceMetadata
         val genreMap = fetchGenreMap() // Load genres upfront
@@ -947,7 +974,7 @@ constructor(
         if (rawDataList.isEmpty()) {
             Log.i(TAG, "MediaStore cursor produced 0 raw songs after directory filtering")
             Trace.endSection()
-            return emptyList()
+            return MediaStoreFetchResult(emptyList(), emptyMap())
         }
 
         // Phase 2: Identify changed songs and merge with existing data in chunks
@@ -986,7 +1013,7 @@ constructor(
         )
         if (totalCount == 0) {
             Trace.endSection()
-            return emptyList()
+            return MediaStoreFetchResult(emptyList(), emptyMap())
         }
 
         // Phase 3: Parallel processing of songs with metadata merging
@@ -1011,7 +1038,8 @@ constructor(
                                     raw = raw,
                                     genreMap = genreMap,
                                     deepScan = deepScan,
-                                    forceAlbumArtRefresh = deepScan || localSong != null
+                                    forceAlbumArtRefresh = deepScan || localSong != null,
+                                    artistsFromTagSink = artistsFromTagBySongId
                                 )
 
                             val song = if (localSong != null) {
@@ -1049,7 +1077,7 @@ constructor(
         }
 
         Trace.endSection()
-        return songs
+        return MediaStoreFetchResult(songs, artistsFromTagBySongId)
     }
 
     /**
@@ -1074,7 +1102,8 @@ constructor(
             raw: RawSongData,
             genreMap: Map<Long, String>,
             deepScan: Boolean,
-            forceAlbumArtRefresh: Boolean
+            forceAlbumArtRefresh: Boolean,
+            artistsFromTagSink: MutableMap<Long, List<String>>
     ): SongEntity {
         val parentDir = java.io.File(raw.filePath).parent ?: ""
         val contentUriString =
@@ -1134,6 +1163,9 @@ constructor(
                         if (meta.discNumber != null) discNumber = meta.discNumber
                         if (meta.year != null) year = meta.year
                         metadataDateAddedMillis = meta.metadataDateAddedMillis
+                        if (meta.artistsFromTag.isNotEmpty()) {
+                            artistsFromTagSink[raw.id] = meta.artistsFromTag
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to read metadata via TagLib for ${raw.filePath}", e)

@@ -3,6 +3,29 @@ package com.theveloper.pixelplay.data.worker
 import com.theveloper.pixelplay.utils.extractArtistsFromTitle
 import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
 
+/**
+ * Resolves the artist names for one song, preferring the file's own ARTISTS
+ * (plural) tag when present - it comes pre-split by the tagging tool (e.g.
+ * MusicBrainz Picard), with no "&"/"feat." ambiguity, unlike splitting the
+ * singular ARTIST field by delimiters. Falls back to [collectArtistNames]
+ * (today's heuristic) when the file carries no such tag - unaffected either
+ * way, so libraries with both kinds of files work correctly song by song.
+ */
+internal fun resolveArtistsForSong(
+    artistsFromTag: List<String>,
+    rawArtistName: String,
+    title: String,
+    artistDelimiters: List<String>,
+    wordDelimiters: List<String> = emptyList(),
+    extractFromTitle: Boolean = true
+): List<String> {
+    val fromTag = artistsFromTag.map { it.trim() }.filter { it.isNotEmpty() }
+    if (fromTag.isNotEmpty()) {
+        return fromTag
+    }
+    return collectArtistNames(rawArtistName, title, artistDelimiters, wordDelimiters, extractFromTitle)
+}
+
 internal fun collectArtistNames(
     rawArtistName: String,
     title: String,
