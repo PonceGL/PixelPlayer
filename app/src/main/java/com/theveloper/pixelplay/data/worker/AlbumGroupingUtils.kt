@@ -5,7 +5,7 @@ import com.theveloper.pixelplay.data.database.SongEntity
 import com.theveloper.pixelplay.utils.LocalArtworkUri
 import com.theveloper.pixelplay.utils.normalizeMetadataText
 import com.theveloper.pixelplay.utils.normalizeMetadataTextOrEmpty
-import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
+import com.theveloper.pixelplay.utils.splitByDelimiters
 
 internal data class AlbumGroupingKey(
     val normalizedTitle: String,
@@ -109,7 +109,7 @@ internal fun resolveAlbumDisplayArtistId(
     artistNameToId[displayArtist.trim()]?.let { return it }
 
     val primaryArtistName = displayArtist
-        .splitArtistsByDelimiters(artistDelimiters, wordDelimiters)
+        .splitByDelimiters(artistDelimiters, wordDelimiters)
         .firstOrNull()
         ?.trim()
     if (!primaryArtistName.isNullOrEmpty()) {

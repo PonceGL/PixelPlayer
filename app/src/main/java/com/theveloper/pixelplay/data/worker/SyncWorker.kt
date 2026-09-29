@@ -41,7 +41,6 @@ import com.theveloper.pixelplay.utils.AudioMetaUtils.getAudioMetadata
 import com.theveloper.pixelplay.utils.DirectoryRuleResolver
 import com.theveloper.pixelplay.utils.buildLocalAudioSelection
 import com.theveloper.pixelplay.utils.normalizeMetadataTextOrEmpty
-import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.File

@@ -1,7 +1,7 @@
 package com.theveloper.pixelplay.data.worker
 
 import com.theveloper.pixelplay.utils.extractArtistsFromTitle
-import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
+import com.theveloper.pixelplay.utils.splitByDelimiters
 
 /**
  * Resolves the artist names for one song, preferring the file's own ARTISTS
@@ -33,7 +33,7 @@ internal fun collectArtistNames(
     wordDelimiters: List<String> = emptyList(),
     extractFromTitle: Boolean = true
 ): List<String> {
-    val splitFromArtist = rawArtistName.splitArtistsByDelimiters(artistDelimiters, wordDelimiters)
+    val splitFromArtist = rawArtistName.splitByDelimiters(artistDelimiters, wordDelimiters)
     if (!extractFromTitle) {
         return splitFromArtist
     }
@@ -64,8 +64,8 @@ internal fun choosePreferredArtistName(
     if (localTrimmed.isBlank()) return mediaStoreArtistName
     if (mediaTrimmed.isBlank()) return localArtistName
 
-    val localArtists = localTrimmed.splitArtistsByDelimiters(artistDelimiters, wordDelimiters)
-    val mediaArtists = mediaTrimmed.splitArtistsByDelimiters(artistDelimiters, wordDelimiters)
+    val localArtists = localTrimmed.splitByDelimiters(artistDelimiters, wordDelimiters)
+    val mediaArtists = mediaTrimmed.splitByDelimiters(artistDelimiters, wordDelimiters)
 
     return when {
         mediaArtists.size > localArtists.size -> mediaStoreArtistName

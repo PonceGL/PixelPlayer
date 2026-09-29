@@ -1,7 +1,7 @@
 package com.theveloper.pixelplay.data.stream
 
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
-import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
+import com.theveloper.pixelplay.utils.splitByDelimiters
 import org.json.JSONObject
 
 /**
@@ -31,7 +31,7 @@ object CloudMusicUtils {
     /** Split a raw artist string using the same conservative defaults as local library sync. */
     fun parseArtistNames(rawArtist: String): List<String> {
         if (rawArtist.isBlank()) return listOf("Unknown Artist")
-        val parsed = rawArtist.splitArtistsByDelimiters(
+        val parsed = rawArtist.splitByDelimiters(
             delimiters = UserPreferencesRepository.DEFAULT_ARTIST_DELIMITERS,
             wordDelimiters = UserPreferencesRepository.DEFAULT_ARTIST_WORD_DELIMITERS
         )
