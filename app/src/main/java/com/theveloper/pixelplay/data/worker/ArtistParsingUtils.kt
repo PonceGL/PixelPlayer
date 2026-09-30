@@ -56,8 +56,8 @@ internal fun collectArtistNames(
  * Builds the singular ARTIST display text from a list of individually-picked artists, using the
  * same "Oxford list" convention MusicBrainz Picard and most music apps use: a comma between every
  * pair except the last, joined by "&" - so the join character never repeats past the second
- * artist (e.g. "A, B & C", not "A & B & C"). Purely a smart default: the caller is expected to
- * let the user freely overwrite the result afterward.
+ * artist (e.g. "A, B & C", not "A & B & C"). This is the sole source of the singular display
+ * text wherever artists are picked via chips - there is no manual override.
  */
 internal fun buildDisplayArtistText(artists: List<String>): String = when (artists.size) {
     0 -> ""

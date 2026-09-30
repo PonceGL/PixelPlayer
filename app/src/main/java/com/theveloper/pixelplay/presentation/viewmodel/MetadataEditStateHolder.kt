@@ -206,10 +206,12 @@ class MetadataEditStateHolder @Inject constructor(
         }
 
         // null = never touched the multi-artist picker, leave the file's ARTISTS tag alone.
+        // Only the character delimiters apply here (not the word ones like "feat"/"with"):
+        // each chip is already a picker-confirmed, discrete artist name, not raw text to
+        // heuristically re-parse - splitting "Dance With the Dead" on "with" would be wrong.
         val resolvedArtistsList = newArtists?.let {
             val artistDelimiters = userPreferencesRepository.artistDelimitersFlow.first()
-            val artistWordDelimiters = userPreferencesRepository.artistWordDelimitersFlow.first()
-            it.splitByDelimiters(artistDelimiters, artistWordDelimiters)
+            it.splitByDelimiters(artistDelimiters)
         }
 
         val result = songMetadataEditor.editSongMetadata(

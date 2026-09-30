@@ -307,7 +307,6 @@
     <string name="edit_song_action_delete_cover">Eliminar portada</string>
     <string name="edit_song_field_title">Título</string>
     <string name="edit_song_field_artist">Artista</string>
-    <string name="edit_song_field_artists">Artistas</string>
     <string name="edit_song_field_album">Álbum</string>
     <string name="edit_song_field_album_artist">Artista del álbum</string>
     <string name="edit_song_field_genre">Género</string>
