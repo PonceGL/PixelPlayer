@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.database.toArtist
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferState
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferStateStore
 import com.theveloper.pixelplay.data.service.wear.WearPhoneTransferSender
@@ -47,6 +48,7 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     private val wearPhoneTransferSender: WearPhoneTransferSender,
     private val transferStateStore: PhoneWatchTransferStateStore,
     private val musicDao: MusicDao,
+    private val musicRepository: MusicRepository,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -111,6 +113,20 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     )
 
     val audioMeta: StateFlow<AudioMeta?> = _audioMeta.asStateFlow()
+
+    /**
+     * Existing genre names for the edit sheet's autocomplete, so retyping "Latin" instead of
+     * reusing an existing "Latn" (or any other near-duplicate) doesn't silently fragment the
+     * genre into two. "Unknown" is a synthetic placeholder (see MusicRepositoryImpl), not a
+     * real genre to type into a tag, so it is excluded here.
+     */
+    val existingGenreNames: StateFlow<List<String>> = musicRepository.getGenres()
+        .map { genres -> genres.filter { it.id != "unknown" }.map { it.name } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = emptyList()
+        )
 
     fun loadArtistsForSong(song: Song) {
         val refs = song.artists

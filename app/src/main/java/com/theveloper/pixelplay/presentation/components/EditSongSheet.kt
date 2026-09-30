@@ -99,6 +99,7 @@ private fun formatReplayGainForInput(gainDb: Float?): String {
 fun EditSongSheet(
     visible: Boolean,
     song: Song,
+    existingGenres: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
@@ -133,6 +134,7 @@ fun EditSongSheet(
             ) {
                 EditSongContent(
                     song = song,
+                    existingGenres = existingGenres,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -145,6 +147,7 @@ fun EditSongSheet(
 @Composable
 private fun EditSongContent(
     song: Song,
+    existingGenres: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
@@ -447,24 +450,18 @@ private fun EditSongContent(
 
             // --- Campo de Género ---
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        modifier = Modifier.padding(start = 4.dp),
-                        text = stringResource(R.string.edit_song_field_genre),
-                        color = MaterialTheme.colorScheme.secondary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    OutlinedTextField(
-                        value = genre,
-                        colors = textFieldColors,
-                        shape = textFieldShape,
-                        onValueChange = { genre = it },
-                        placeholder = { Text(stringResource(R.string.edit_song_field_genre)) },
-                        leadingIcon = { Icon(Icons.Rounded.Category, tint = MaterialTheme.colorScheme.secondary, contentDescription = stringResource(R.string.edit_song_field_genre)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
+                GenreAutocompleteField(
+                    value = genre,
+                    onValueChange = { genre = it },
+                    existingGenres = existingGenres,
+                    label = stringResource(R.string.edit_song_field_genre),
+                    placeholder = stringResource(R.string.edit_song_field_genre),
+                    icon = Icons.Rounded.Category,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    textFieldColors = textFieldColors,
+                    textFieldShape = textFieldShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // --- Campo de Compositor ---

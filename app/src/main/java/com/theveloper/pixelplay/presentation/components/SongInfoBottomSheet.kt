@@ -156,6 +156,7 @@ fun SongInfoBottomSheet(
     var pendingTonePermissionSong by remember { mutableStateOf<Song?>(null) }
     var pendingTonePermissionTarget by remember { mutableStateOf<ToneTarget?>(null) }
     val audioMeta by songInfoViewModel.audioMeta.collectAsStateWithLifecycle()
+    val existingGenreNames by songInfoViewModel.existingGenreNames.collectAsStateWithLifecycle()
     val resolvedArtists by songInfoViewModel.resolvedArtists.collectAsStateWithLifecycle()
     val isPixelPlayWatchAvailable by songInfoViewModel.isPixelPlayWatchAvailable.collectAsStateWithLifecycle()
     val isAnyWatchPaired by songInfoViewModel.isAnyWatchPaired.collectAsStateWithLifecycle()
@@ -757,6 +758,7 @@ fun SongInfoBottomSheet(
     EditSongSheet(
         visible = showEditSheet,
         song = song,
+        existingGenres = existingGenreNames,
         onDismiss = { showEditSheet = false },
         onSave = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
             onEditSong(
