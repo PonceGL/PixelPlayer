@@ -308,6 +308,9 @@
     <string name="edit_song_field_title">Título</string>
     <string name="edit_song_field_artist">Artista</string>
     <string name="edit_song_field_artists">Artistas</string>
+    <string name="artist_chip_help_cd">Sobre las etiquetas de artista</string>
+    <string name="artist_chip_help_title">Sobre el campo de Artista</string>
+    <string name="artist_chip_help_body">Toca un nombre sugerido debajo del campo para agregarlo como una etiqueta que puedes quitar; así mantienes cada artista bien organizado en tu biblioteca. También puedes escribir libremente antes, entre o después de cualquier etiqueta, por ejemplo para agregar \"feat.\" o para escribirlo tal como quieras que se vea. Si escribes varios nombres separados por coma o punto y coma sin usar una etiqueta, igual se reconocerán como artistas distintos al guardar.</string>
     <string name="edit_song_field_album">Álbum</string>
     <string name="edit_song_field_album_artist">Artista del álbum</string>
     <string name="edit_song_field_genre">Género</string>

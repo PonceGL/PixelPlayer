@@ -64,7 +64,6 @@ import com.theveloper.pixelplay.R
 import java.net.URLEncoder
 import timber.log.Timber
 import com.theveloper.pixelplay.data.model.Song
-import com.theveloper.pixelplay.data.worker.buildDisplayArtistText
 import androidx.compose.material.icons.rounded.Group
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.launch
@@ -178,13 +177,12 @@ private fun EditSongContent(
     ) -> Unit,
 ) {
     var title by remember { mutableStateOf(song.title) }
-    var artist by remember { mutableStateOf(song.displayArtist) }
-    var artists by remember {
-        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name })
+    var artistSegments by remember {
+        mutableStateOf(parseChipTextSegments(song.displayArtist, song.artists.map { it.name }))
     }
-    // Tracks whether the user typed directly into the singular Artist field - once true, picking
-    // more/fewer artists from the plural picker stops overwriting their own wording.
-    var isArtistManuallyEdited by remember { mutableStateOf(false) }
+    val artist = artistSegments.toDisplayText()
+    val artistJoinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} "
+    val artists = if (artistSegments.chips.isEmpty()) artist else artistSegments.chips.joinToString(artistJoinDelimiter)
     var album by remember { mutableStateOf(song.album) }
     var albumArtist by remember { mutableStateOf(song.albumArtist ?: "") }
     var composer by remember { mutableStateOf("") }
@@ -211,9 +209,7 @@ private fun EditSongContent(
 
     LaunchedEffect(song) {
         title = song.title
-        artist = song.displayArtist
-        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name }
-        isArtistManuallyEdited = false
+        artistSegments = parseChipTextSegments(song.displayArtist, song.artists.map { it.name })
         album = song.album
         albumArtist = song.albumArtist ?: ""
         composer = ""
@@ -403,51 +399,14 @@ private fun EditSongContent(
                 }
             }
 
-            // --- Campo de Artista ---
+            // --- Campo de Artista (texto libre + etiquetas interconectadas) ---
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        modifier = Modifier.padding(start = 4.dp),
-                        text = stringResource(R.string.edit_song_field_artist),
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    OutlinedTextField(
-                        value = artist,
-                        colors = textFieldColors,
-                        shape = textFieldShape,
-                        onValueChange = {
-                            artist = it
-                            isArtistManuallyEdited = true
-                        },
-                        placeholder = { Text(stringResource(R.string.edit_song_field_artist)) },
-                        leadingIcon = { Icon(Icons.Rounded.Person, tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(R.string.edit_song_field_artist)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            }
-
-            // --- Campo de Artistas (plural) ---
-            item {
-                TagChipAutocompleteField(
-                    value = artists,
-                    onValueChange = { artists = it },
+                ArtistChipTextField(
+                    segments = artistSegments,
+                    onSegmentsChange = { artistSegments = it },
                     existingValues = existingArtistNames,
-                    delimiters = artistDelimiters,
-                    // Must be one of `delimiters` (or the join/split round-trip silently breaks):
-                    // the default TagChipAutocompleteField join ", " isn't in
-                    // DEFAULT_ARTIST_DELIMITERS ([";"]), unlike genre where "," already is -
-                    // found by writing a comma-joined ARTISTS tag as one literal value instead
-                    // of the intended multiple entries.
-                    joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
-                    onTagsChanged = { tags ->
-                        if (!isArtistManuallyEdited) {
-                            artist = buildDisplayArtistText(tags)
-                        }
-                    },
-                    label = stringResource(R.string.edit_song_field_artists),
-                    placeholder = stringResource(R.string.edit_song_field_artists),
+                    label = stringResource(R.string.edit_song_field_artist),
+                    placeholder = stringResource(R.string.edit_song_field_artist),
                     icon = Icons.Rounded.Group,
                     tint = MaterialTheme.colorScheme.primary,
                     textFieldColors = textFieldColors,
