@@ -152,4 +152,31 @@ class ArtistParsingUtilsTest {
             result
         )
     }
+
+    @Test
+    fun `buildDisplayArtistText returns blank for no artists`() {
+        assertEquals("", buildDisplayArtistText(emptyList()))
+    }
+
+    @Test
+    fun `buildDisplayArtistText returns the name as-is for one artist`() {
+        assertEquals("Belinda", buildDisplayArtistText(listOf("Belinda")))
+    }
+
+    @Test
+    fun `buildDisplayArtistText joins two artists with ampersand`() {
+        assertEquals("Belinda & Ana Mena", buildDisplayArtistText(listOf("Belinda", "Ana Mena")))
+    }
+
+    @Test
+    fun `buildDisplayArtistText joins three or more artists Oxford-style`() {
+        assertEquals(
+            "Belinda, Ana Mena & Karol G",
+            buildDisplayArtistText(listOf("Belinda", "Ana Mena", "Karol G"))
+        )
+        assertEquals(
+            "A, B, C & D",
+            buildDisplayArtistText(listOf("A", "B", "C", "D"))
+        )
+    }
 }
