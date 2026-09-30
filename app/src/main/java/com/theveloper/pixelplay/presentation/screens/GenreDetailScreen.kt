@@ -600,13 +600,11 @@ fun GenreDetailScreen(
                             )
                             showSongOptionsSheet = null
                         },
-                        onNavigateToGenre = {
-                            song.genre?.let {
-                                navController.navigateSafelyReplacing(
-                                    route = com.theveloper.pixelplay.presentation.navigation.Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")),
-                                    patternToPop = com.theveloper.pixelplay.presentation.navigation.Screen.GenreDetail.route
-                                )
-                            }
+                        onNavigateToGenreByName = { genreName ->
+                            navController.navigateSafelyReplacing(
+                                route = com.theveloper.pixelplay.presentation.navigation.Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")),
+                                patternToPop = com.theveloper.pixelplay.presentation.navigation.Screen.GenreDetail.route
+                            )
                             showSongOptionsSheet = null
                         },
                         onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->

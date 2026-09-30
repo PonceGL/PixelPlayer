@@ -263,6 +263,9 @@
     <string name="artist_picker_primary_label">Artista principal</string>
     <string name="artist_picker_shortcut_label">Página del artista</string>
 
+    <!-- GenrePickerBottomSheet -->
+    <string name="genre_picker_title">Elige un género</string>
+
     <!-- Watch Transfer Dialog + Foreground Service -->
     <string name="watch_transfer_action_cancel">Cancelar transferencia</string>
     <string name="watch_transfer_batch_failed_count">%1$d canciones fallidas</string>

@@ -453,13 +453,11 @@ fun AlbumDetailScreen(
                         )
                         showSongInfoBottomSheet = false
                     },
-                    onNavigateToGenre = {
-                        currentSong.genre?.let {
-                            navController.navigateSafelyReplacing(
-                                route = Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")),
-                                patternToPop = Screen.GenreDetail.route
-                            )
-                        }
+                    onNavigateToGenreByName = { genreName ->
+                        navController.navigateSafelyReplacing(
+                            route = Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")),
+                            patternToPop = Screen.GenreDetail.route
+                        )
                         showSongInfoBottomSheet = false
                     },
                     onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
