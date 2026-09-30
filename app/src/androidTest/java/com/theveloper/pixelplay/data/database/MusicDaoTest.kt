@@ -350,6 +350,33 @@ class MusicDaoTest {
         assertEquals(1, results.size)
     }
 
+    /**
+     * Regression test for a real bug found on-device: SQLite's LOWER() does not fold
+     * diacritics, so a genre id (already accent-stripped via genreMatchKey's withoutDiacritics())
+     * can never equal a raw display name that still has its accents (e.g. "Cumbia Norteña
+     * Mexicana"). getGenreNameById resolves the id back to the persisted display name so
+     * callers can get the raw text without needing to compare accented strings in SQL.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getGenreNameById_resolvesTheRawDisplayNameFromAnAccentStrippedId() = runTest {
+        musicDao.insertGenres(
+            listOf(GenreEntity(id = -1L, name = "Cumbia Norteña Mexicana", matchKey = "cumbia nortena mexicana"))
+        )
+
+        val name = musicDao.getGenreNameById("cumbia_nortena_mexicana")
+
+        assertEquals("Cumbia Norteña Mexicana", name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenreNameById_returnsNullForAnUnknownId() = runTest {
+        val name = musicDao.getGenreNameById("does_not_exist")
+
+        assertEquals(null, name)
+    }
+
     @Test
     @Throws(Exception::class)
     fun getUniqueGenres_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {

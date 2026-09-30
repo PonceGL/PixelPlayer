@@ -1668,16 +1668,14 @@ interface MusicDao {
         applyDirectoryFilter: Boolean
     ): Flow<List<GenreEntity>>
 
-    // :genreId is the slugified form of a genre's match_key (spaces/slashes -> "_", see
-    // MusicRepositoryImpl's genre id scheme) - REPLACE mirrors that transformation in SQL
-    // so the same id used to display the genre list resolves back to its songs. The same
-    // REPLACE is also applied to :genreId itself: at least two existing callers
-    // (GenreDetailViewModel, MultiSelectionStateHolder) pass the raw display name (e.g.
-    // "Hip Hop", with a space) instead of the slugified id ("hip_hop", with an underscore) -
-    // without this, that space is never converted to "_" on the right side, so it never
-    // matches match_key's "_" and every multi-word genre's detail screen silently shows zero
-    // songs. Compared case-insensitively for the same reason (display-name callers may pass
-    // any casing, e.g. "Salsa" instead of "salsa").
+    // :genreId is expected to be the slugified form of a genre's match_key (spaces/slashes
+    // -> "_", see MusicRepositoryImpl's Genre.id scheme) - callers should pass genre.id, not
+    // genre.name. match_key is already accent/case-folded (see genreMatchKey's
+    // withoutDiacritics()); a caller passing the raw display name instead (e.g. "Cumbia
+    // Norteña Mexicana") would still have its accents, and SQLite's LOWER() does not fold
+    // those - "norteña" != "nortena" - so genre.id is the only representation guaranteed to
+    // match here. The REPLACE pair on both sides is defense in depth for a caller that still
+    // passes a space-separated (but otherwise already-folded) string.
     @Query("""
         SELECT songs.* FROM songs
         INNER JOIN song_genre_cross_ref ON song_genre_cross_ref.song_id = songs.id
@@ -1691,6 +1689,17 @@ interface MusicDao {
         allowedParentDirs: List<String>,
         applyDirectoryFilter: Boolean
     ): Flow<List<SongEntity>>
+
+    // Resolves a genre id back to its persisted raw display name (with original accents/casing).
+    // Needed by MusicRepositoryImpl.getMusicByGenre's legacy LIKE-based fallback, which matches
+    // literal, un-normalized text in songs no sync path has migrated to the persisted table yet
+    // - that fallback can't use the id (it wouldn't appear in un-migrated raw genre text).
+    @Query("""
+        SELECT genres.name FROM genres
+        WHERE LOWER(REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_')) = LOWER(REPLACE(REPLACE(:genreId, ' ', '_'), '/', '_'))
+        LIMIT 1
+    """)
+    suspend fun getGenreNameById(genreId: String): String?
 
     @Query("""
         SELECT EXISTS(

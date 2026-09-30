@@ -681,32 +681,38 @@ class MusicRepositoryImpl @Inject constructor(
             flow {
                 val (allowedParentDirs, applyDirectoryFilter) =
                     computeAllowedDirs(allowedDirs, blockedDirs)
-                val genreName = if (mockEnabled) "Mock" else genreId
+                val effectiveGenreId = if (mockEnabled) "Mock" else genreId
                 emit(
-                    if (genreName.equals("unknown", ignoreCase = true)) {
+                    if (effectiveGenreId.equals("unknown", ignoreCase = true)) {
                         musicDao.getSongsWithNullGenre(
                             allowedParentDirs = allowedParentDirs,
                             applyDirectoryFilter = applyDirectoryFilter
                         )
                     } else {
-                        // Merge two sources: the persisted genre table (case/accent-insensitive,
-                        // respects configured delimiters - populated by the local MediaStore scan
-                        // path) and the legacy LIKE-based fallback (songs no sync path has
-                        // migrated to the persisted table yet - see getSongsByGenreContaining's
-                        // own note). distinctBy guards the rare case a song matches both.
+                        // Merge two sources: the persisted genre table, looked up by id (must be
+                        // the id, not the raw display name - see getSongsByPersistedGenreId's own
+                        // note on why an accented/multi-word name can never match there), and the
+                        // legacy LIKE-based fallback (songs no sync path has migrated to the
+                        // persisted table yet), which needs the actual raw display text instead -
+                        // resolved from the id via getGenreNameById, falling back to a best-effort
+                        // literal for an id with no persisted entry. distinctBy guards the rare
+                        // case a song matches both.
+                        val legacyGenreName =
+                            musicDao.getGenreNameById(effectiveGenreId)
+                                ?: effectiveGenreId.replace("_", " ")
                         combine(
                             musicDao.getSongsByPersistedGenreId(
-                                genreId = genreName,
+                                genreId = effectiveGenreId,
                                 allowedParentDirs = allowedParentDirs,
                                 applyDirectoryFilter = applyDirectoryFilter
                             ),
                             musicDao.getSongsByGenreContaining(
-                                genreName = genreName,
-                                genrePrefix = "$genreName,%",          // "Rock,..." / "Rock, ..."
-                                genreSuffixWithSpace = "%, $genreName", // "..., Rock"
-                                genreSuffix = "%,$genreName",          // "...,Rock"
-                                genreMiddleWithSpace = "%, $genreName,%", // "..., Rock,..."
-                                genreMiddle = "%,$genreName,%",        // "...,Rock,..."
+                                genreName = legacyGenreName,
+                                genrePrefix = "$legacyGenreName,%",          // "Rock,..." / "Rock, ..."
+                                genreSuffixWithSpace = "%, $legacyGenreName", // "..., Rock"
+                                genreSuffix = "%,$legacyGenreName",          // "...,Rock"
+                                genreMiddleWithSpace = "%, $legacyGenreName,%", // "..., Rock,..."
+                                genreMiddle = "%,$legacyGenreName,%",        // "...,Rock,..."
                                 allowedParentDirs = allowedParentDirs,
                                 applyDirectoryFilter = applyDirectoryFilter
                             )
