@@ -2881,7 +2881,7 @@ class PlayerViewModel @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
-        newArtists: String,
+        newArtists: String?,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,

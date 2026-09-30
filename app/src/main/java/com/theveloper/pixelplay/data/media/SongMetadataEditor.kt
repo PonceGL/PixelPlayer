@@ -184,9 +184,19 @@ class SongMetadataEditor(
         val wordDelimiters = userPreferencesRepository.artistWordDelimitersFlow.first()
         val extractFromTitle = userPreferencesRepository.extractArtistsFromTitleFlow.first()
 
+        // Keep (explicitArtists == null) must not re-derive from `artist`: once a song has been
+        // through the multi-artist picker, its display text is an Oxford list ("A, B & C") that
+        // the delimiter-based fallback below can't split back apart, which would collapse the
+        // song's real artists into one bogus combined-name entry on every edit that doesn't
+        // touch the picker (title-only, genre-only, lyrics, ...). Prefer what's already linked
+        // in the database - that's what "keep" should mean - and only fall back to parsing
+        // `artist` if the song somehow has no linked artists yet.
+        val keepFallbackArtists = explicitArtists
+            ?: musicDao.getArtistsForSongList(songId).map { it.name }.filter { it.isNotBlank() }
+
         val artistNames =
             resolveArtistsForSong(
-                artistsFromTag = explicitArtists ?: emptyList(),
+                artistsFromTag = keepFallbackArtists,
                 rawArtistName = artist,
                 title = title,
                 artistDelimiters = artistDelimiters,

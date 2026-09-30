@@ -109,7 +109,7 @@ fun EditSongSheet(
     onSave: (
         title: String,
         artist: String,
-        artists: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
@@ -164,7 +164,7 @@ private fun EditSongContent(
     onSave: (
         title: String,
         artist: String,
-        artists: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
@@ -182,6 +182,11 @@ private fun EditSongContent(
     var artists by remember {
         mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name })
     }
+    // Whether the artist picker sheet actually committed a change this session - only then do we
+    // write ARTISTS to the file. Otherwise a title/genre/lyrics-only edit would silently freeze
+    // whatever artists are currently shown (e.g. ones derived from the title) into the file,
+    // where ARTISTS then outranks that heuristic on every future rescan.
+    var artistsTouched by remember { mutableStateOf(false) }
     var album by remember { mutableStateOf(song.album) }
     var albumArtist by remember { mutableStateOf(song.albumArtist ?: "") }
     var composer by remember { mutableStateOf("") }
@@ -210,6 +215,7 @@ private fun EditSongContent(
         title = song.title
         artist = song.displayArtist
         artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name }
+        artistsTouched = false
         album = song.album
         albumArtist = song.albumArtist ?: ""
         composer = ""
@@ -410,7 +416,10 @@ private fun EditSongContent(
                     // the default TagChipAutocompleteField join ", " isn't in
                     // DEFAULT_ARTIST_DELIMITERS ([";"]), unlike genre where "," already is.
                     joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
-                    onTagsChanged = { tags -> artist = buildDisplayArtistText(tags) },
+                    onTagsChanged = { tags ->
+                        artist = buildDisplayArtistText(tags)
+                        artistsTouched = true
+                    },
                     label = stringResource(R.string.edit_song_field_artist),
                     placeholder = stringResource(R.string.edit_song_field_artist),
                     icon = Icons.Rounded.Group,
@@ -688,7 +697,7 @@ private fun EditSongContent(
                                 onSave(
                                     title.trim(),
                                     artist.trim(),
-                                    artists.trim(),
+                                    if (artistsTouched) artists.trim() else null,
                                     album.trim(),
                                     albumArtist.trim(),
                                     composer.trim(),

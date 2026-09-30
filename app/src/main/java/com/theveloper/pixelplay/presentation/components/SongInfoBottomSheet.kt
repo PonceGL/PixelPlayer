@@ -132,7 +132,7 @@ fun SongInfoBottomSheet(
     onEditSong: (
         title: String,
         artist: String,
-        artists: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
