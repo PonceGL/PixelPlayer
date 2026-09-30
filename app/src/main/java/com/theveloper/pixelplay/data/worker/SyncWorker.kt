@@ -143,6 +143,10 @@ constructor(
                             userPreferencesRepository.groupByAlbumArtistFlow.first()
                     val rescanRequired =
                             userPreferencesRepository.artistSettingsRescanRequiredFlow.first()
+                    val genreDelimiters = userPreferencesRepository.genreDelimitersFlow.first()
+                    val genreWordDelimiters = userPreferencesRepository.genreWordDelimitersFlow.first()
+                    val genreRescanRequired =
+                            userPreferencesRepository.genreSettingsRescanRequiredFlow.first()
                     val directoryRulesVersion =
                         userPreferencesRepository.getDirectoryRulesVersion()
                     val lastAppliedDirectoryRulesVersion =
@@ -164,7 +168,8 @@ constructor(
                     Timber.tag(TAG)
                         .d(
                             "Artist delimiters=$artistDelimiters, groupByAlbumArtist=$groupByAlbumArtist, " +
-                                "rescanRequired=$rescanRequired, directoryRulesChanged=$directoryRulesChanged " +
+                                "rescanRequired=$rescanRequired, genreDelimiters=$genreDelimiters, " +
+                                "genreRescanRequired=$genreRescanRequired, directoryRulesChanged=$directoryRulesChanged " +
                                 "(current=$directoryRulesVersion, applied=$lastAppliedDirectoryRulesVersion)"
                         )
 
@@ -203,6 +208,7 @@ constructor(
                     val fetchTimestamp =
                             if (syncMode == SyncMode.INCREMENTAL &&
                                             !rescanRequired &&
+                                            !genreRescanRequired &&
                                             !directoryRulesChanged &&
                                             !isFreshInstall
                             ) {
@@ -218,7 +224,7 @@ constructor(
                     // Update every 50 songs or ~5% of library
                     val progressBatchSize = 50
 
-                    val (songsToInsert, artistsFromTagBySongId) =
+                    val (songsToInsert, artistsFromTagBySongId, genresFromTagBySongId) =
                             fetchMusicFromMediaStore(
                                     fetchTimestamp,
                                     forceMetadata,
@@ -279,6 +285,22 @@ constructor(
                                         artistsFromTagBySongId = artistsFromTagBySongId
                                 )
 
+                        val existingGenreNames =
+                                if (syncMode == SyncMode.REBUILD) {
+                                    emptyMap()
+                                } else {
+                                    musicDao.getAllGenresListRaw().associate { it.id to it.name }
+                                }
+
+                        val (genres, genreCrossRefs) =
+                                preProcessAndDeduplicateGenres(
+                                        songs = correctedSongs,
+                                        genreDelimiters = genreDelimiters,
+                                        wordDelimiters = genreWordDelimiters,
+                                        existingGenreNames = existingGenreNames,
+                                        genresFromTagBySongId = genresFromTagBySongId
+                                )
+
                         // Use incrementalSyncMusicData for all modes except REBUILD
                         // Even for FULL sync, we can just upsert the values
                         if (syncMode == SyncMode.REBUILD) {
@@ -288,7 +310,9 @@ constructor(
                                     correctedSongs,
                                     albums,
                                     artists,
-                                    crossRefs
+                                    crossRefs,
+                                    genres,
+                                    genreCrossRefs
                             )
                         } else {
                             // incrementalSyncMusicData handles upserts efficiently
@@ -298,12 +322,15 @@ constructor(
                                     albums = albums,
                                     artists = artists,
                                     crossRefs = crossRefs,
-                                    deletedSongIds = emptyList() // Already handled
+                                    deletedSongIds = emptyList(), // Already handled
+                                    genres = genres,
+                                    genreCrossRefs = genreCrossRefs
                             )
                         }
 
-                        // Clear the rescan required flag
+                        // Clear the rescan required flags
                         userPreferencesRepository.clearArtistSettingsRescanRequired()
+                        userPreferencesRepository.clearGenreSettingsRescanRequired()
 
                         userPreferencesRepository.markDirectoryRulesVersionApplied(
                             directoryRulesVersion
@@ -792,11 +819,14 @@ constructor(
      * by that file's own ARTISTS (plural) tag when present - a stronger signal
      * than the ARTIST-splitting heuristic, consumed once by
      * [preProcessAndDeduplicateWithMultiArtist] then discarded. Absent from
-     * the map entirely when the song has no such tag.
+     * the map entirely when the song has no such tag. [genresFromTagBySongId]
+     * is the same idea for multi-value GENRE tag entries, consumed by
+     * [preProcessAndDeduplicateGenres].
      */
     private data class MediaStoreFetchResult(
             val songs: List<SongEntity>,
-            val artistsFromTagBySongId: Map<Long, List<String>>
+            val artistsFromTagBySongId: Map<Long, List<String>>,
+            val genresFromTagBySongId: Map<Long, List<String>>
     )
 
     /** Raw data extracted from cursor - lightweight class for fast iteration */
@@ -849,6 +879,7 @@ constructor(
     ): MediaStoreFetchResult {
         Trace.beginSection("SyncWorker.fetchMusicFromMediaStore")
         val artistsFromTagBySongId = java.util.concurrent.ConcurrentHashMap<Long, List<String>>()
+        val genresFromTagBySongId = java.util.concurrent.ConcurrentHashMap<Long, List<String>>()
 
         val deepScan = forceMetadata
         val genreMap = fetchGenreMap() // Load genres upfront
@@ -977,7 +1008,7 @@ constructor(
         if (rawDataList.isEmpty()) {
             Log.i(TAG, "MediaStore cursor produced 0 raw songs after directory filtering")
             Trace.endSection()
-            return MediaStoreFetchResult(emptyList(), emptyMap())
+            return MediaStoreFetchResult(emptyList(), emptyMap(), emptyMap())
         }
 
         // Phase 2: Identify changed songs and merge with existing data in chunks
@@ -1016,7 +1047,7 @@ constructor(
         )
         if (totalCount == 0) {
             Trace.endSection()
-            return MediaStoreFetchResult(emptyList(), emptyMap())
+            return MediaStoreFetchResult(emptyList(), emptyMap(), emptyMap())
         }
 
         // Phase 3: Parallel processing of songs with metadata merging
@@ -1042,7 +1073,8 @@ constructor(
                                     genreMap = genreMap,
                                     deepScan = deepScan,
                                     forceAlbumArtRefresh = deepScan || localSong != null,
-                                    artistsFromTagSink = artistsFromTagBySongId
+                                    artistsFromTagSink = artistsFromTagBySongId,
+                                    genresFromTagSink = genresFromTagBySongId
                                 )
 
                             val song = if (localSong != null) {
@@ -1080,7 +1112,7 @@ constructor(
         }
 
         Trace.endSection()
-        return MediaStoreFetchResult(songs, artistsFromTagBySongId)
+        return MediaStoreFetchResult(songs, artistsFromTagBySongId, genresFromTagBySongId)
     }
 
     /**
@@ -1092,7 +1124,8 @@ constructor(
             genreMap: Map<Long, String>,
             deepScan: Boolean,
             forceAlbumArtRefresh: Boolean,
-            artistsFromTagSink: MutableMap<Long, List<String>>
+            artistsFromTagSink: MutableMap<Long, List<String>>,
+            genresFromTagSink: MutableMap<Long, List<String>>
     ): SongEntity {
         val parentDir = java.io.File(raw.filePath).parent ?: ""
         val contentUriString =
@@ -1153,6 +1186,9 @@ constructor(
                     metadataDateAddedMillis = meta.metadataDateAddedMillis
                     if (meta.artistsFromTag.isNotEmpty()) {
                         artistsFromTagSink[raw.id] = meta.artistsFromTag
+                    }
+                    if (meta.genresFromTag.isNotEmpty()) {
+                        genresFromTagSink[raw.id] = meta.genresFromTag
                     }
                 }
             } catch (e: Exception) {
