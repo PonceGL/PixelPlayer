@@ -306,6 +306,27 @@ class MusicDaoTest {
         assertEquals("Song A", results[0].title)
     }
 
+    /**
+     * Regression test for a real bug found on-device: GenreDetailViewModel calls
+     * getMusicByGenre(genre.name) - the display name ("Salsa"), not the slugified id
+     * ("salsa") - relying on the old LIKE-based query's default ASCII case-insensitivity.
+     * This query must tolerate the same mismatched casing or genre detail screens
+     * silently show zero songs, which is exactly what happened before this fix.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesTheDisplayNameCasingCallersActuallyPass() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Salsa", matchKey = "salsa")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("Salsa", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+    }
+
     @Test
     @Throws(Exception::class)
     fun getUniqueGenres_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {

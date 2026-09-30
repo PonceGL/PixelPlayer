@@ -6,6 +6,7 @@ import com.theveloper.pixelplay.data.database.SearchHistoryDao
 import com.theveloper.pixelplay.data.database.SongEntity // Necesario para datos de prueba
 import com.theveloper.pixelplay.data.database.AlbumEntity
 import com.theveloper.pixelplay.data.database.ArtistEntity
+import com.theveloper.pixelplay.data.database.GenreEntity
 import com.theveloper.pixelplay.data.model.Song // Para verificar el mapeo
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
@@ -99,7 +100,10 @@ class MusicRepositoryImplTest {
         }
         every { mockMusicDao.getArtists(any(), eq(false)) } returns flowOf(dummyArtists)
 
-
+        // Persisted-genre defaults: empty by default so existing legacy-only genre tests
+        // are unaffected unless a test overrides them to exercise the merge explicitly.
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns flowOf(emptyList())
+        every { mockMusicDao.getSongsByPersistedGenreId(any(), any(), any()) } returns flowOf(emptyList())
 
         musicRepository = MusicRepositoryImpl(
             context = mockContext,
@@ -316,6 +320,77 @@ class MusicRepositoryImplTest {
         assertEquals(2, result.size)
         assertTrue(result.any { it.id == "rock" })
         assertEquals(1, result.count { it.id == "unknown" })
+    }
+
+    @Test
+    fun `getGenres includes genres read from the persisted genres table`() = runTest(testDispatcher) {
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns
+            flowOf(listOf(GenreEntity(id = -1L, name = "Jazz", matchKey = "jazz")))
+        every { mockMusicDao.getUniqueGenres(any(), any()) } returns flowOf(emptyList())
+        every { mockMusicDao.hasUnknownGenre(any(), any()) } returns flowOf(false)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals("jazz", result.first().id)
+        assertEquals("Jazz", result.first().name)
+    }
+
+    @Test
+    fun `getGenres merges persisted and legacy genres without duplicating a matching id`() = runTest(testDispatcher) {
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns
+            flowOf(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        // A song some other sync path never migrated still has the raw string "Rock".
+        every { mockMusicDao.getUniqueGenres(any(), any()) } returns flowOf(listOf("Rock"))
+        every { mockMusicDao.hasUnknownGenre(any(), any()) } returns flowOf(false)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals("rock", result.first().id)
+    }
+
+    @Test
+    fun `getMusicByGenre includes songs from the persisted genre table`() = runTest(testDispatcher) {
+        val persistedSong = createSongEntity(
+            id = 5L,
+            title = "Persisted Song",
+            artistName = "Artist 1",
+            genre = "Jazz",
+            filePath = "/music/persisted.mp3",
+            parentDirectoryPath = "/music"
+        )
+        every { mockMusicDao.getSongsByPersistedGenreId(eq("jazz"), any(), eq(true)) } returns
+            flowOf(listOf(persistedSong))
+        every {
+            mockMusicDao.getSongsByGenreContaining(any(), any(), any(), any(), any(), any(), any(), eq(true))
+        } returns flowOf(emptyList())
+
+        val result = musicRepository.getMusicByGenre("jazz").first()
+
+        assertEquals(1, result.size)
+        assertEquals("Persisted Song", result.first().title)
+    }
+
+    @Test
+    fun `getMusicByGenre merges persisted and legacy song matches without duplicates`() = runTest(testDispatcher) {
+        val persistedSong = createSongEntity(
+            id = 5L, title = "Persisted Song", artistName = "Artist 1",
+            genre = "Jazz", filePath = "/music/persisted.mp3", parentDirectoryPath = "/music"
+        )
+        val legacySong = createSongEntity(
+            id = 6L, title = "Legacy Song", artistName = "Artist 1",
+            genre = "Jazz", filePath = "/music/legacy.mp3", parentDirectoryPath = "/music"
+        )
+        every { mockMusicDao.getSongsByPersistedGenreId(eq("jazz"), any(), eq(true)) } returns
+            flowOf(listOf(persistedSong))
+        every {
+            mockMusicDao.getSongsByGenreContaining(any(), any(), any(), any(), any(), any(), any(), eq(true))
+        } returns flowOf(listOf(legacySong))
+
+        val result = musicRepository.getMusicByGenre("jazz").first()
+
+        assertEquals(setOf("Persisted Song", "Legacy Song"), result.map { it.title }.toSet())
     }
 
     @Test
