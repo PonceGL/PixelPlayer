@@ -34,9 +34,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         JellyfinSongEntity::class,
         JellyfinPlaylistEntity::class,
         AiCacheEntity::class,
-        AiUsageEntity::class
+        AiUsageEntity::class,
+        GenreEntity::class,
+        SongGenreCrossRef::class
     ],
-    version = 43,
+    version = 44,
     exportSchema = true
 )
 abstract class PixelPlayDatabase : RoomDatabase() {
@@ -753,6 +755,41 @@ abstract class PixelPlayDatabase : RoomDatabase() {
         val MIGRATION_42_43 = object : Migration(42, 43) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE songs ADD COLUMN metadata_date_added INTEGER DEFAULT NULL")
+            }
+        }
+
+        // Multi-genre support, mirroring the song_artist_cross_ref shape (MIGRATION_9_10).
+        // No backfill here on purpose: unlike that migration (which had one artist_id per
+        // song already on the songs row to carry over), genres are still free-text on
+        // songs.genre with no configured delimiters yet to split it by - SyncWorker
+        // populates both tables on the next library scan instead, same as ArtistEntity.
+        val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS genres (
+                            id INTEGER NOT NULL,
+                            name TEXT NOT NULL,
+                            match_key TEXT NOT NULL,
+                            PRIMARY KEY (id)
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_genres_match_key ON genres(match_key)")
+
+                db.execSQL(
+                    """
+                        CREATE TABLE IF NOT EXISTS song_genre_cross_ref (
+                            song_id INTEGER NOT NULL,
+                            genre_id INTEGER NOT NULL,
+                            PRIMARY KEY (song_id, genre_id),
+                            FOREIGN KEY (song_id) REFERENCES songs(id) ON DELETE CASCADE,
+                            FOREIGN KEY (genre_id) REFERENCES genres(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_song_genre_cross_ref_song_id ON song_genre_cross_ref(song_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_song_genre_cross_ref_genre_id ON song_genre_cross_ref(genre_id)")
             }
         }
 

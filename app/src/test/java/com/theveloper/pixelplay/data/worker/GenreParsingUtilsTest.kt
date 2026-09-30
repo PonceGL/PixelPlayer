@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.worker
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class GenreParsingUtilsTest {
@@ -70,5 +71,31 @@ class GenreParsingUtilsTest {
         )
 
         assertEquals(listOf("Drum/Bass"), result)
+    }
+
+    @Test
+    fun `genreIdFromMatchKey is deterministic for the same match key`() {
+        assertEquals(genreIdFromMatchKey("rock"), genreIdFromMatchKey("rock"))
+    }
+
+    @Test
+    fun `genreIdFromMatchKey is the same for case and accent variants that share a match key`() {
+        // "ROCK" and "rock" fold to the same match key, so they must resolve to the
+        // same id even when both are brand new in the same sync batch - unlike the
+        // artist id scheme (hashes the raw display name), this hashes the already
+        // case/accent-normalized key so no case-sensitivity gap is possible here.
+        assertEquals(genreIdFromMatchKey("ROCK".genreMatchKey()), genreIdFromMatchKey("rock".genreMatchKey()))
+        assertEquals(genreIdFromMatchKey("Reggaetón".genreMatchKey()), genreIdFromMatchKey("Reggaeton".genreMatchKey()))
+    }
+
+    @Test
+    fun `genreIdFromMatchKey is negative, never zero`() {
+        assertTrue(genreIdFromMatchKey("rock") < 0)
+        assertTrue(genreIdFromMatchKey("") < 0)
+    }
+
+    @Test
+    fun `genreIdFromMatchKey differs for different match keys`() {
+        assertTrue(genreIdFromMatchKey("rock") != genreIdFromMatchKey("pop"))
     }
 }

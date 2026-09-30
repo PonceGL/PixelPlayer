@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.worker
 
 import com.theveloper.pixelplay.utils.splitByDelimiters
 import java.text.Normalizer
+import kotlin.math.absoluteValue
 
 /**
  * Canonical spelling for genre names that are still different strings after case and
@@ -44,4 +45,16 @@ internal fun resolveGenresForSong(
         return fromTag
     }
     return rawGenreName.splitByDelimiters(genreDelimiters, wordDelimiters)
+}
+
+/**
+ * Deterministic negative id derived from an already-[genreMatchKey]-normalized key, mirroring
+ * the synthetic artist id scheme (see SyncWorker) but hashing the normalized key instead of the
+ * raw display name — two names that fold to the same key (different case, e.g.) always produce
+ * the same id, even before either has been persisted, unlike the artist scheme's hash-by-display
+ * -name gap.
+ */
+internal fun genreIdFromMatchKey(matchKey: String): Long {
+    val synthId = -(matchKey.hashCode().toLong().absoluteValue)
+    return if (synthId == 0L) -1L else synthId
 }
