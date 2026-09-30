@@ -175,6 +175,12 @@ class UserPreferencesRepository @Inject constructor(
         val ARTIST_SETTINGS_RESCAN_REQUIRED =
             booleanPreferencesKey("artist_settings_rescan_required")
 
+        // Multi-genre
+        val GENRE_DELIMITERS = stringPreferencesKey("genre_delimiters")
+        val GENRE_WORD_DELIMITERS = stringPreferencesKey("genre_word_delimiters")
+        val GENRE_SETTINGS_RESCAN_REQUIRED =
+            booleanPreferencesKey("genre_settings_rescan_required")
+
         // Equalizer
         val EQUALIZER_ENABLED = booleanPreferencesKey("equalizer_enabled")
         val EQUALIZER_PRESET = stringPreferencesKey("equalizer_preset")
@@ -1069,6 +1075,40 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         dataStore.edit { it[PreferencesKeys.ARTIST_SETTINGS_RESCAN_REQUIRED] = false }
     }
 
+    // ─── Multi-genre settings ───────────────────────────────────────────────
+
+    val genreDelimitersFlow: Flow<List<String>> =
+        pref { decodeJsonPref(it, PreferencesKeys.GENRE_DELIMITERS, DEFAULT_GENRE_DELIMITERS) }
+
+    suspend fun setGenreDelimiters(delimiters: List<String>) {
+        if (delimiters.isEmpty()) return
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GENRE_DELIMITERS] = json.encodeToString(delimiters)
+            preferences[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = true
+        }
+    }
+
+    suspend fun resetGenreDelimitersToDefault() = setGenreDelimiters(DEFAULT_GENRE_DELIMITERS)
+
+    val genreWordDelimitersFlow: Flow<List<String>> =
+        pref { decodeJsonPref(it, PreferencesKeys.GENRE_WORD_DELIMITERS, DEFAULT_GENRE_WORD_DELIMITERS) }
+
+    suspend fun setGenreWordDelimiters(delimiters: List<String>) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GENRE_WORD_DELIMITERS] = json.encodeToString(delimiters)
+            preferences[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = true
+        }
+    }
+
+    suspend fun resetGenreWordDelimitersToDefault() = setGenreWordDelimiters(DEFAULT_GENRE_WORD_DELIMITERS)
+
+    val genreSettingsRescanRequiredFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] ?: false }
+
+    suspend fun clearGenreSettingsRescanRequired() {
+        dataStore.edit { it[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = false }
+    }
+
     // ─── Lyrics ───────────────────────────────────────────────────────────────
 
     /**
@@ -1405,6 +1445,17 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
             "featuring", "feat.", "feat", "ft.", "ft",
             "vs.", "vs", "versus", "with", "prod.", "prod"
         )
+
+        /**
+         * Default character delimiter for splitting multi-genre tags. "," matches the
+         * behavior already in production before configurable delimiters existed (genre
+         * was always split on a literal comma) - changing this default would silently
+         * regress already-migrated libraries.
+         */
+        val DEFAULT_GENRE_DELIMITERS = listOf(",")
+
+        /** No word-based genre delimiter has an obvious universal default, unlike "feat." for artists. */
+        val DEFAULT_GENRE_WORD_DELIMITERS = emptyList<String>()
 
         const val DEFAULT_ALBUM_ART_CACHE_LIMIT_MB = 200
     }
