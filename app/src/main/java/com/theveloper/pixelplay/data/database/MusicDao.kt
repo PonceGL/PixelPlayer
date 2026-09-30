@@ -1670,16 +1670,19 @@ interface MusicDao {
 
     // :genreId is the slugified form of a genre's match_key (spaces/slashes -> "_", see
     // MusicRepositoryImpl's genre id scheme) - REPLACE mirrors that transformation in SQL
-    // so the same id used to display the genre list resolves back to its songs. Compared
-    // case-insensitively: at least one existing caller (GenreDetailViewModel) passes the
-    // display name (e.g. "Salsa") instead of the id ("salsa") - the old LIKE-based query
-    // tolerated that via SQLite's default ASCII-insensitive LIKE, so this "=" comparison
-    // must fold case too or it silently returns nothing for that caller.
+    // so the same id used to display the genre list resolves back to its songs. The same
+    // REPLACE is also applied to :genreId itself: at least two existing callers
+    // (GenreDetailViewModel, MultiSelectionStateHolder) pass the raw display name (e.g.
+    // "Hip Hop", with a space) instead of the slugified id ("hip_hop", with an underscore) -
+    // without this, that space is never converted to "_" on the right side, so it never
+    // matches match_key's "_" and every multi-word genre's detail screen silently shows zero
+    // songs. Compared case-insensitively for the same reason (display-name callers may pass
+    // any casing, e.g. "Salsa" instead of "salsa").
     @Query("""
         SELECT songs.* FROM songs
         INNER JOIN song_genre_cross_ref ON song_genre_cross_ref.song_id = songs.id
         INNER JOIN genres ON genres.id = song_genre_cross_ref.genre_id
-        WHERE LOWER(REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_')) = LOWER(:genreId)
+        WHERE LOWER(REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_')) = LOWER(REPLACE(REPLACE(:genreId, ' ', '_'), '/', '_'))
         AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
         ORDER BY songs.title ASC
     """)

@@ -327,6 +327,29 @@ class MusicDaoTest {
         assertEquals(1, results.size)
     }
 
+    /**
+     * Regression test for a real bug found on-device: GenreDetailViewModel and
+     * MultiSelectionStateHolder call getMusicByGenre(genre.name) - the raw display name
+     * ("Hip Hop", with a space), not the slugified id ("hip_hop", with an underscore).
+     * The query's left side replaces match_key's spaces/slashes with "_" to build the
+     * comparable id, but never applied that same transform to the incoming :genreId - so a
+     * caller passing the space-separated display name never matched, silently emptying the
+     * genre detail screen for every multi-word genre.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesTheRawDisplayNameCallersActuallyPass() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Hip Hop", matchKey = "hip hop")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("Hip Hop", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+    }
+
     @Test
     @Throws(Exception::class)
     fun getUniqueGenres_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {
