@@ -15,6 +15,7 @@ import com.theveloper.pixelplay.data.media.SongMetadataEditor
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.utils.FileDeletionUtils
 import com.theveloper.pixelplay.utils.LyricsUtils
 import com.theveloper.pixelplay.utils.MediaItemBuilder
@@ -95,6 +96,7 @@ class MetadataEditStateHolder @Inject constructor(
     private val libraryStateHolder: LibraryStateHolder,
     private val multiSelectionStateHolder: MultiSelectionStateHolder,
     private val albumArtThemeDao: AlbumArtThemeDao,
+    private val syncManager: SyncManager,
     @ApplicationContext private val context: Context
 ) {
 
@@ -688,12 +690,30 @@ class MetadataEditStateHolder @Inject constructor(
                 }
             }
 
-            // No need for full library sync - file, MediaStore, and local DB are already updated
+            // Editing only patches songs.genre here (see updateSongArtistMetadata) - it does not
+            // re-resolve the persisted genres/song_genre_cross_ref tables the genre browsing UI
+            // reads from, unlike artist which is fully resolved inline. An incremental sync
+            // closes that gap; it's cheap because the edited file's MediaStore DATE_MODIFIED was
+            // just bumped, so the sync only reprocesses what actually changed.
             cb.sendToast(context.getString(R.string.metadata_edit_updated_successfully))
+            triggerPostEditSync(cb)
         } else {
             val errorMessage = result.getUserFriendlyErrorMessage()
             Log.e("PlayerViewModel", "METADATA_EDIT_VM: Failed - ${result.error}: $errorMessage")
             cb.sendToast(errorMessage)
+        }
+    }
+
+    /**
+     * Triggers an incremental sync after a successful metadata edit and, once it finishes, shows
+     * the same "library sync finished" toast the manual rescan in Settings already uses.
+     */
+    private fun triggerPostEditSync(cb: MetadataEditCallbacks) {
+        syncManager.incrementalSync()
+        cb.scope.launch {
+            syncManager.isSyncing.first { it }
+            syncManager.isSyncing.first { !it }
+            cb.sendToast(context.getString(R.string.settings_toast_library_sync_finished))
         }
     }
 
@@ -822,6 +842,9 @@ class MetadataEditStateHolder @Inject constructor(
             else -> context.getString(R.string.batch_edit_partial_success, successCount, songs.size)
         }
         cb.sendToast(message)
+        if (successCount > 0) {
+            triggerPostEditSync(cb)
+        }
     }
 
     private suspend fun performBatchEditGenre(songs: List<Song>, newGenre: String, cb: MetadataEditCallbacks) {
@@ -880,6 +903,9 @@ class MetadataEditStateHolder @Inject constructor(
             cb.sendToast(context.getString(R.string.metadata_edit_batch_genre_updated_all, successCount))
         } else {
             cb.sendToast(context.getString(R.string.metadata_edit_batch_genre_updated_partial, successCount, failCount))
+        }
+        if (successCount > 0) {
+            triggerPostEditSync(cb)
         }
     }
 
