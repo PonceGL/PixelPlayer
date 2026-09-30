@@ -308,10 +308,6 @@
     <string name="edit_song_field_title">Title</string>
     <string name="edit_song_field_artist">Artist</string>
     <string name="edit_song_field_artists">Artists</string>
-    <string name="artist_chip_help_cd">About artist tags</string>
-    <string name="artist_chip_browse_list_cd">List</string>
-    <string name="artist_chip_help_title">About the Artist field</string>
-    <string name="artist_chip_help_body">Tap a suggested name below the field to add it as a removable tag - this keeps each artist properly organized in your library. You can also type freely before, between, or after any tag, for example to add \"feat.\" or to write it exactly the way you want it to appear. If you type several names separated by a comma or semicolon without using a tag, they\'ll still be recognized as separate artists when you save.</string>
     <string name="edit_song_field_album">Album</string>
     <string name="edit_song_field_album_artist">Album artist</string>
     <string name="edit_song_field_genre">Genre</string>

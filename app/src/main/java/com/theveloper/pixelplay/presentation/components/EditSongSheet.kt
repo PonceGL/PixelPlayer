@@ -64,6 +64,7 @@ import com.theveloper.pixelplay.R
 import java.net.URLEncoder
 import timber.log.Timber
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.worker.buildDisplayArtistText
 import androidx.compose.material.icons.rounded.Group
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.launch
@@ -177,12 +178,10 @@ private fun EditSongContent(
     ) -> Unit,
 ) {
     var title by remember { mutableStateOf(song.title) }
-    var artistSegments by remember {
-        mutableStateOf(parseChipTextSegments(song.displayArtist, song.artists.map { it.name }))
+    var artist by remember { mutableStateOf(song.displayArtist) }
+    var artists by remember {
+        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name })
     }
-    val artist = artistSegments.toDisplayText()
-    val artistJoinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} "
-    val artists = if (artistSegments.chips.isEmpty()) artist else artistSegments.chips.joinToString(artistJoinDelimiter)
     var album by remember { mutableStateOf(song.album) }
     var albumArtist by remember { mutableStateOf(song.albumArtist ?: "") }
     var composer by remember { mutableStateOf("") }
@@ -209,7 +208,8 @@ private fun EditSongContent(
 
     LaunchedEffect(song) {
         title = song.title
-        artistSegments = parseChipTextSegments(song.displayArtist, song.artists.map { it.name })
+        artist = song.displayArtist
+        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name }
         album = song.album
         albumArtist = song.albumArtist ?: ""
         composer = ""
@@ -399,12 +399,18 @@ private fun EditSongContent(
                 }
             }
 
-            // --- Campo de Artista (texto libre + etiquetas interconectadas) ---
+            // --- Campo de Artista (homologado con género: botón que abre el sheet de chips) ---
             item {
-                ArtistChipTextField(
-                    segments = artistSegments,
-                    onSegmentsChange = { artistSegments = it },
+                TagChipAutocompleteField(
+                    value = artists,
+                    onValueChange = { artists = it },
                     existingValues = existingArtistNames,
+                    delimiters = artistDelimiters,
+                    // Must be one of `delimiters` (or the join/split round-trip silently breaks):
+                    // the default TagChipAutocompleteField join ", " isn't in
+                    // DEFAULT_ARTIST_DELIMITERS ([";"]), unlike genre where "," already is.
+                    joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
+                    onTagsChanged = { tags -> artist = buildDisplayArtistText(tags) },
                     label = stringResource(R.string.edit_song_field_artist),
                     placeholder = stringResource(R.string.edit_song_field_artist),
                     icon = Icons.Rounded.Group,
