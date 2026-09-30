@@ -1,27 +1,37 @@
 package com.theveloper.pixelplay.presentation.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
+import kotlinx.coroutines.launch
+import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 
 /**
  * A single wrapping line that interleaves free-typed text with removable artist chips, backed by
@@ -45,6 +55,7 @@ internal fun ArtistChipTextField(
     modifier: Modifier = Modifier,
 ) {
     var helpDialogVisible by remember { mutableStateOf(false) }
+    var pickerSheetVisible by remember { mutableStateOf(false) }
     var trailingGapFocused by remember { mutableStateOf(false) }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -65,6 +76,16 @@ internal fun ArtistChipTextField(
                     contentDescription = stringResource(R.string.artist_chip_help_cd),
                     modifier = Modifier.size(15.dp)
                 )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = { pickerSheetVisible = true }) {
+                Icon(
+                    Icons.Rounded.List,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.artist_chip_browse_list_cd), style = MaterialTheme.typography.labelMedium)
             }
         }
 
@@ -149,6 +170,146 @@ internal fun ArtistChipTextField(
                 }
             }
         )
+    }
+
+    if (pickerSheetVisible) {
+        ArtistPickerBottomSheet(
+            title = label,
+            segments = segments,
+            onSegmentsChange = onSegmentsChange,
+            existingValues = existingValues,
+            textFieldColors = textFieldColors,
+            textFieldShape = textFieldShape,
+            onDismiss = { pickerSheetVisible = false }
+        )
+    }
+}
+
+/**
+ * The full-list picker, restoring the "browse and tap to add" interaction genre editing already
+ * has, on top of [ChipTextSegments] - chips picked here are appended live (same as tapping an
+ * inline suggestion), so the field behind the sheet updates immediately as each one is added.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ArtistPickerBottomSheet(
+    title: String,
+    segments: ChipTextSegments,
+    onSegmentsChange: (ChipTextSegments) -> Unit,
+    existingValues: List<String>,
+    textFieldColors: TextFieldColors,
+    textFieldShape: Shape,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    fun close() {
+        scope.launch {
+            sheetState.hide()
+            onDismiss()
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = { close() },
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .heightIn(min = 320.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            if (segments.chips.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    segments.chips.forEachIndexed { index, chip ->
+                        InputChip(
+                            selected = false,
+                            onClick = { onSegmentsChange(segments.removeChipAt(index)) },
+                            label = { Text(chip) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.tag_chip_remove, chip),
+                                    modifier = Modifier.size(InputChipDefaults.IconSize)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                placeholder = { Text(stringResource(R.string.tag_chip_input_placeholder)) },
+                singleLine = true,
+                shape = textFieldShape,
+                colors = textFieldColors,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+            )
+
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
+
+            val suggestions = remember(query, existingValues, segments.chips) {
+                filterTagSuggestions(query, existingValues, alreadyAdded = segments.chips)
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .padding(top = 8.dp),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(suggestions) { suggestion ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSegmentsChange(segments.addChip(suggestion))
+                                query = ""
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = suggestion, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+
+            Button(
+                onClick = { close() },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp),
+                shape = AbsoluteSmoothCornerShape(16.dp, 60)
+            ) {
+                Text(stringResource(R.string.common_done))
+            }
+        }
     }
 }
 
