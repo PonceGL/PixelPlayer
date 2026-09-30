@@ -581,6 +581,7 @@ fun LibraryScreen(
     val existingGenreNames by remember {
         derivedStateOf { playerViewModel.genres.value.filter { it.id != "unknown" }.map { it.name } }
     }
+    val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope() // Mantener si se usa para acciones de UI
     val syncManager = playerViewModel.syncManager
     var isRefreshing by remember { mutableStateOf(false) }
@@ -2355,6 +2356,7 @@ fun LibraryScreen(
             visible = showBatchEditSheet,
             songs = selectedSongs,
             existingGenres = existingGenreNames,
+            genreDelimiters = genreDelimiters,
             onDismiss = { showBatchEditSheet = false },
             onSave = { songs, title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                 playerViewModel.saveBatchMetadata(

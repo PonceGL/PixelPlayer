@@ -100,6 +100,7 @@ fun EditSongSheet(
     visible: Boolean,
     song: Song,
     existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
@@ -135,6 +136,7 @@ fun EditSongSheet(
                 EditSongContent(
                     song = song,
                     existingGenres = existingGenres,
+                    genreDelimiters = genreDelimiters,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -148,6 +150,7 @@ fun EditSongSheet(
 private fun EditSongContent(
     song: Song,
     existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
@@ -450,10 +453,11 @@ private fun EditSongContent(
 
             // --- Campo de Género ---
             item {
-                GenreAutocompleteField(
+                TagChipAutocompleteField(
                     value = genre,
                     onValueChange = { genre = it },
-                    existingGenres = existingGenres,
+                    existingValues = existingGenres,
+                    delimiters = genreDelimiters,
                     label = stringResource(R.string.edit_song_field_genre),
                     placeholder = stringResource(R.string.edit_song_field_genre),
                     icon = Icons.Rounded.Category,

@@ -1131,6 +1131,15 @@ class PlayerViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
+    /** Configured genre delimiters, for the bulk-edit sheet's chip input - see
+     *  SongInfoBottomSheetViewModel.genreDelimiters for the single-song equivalent. */
+    val genreDelimiters: StateFlow<List<String>> = userPreferencesRepository.genreDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS
+        )
+
     val homeMixPreviewSongs: StateFlow<ImmutableList<Song>> = musicRepository.getHomeMixPreviewSongs(
         limit = HOME_MIX_PREVIEW_LIMIT
     ).map { it.toImmutableList() }

@@ -72,6 +72,7 @@ fun EditMultipleSongsSheet(
     visible: Boolean,
     songs: List<Song>,
     existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
@@ -108,6 +109,7 @@ fun EditMultipleSongsSheet(
                 EditMultipleSongsContent(
                     songs = songs,
                     existingGenres = existingGenres,
+                    genreDelimiters = genreDelimiters,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -121,6 +123,7 @@ fun EditMultipleSongsSheet(
 private fun EditMultipleSongsContent(
     songs: List<Song>,
     existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
@@ -351,10 +354,11 @@ private fun EditMultipleSongsContent(
 
                 // Genre field
                 item {
-                    GenreAutocompleteField(
+                    TagChipAutocompleteField(
                         value = genre ?: "",
                         onValueChange = { genre = it.ifBlank { null } },
-                        existingGenres = existingGenres,
+                        existingValues = existingGenres,
+                        delimiters = genreDelimiters,
                         label = stringResource(R.string.edit_song_field_genre),
                         placeholder = if (genreField.isMixed)
                             stringResource(R.string.batch_edit_mixed_values)

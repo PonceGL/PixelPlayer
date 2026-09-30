@@ -17,6 +17,7 @@ import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.database.toArtist
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferState
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferStateStore
@@ -49,6 +50,7 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     private val transferStateStore: PhoneWatchTransferStateStore,
     private val musicDao: MusicDao,
     private val musicRepository: MusicRepository,
+    private val userPreferencesRepository: UserPreferencesRepository,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -126,6 +128,15 @@ class SongInfoBottomSheetViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000L),
             initialValue = emptyList()
+        )
+
+    /** Character delimiters the user configured for splitting a multi-genre tag - the same set
+     *  the local scan uses, so the edit sheet's chip input confirms a chip on the same characters. */
+    val genreDelimiters: StateFlow<List<String>> = userPreferencesRepository.genreDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS
         )
 
     fun loadArtistsForSong(song: Song) {
