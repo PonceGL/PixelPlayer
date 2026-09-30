@@ -132,6 +132,7 @@ fun SongInfoBottomSheet(
     onEditSong: (
         title: String,
         artist: String,
+        artists: String,
         album: String,
         albumArtist: String,
         composer: String,
@@ -161,6 +162,8 @@ fun SongInfoBottomSheet(
     val audioMeta by songInfoViewModel.audioMeta.collectAsStateWithLifecycle()
     val existingGenreNames by songInfoViewModel.existingGenreNames.collectAsStateWithLifecycle()
     val genreDelimiters by songInfoViewModel.genreDelimiters.collectAsStateWithLifecycle()
+    val existingArtistNames by songInfoViewModel.existingArtistNames.collectAsStateWithLifecycle()
+    val artistDelimiters by songInfoViewModel.artistDelimiters.collectAsStateWithLifecycle()
     val songGenres = remember(song.genre, genreDelimiters) {
         song.genre?.takeIf { it.isNotBlank() }?.let {
             it.splitByDelimiters(genreDelimiters)
@@ -777,11 +780,14 @@ fun SongInfoBottomSheet(
         song = song,
         existingGenres = existingGenreNames,
         genreDelimiters = genreDelimiters,
+        existingArtistNames = existingArtistNames,
+        artistDelimiters = artistDelimiters,
         onDismiss = { showEditSheet = false },
-        onSave = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
+        onSave = { title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
             onEditSong(
                 title,
                 artist,
+                artists,
                 album,
                 albumArtist,
                 composer,

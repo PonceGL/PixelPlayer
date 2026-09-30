@@ -2843,6 +2843,7 @@ class PlayerViewModel @Inject constructor(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -2854,7 +2855,7 @@ class PlayerViewModel @Inject constructor(
         replayGainAlbumGainDb: String?,
         coverArtUpdate: CoverArtUpdate?
     ) = metadataEditStateHolder.saveBatchMetadata(
-        songs, title, artist, album, albumArtist, composer, genre, lyrics,
+        songs, title, artist, artists, album, albumArtist, composer, genre, lyrics,
         trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate,
         metadataEditCallbacks()
     )
@@ -2863,6 +2864,7 @@ class PlayerViewModel @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -2874,7 +2876,7 @@ class PlayerViewModel @Inject constructor(
         newReplayGainAlbumGainDb: String? = null,
         coverArtUpdate: CoverArtUpdate?,
     ) = metadataEditStateHolder.editSongMetadata(
-        song, newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
+        song, newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
         newTrackNumber, newDiscNumber, newReplayGainTrackGainDb, newReplayGainAlbumGainDb, coverArtUpdate,
         metadataEditCallbacks()
     )

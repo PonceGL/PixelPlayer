@@ -607,11 +607,12 @@ fun GenreDetailScreen(
                             )
                             showSongOptionsSheet = null
                         },
-                        onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                        onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                             playerViewModel.editSongMetadata(
                                 song,
                                 newTitle,
                                 newArtist,
+                                newArtists,
                                 newAlbum,
                                 newAlbumArtist,
                                 newComposer,
@@ -704,6 +705,9 @@ fun GenreDetailScreen(
                     songs = songs,
                     title = title,
                     artist = artist,
+                    // Batch multi-artist chip editing isn't wired into EditMultipleSongsSheet yet
+                    // (single-song editing only, for now) - null leaves ARTISTS untouched.
+                    artists = null,
                     album = album,
                     albumArtist = albumArtist,
                     composer = composer,

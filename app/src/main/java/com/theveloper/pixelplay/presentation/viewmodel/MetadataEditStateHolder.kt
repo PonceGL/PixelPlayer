@@ -14,8 +14,10 @@ import com.theveloper.pixelplay.data.media.MetadataEditError
 import com.theveloper.pixelplay.data.media.SongMetadataEditor
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.worker.SyncManager
+import com.theveloper.pixelplay.utils.splitByDelimiters
 import com.theveloper.pixelplay.utils.FileDeletionUtils
 import com.theveloper.pixelplay.utils.LyricsUtils
 import com.theveloper.pixelplay.utils.MediaItemBuilder
@@ -53,6 +55,7 @@ private data class PendingMetadataEdit(
     val song: Song,
     val title: String,
     val artist: String,
+    val artists: String,
     val album: String,
     val albumArtist: String,
     val composer: String,
@@ -69,6 +72,7 @@ private data class PendingBatchMetadataEdit(
     val songs: List<Song>,
     val title: String?,
     val artist: String?,
+    val artists: String?,
     val album: String?,
     val albumArtist: String?,
     val composer: String?,
@@ -97,6 +101,7 @@ class MetadataEditStateHolder @Inject constructor(
     private val multiSelectionStateHolder: MultiSelectionStateHolder,
     private val albumArtThemeDao: AlbumArtThemeDao,
     private val syncManager: SyncManager,
+    private val userPreferencesRepository: UserPreferencesRepository,
     @ApplicationContext private val context: Context
 ) {
 
@@ -144,6 +149,10 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        // Delimiter-joined ARTISTS (plural) chip list from the multi-artist picker. Null means
+        // the edit never touched that picker (e.g. a batch edit of an unrelated field) - leaves
+        // the file's ARTISTS tag untouched instead of guessing one from newArtist.
+        newArtists: String? = null,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -196,9 +205,17 @@ class MetadataEditStateHolder @Inject constructor(
             )
         }
 
+        // null = never touched the multi-artist picker, leave the file's ARTISTS tag alone.
+        val resolvedArtistsList = newArtists?.let {
+            val artistDelimiters = userPreferencesRepository.artistDelimitersFlow.first()
+            val artistWordDelimiters = userPreferencesRepository.artistWordDelimitersFlow.first()
+            it.splitByDelimiters(artistDelimiters, artistWordDelimiters)
+        }
+
         val result = songMetadataEditor.editSongMetadata(
             newTitle = newTitle,
             newArtist = newArtist,
+            newArtists = resolvedArtistsList,
             newAlbum = newAlbum,
             newAlbumArtist = newAlbumArtist.trim().takeIf { it.isNotBlank() },
             newComposer = newComposer.trim().takeIf { it.isNotBlank() },
@@ -337,6 +354,7 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -362,6 +380,7 @@ class MetadataEditStateHolder @Inject constructor(
                         song = song,
                         title = newTitle,
                         artist = newArtist,
+                        artists = newArtists,
                         album = newAlbum,
                         albumArtist = newAlbumArtist,
                         composer = newComposer,
@@ -378,7 +397,7 @@ class MetadataEditStateHolder @Inject constructor(
                 }
             }
 
-            performMetadataEdit(song, newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
+            performMetadataEdit(song, newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
                 newTrackNumber, newDiscNumber, newReplayGainTrackGainDb, newReplayGainAlbumGainDb, coverArtUpdate, cb)
         }
     }
@@ -387,6 +406,7 @@ class MetadataEditStateHolder @Inject constructor(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -427,6 +447,7 @@ class MetadataEditStateHolder @Inject constructor(
                             songs = songs,
                             title = title,
                             artist = artist,
+                            artists = artists,
                             album = album,
                             albumArtist = albumArtist,
                             composer = composer,
@@ -445,7 +466,7 @@ class MetadataEditStateHolder @Inject constructor(
             }
 
             performBatchMetadataEdit(
-                songs, title, artist, album, albumArtist, composer, genre, lyrics,
+                songs, title, artist, artists, album, albumArtist, composer, genre, lyrics,
                 trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate, cb
             )
         }
@@ -517,6 +538,7 @@ class MetadataEditStateHolder @Inject constructor(
                     batchMetadata.songs,
                     batchMetadata.title,
                     batchMetadata.artist,
+                    batchMetadata.artists,
                     batchMetadata.album,
                     batchMetadata.albumArtist,
                     batchMetadata.composer,
@@ -566,7 +588,7 @@ class MetadataEditStateHolder @Inject constructor(
         }
         cb.scope.launch {
             performMetadataEdit(
-                pending.song, pending.title, pending.artist, pending.album,
+                pending.song, pending.title, pending.artist, pending.artists, pending.album,
                 pending.albumArtist, pending.composer, pending.genre, pending.lyrics,
                 pending.trackNumber, pending.discNumber,
                 pending.replayGainTrackGainDb, pending.replayGainAlbumGainDb, pending.coverArtUpdate,
@@ -600,6 +622,7 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -618,6 +641,7 @@ class MetadataEditStateHolder @Inject constructor(
             song = song,
             newTitle = newTitle,
             newArtist = newArtist,
+            newArtists = newArtists,
             newAlbum = newAlbum,
             newAlbumArtist = newAlbumArtist,
             newComposer = newComposer,
@@ -724,6 +748,7 @@ class MetadataEditStateHolder @Inject constructor(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -747,6 +772,7 @@ class MetadataEditStateHolder @Inject constructor(
                 song = song,
                 newTitle = title ?: song.title,
                 newArtist = artist ?: song.displayArtist,
+                newArtists = artists,
                 newAlbum = album ?: song.album,
                 newAlbumArtist = albumArtist ?: (song.albumArtist ?: ""),
                 newComposer = composer ?: "",

@@ -134,7 +134,11 @@ fun TagChipAutocompleteField(
     textFieldColors: TextFieldColors,
     textFieldShape: Shape,
     modifier: Modifier = Modifier,
-    joinDelimiter: String = ", "
+    joinDelimiter: String = ", ",
+    // Fired with the final chip list once the sheet commits (not live per-tap) - lets a caller
+    // derive another field from the selection, e.g. auto-building a display-artist string from
+    // the picked ARTISTS chips. Genre doesn't need this (default no-op).
+    onTagsChanged: (List<String>) -> Unit = {}
 ) {
     var sheetVisible by remember { mutableStateOf(false) }
     val tags = remember(value, delimiters) {
@@ -188,6 +192,7 @@ fun TagChipAutocompleteField(
             textFieldShape = textFieldShape,
             onDismiss = { finalTags ->
                 onValueChange(finalTags.joinToString(joinDelimiter))
+                onTagsChanged(finalTags)
                 sheetVisible = false
             }
         )

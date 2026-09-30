@@ -307,6 +307,7 @@
     <string name="edit_song_action_delete_cover">Delete cover art</string>
     <string name="edit_song_field_title">Title</string>
     <string name="edit_song_field_artist">Artist</string>
+    <string name="edit_song_field_artists">Artists</string>
     <string name="edit_song_field_album">Album</string>
     <string name="edit_song_field_album_artist">Album artist</string>
     <string name="edit_song_field_genre">Genre</string>

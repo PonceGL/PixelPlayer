@@ -64,6 +64,8 @@ import com.theveloper.pixelplay.R
 import java.net.URLEncoder
 import timber.log.Timber
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.worker.buildDisplayArtistText
+import androidx.compose.material.icons.rounded.Group
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -101,10 +103,13 @@ fun EditSongSheet(
     song: Song,
     existingGenres: List<String> = emptyList(),
     genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
         artist: String,
+        artists: String,
         album: String,
         albumArtist: String,
         composer: String,
@@ -137,6 +142,8 @@ fun EditSongSheet(
                     song = song,
                     existingGenres = existingGenres,
                     genreDelimiters = genreDelimiters,
+                    existingArtistNames = existingArtistNames,
+                    artistDelimiters = artistDelimiters,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -151,10 +158,13 @@ private fun EditSongContent(
     song: Song,
     existingGenres: List<String> = emptyList(),
     genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
         artist: String,
+        artists: String,
         album: String,
         albumArtist: String,
         composer: String,
@@ -169,6 +179,12 @@ private fun EditSongContent(
 ) {
     var title by remember { mutableStateOf(song.title) }
     var artist by remember { mutableStateOf(song.displayArtist) }
+    var artists by remember {
+        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: ", ") { it.name })
+    }
+    // Tracks whether the user typed directly into the singular Artist field - once true, picking
+    // more/fewer artists from the plural picker stops overwriting their own wording.
+    var isArtistManuallyEdited by remember { mutableStateOf(false) }
     var album by remember { mutableStateOf(song.album) }
     var albumArtist by remember { mutableStateOf(song.albumArtist ?: "") }
     var composer by remember { mutableStateOf("") }
@@ -196,6 +212,8 @@ private fun EditSongContent(
     LaunchedEffect(song) {
         title = song.title
         artist = song.displayArtist
+        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: ", ") { it.name }
+        isArtistManuallyEdited = false
         album = song.album
         albumArtist = song.albumArtist ?: ""
         composer = ""
@@ -398,13 +416,38 @@ private fun EditSongContent(
                         value = artist,
                         colors = textFieldColors,
                         shape = textFieldShape,
-                        onValueChange = { artist = it },
+                        onValueChange = {
+                            artist = it
+                            isArtistManuallyEdited = true
+                        },
                         placeholder = { Text(stringResource(R.string.edit_song_field_artist)) },
                         leadingIcon = { Icon(Icons.Rounded.Person, tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(R.string.edit_song_field_artist)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
                 }
+            }
+
+            // --- Campo de Artistas (plural) ---
+            item {
+                TagChipAutocompleteField(
+                    value = artists,
+                    onValueChange = { artists = it },
+                    existingValues = existingArtistNames,
+                    delimiters = artistDelimiters,
+                    onTagsChanged = { tags ->
+                        if (!isArtistManuallyEdited) {
+                            artist = buildDisplayArtistText(tags)
+                        }
+                    },
+                    label = stringResource(R.string.edit_song_field_artists),
+                    placeholder = stringResource(R.string.edit_song_field_artists),
+                    icon = Icons.Rounded.Group,
+                    tint = MaterialTheme.colorScheme.primary,
+                    textFieldColors = textFieldColors,
+                    textFieldShape = textFieldShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // --- Campo de Álbum ---
@@ -674,6 +717,7 @@ private fun EditSongContent(
                                 onSave(
                                     title.trim(),
                                     artist.trim(),
+                                    artists.trim(),
                                     album.trim(),
                                     albumArtist.trim(),
                                     composer.trim(),

@@ -139,6 +139,24 @@ class SongInfoBottomSheetViewModel @Inject constructor(
             initialValue = UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS
         )
 
+    /** Existing artist names for the edit sheet's multi-artist picker - same rationale as
+     *  [existingGenreNames]: reuse an already-known name instead of creating a near-duplicate. */
+    val existingArtistNames: StateFlow<List<String>> = musicRepository.getArtists()
+        .map { artists -> artists.map { it.name } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = emptyList()
+        )
+
+    /** Character delimiters configured for splitting a multi-artist tag - see [genreDelimiters]. */
+    val artistDelimiters: StateFlow<List<String>> = userPreferencesRepository.artistDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = UserPreferencesRepository.DEFAULT_ARTIST_DELIMITERS
+        )
+
     fun loadArtistsForSong(song: Song) {
         val refs = song.artists
         if (refs.isEmpty() || refs.size < 2) {

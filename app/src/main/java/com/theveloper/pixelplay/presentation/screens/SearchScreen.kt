@@ -737,11 +737,12 @@ fun SearchScreen(
                     navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")))
                     showSongInfoBottomSheet = false
                 },
-                onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                     playerViewModel.editSongMetadata(
                         currentSong,
                         newTitle,
                         newArtist,
+                        newArtists,
                         newAlbum,
                         newAlbumArtist,
                         newComposer,
@@ -825,6 +826,7 @@ fun SearchScreen(
                     songs = songs,
                     title = title,
                     artist = artist,
+                    artists = null,
                     album = album,
                     albumArtist = albumArtist,
                     composer = composer,
