@@ -26,6 +26,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImagePainter
 
+import com.theveloper.pixelplay.presentation.components.EditMultipleSongsSheet
 import com.theveloper.pixelplay.presentation.components.MultiSelectionBottomSheet
 import com.theveloper.pixelplay.presentation.components.AlbumMultiSelectionOptionSheet
 import com.theveloper.pixelplay.presentation.components.PlaylistMultiSelectionBottomSheet
@@ -183,6 +184,7 @@ fun SearchScreen(
     val isSongSelectionMode by multiSelectionState.isSelectionMode.collectAsStateWithLifecycle()
     val selectedSongIds by multiSelectionState.selectedSongIds.collectAsStateWithLifecycle()
     var showMultiSelectionSheet by remember { mutableStateOf(false) }
+    var showBatchEditSheet by remember { mutableStateOf(false) }
 
     // Multi-selection state for albums
     var selectedAlbums by remember { mutableStateOf<List<Album>>(emptyList()) }
@@ -236,6 +238,7 @@ fun SearchScreen(
     }.collectAsStateWithLifecycle(initialValue = SearchUiSlice())
     val currentFilter = searchUiState.selectedSearchFilter
     val genres by playerViewModel.genres.collectAsStateWithLifecycle()
+    val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
     val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
@@ -805,6 +808,36 @@ fun SearchScreen(
             },
             onBatchEdit = {
                 showMultiSelectionSheet = false
+                showBatchEditSheet = true
+            }
+        )
+    }
+
+    // Batch Edit Sheet (from multi-selection)
+    if (showBatchEditSheet && selectedSongs.isNotEmpty()) {
+        val existingGenreNames = genres.filter { it.id != "unknown" }.map { it.name }
+        EditMultipleSongsSheet(
+            visible = showBatchEditSheet,
+            songs = selectedSongs,
+            existingGenres = existingGenreNames,
+            genreDelimiters = genreDelimiters,
+            onDismiss = { showBatchEditSheet = false },
+            onSave = { songs, title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                playerViewModel.saveBatchMetadata(
+                    songs = songs,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    albumArtist = albumArtist,
+                    composer = composer,
+                    genre = genre,
+                    lyrics = lyrics,
+                    trackNumber = trackNumber,
+                    discNumber = discNumber,
+                    replayGainTrackGainDb = replayGainTrackGainDb,
+                    replayGainAlbumGainDb = replayGainAlbumGainDb,
+                    coverArtUpdate = coverArtUpdate
+                )
             }
         )
     }
