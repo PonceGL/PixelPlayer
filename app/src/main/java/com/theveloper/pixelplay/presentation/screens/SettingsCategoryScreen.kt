@@ -437,6 +437,13 @@ fun SettingsCategoryScreen(
                                     trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = { navController.navigateSafely(Screen.ArtistSettings.route) }
                                 )
+                                SettingsItem(
+                                    title = stringResource(R.string.settings_genres_title),
+                                    subtitle = stringResource(R.string.settings_genres_subtitle),
+                                    leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.secondary) },
+                                    trailingIcon = { Icon(Icons.Rounded.ChevronRight, stringResource(R.string.settings_cd_open), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = { navController.navigateSafely(Screen.GenreSettings.route) }
+                                )
                             }
 
                             SettingsSubsection(title = stringResource(R.string.settings_filtering_section)) {

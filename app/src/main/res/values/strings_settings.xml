@@ -42,6 +42,8 @@
     <string name="settings_excluded_directories_subtitle">Folders here will be skipped when scanning your library.</string>
     <string name="settings_artists_title">Artists</string>
     <string name="settings_artists_subtitle">Multi-artist parsing and organization options.</string>
+    <string name="settings_genres_title">Genres</string>
+    <string name="settings_genres_subtitle">Multi-genre parsing options.</string>
     <string name="settings_filtering_section">Filtering</string>
     <string name="settings_min_song_duration">Minimum Song Duration</string>
     <string name="settings_min_tracks_per_album">Minimum Tracks per Album</string>
@@ -147,6 +149,66 @@
     <string name="word_delimiter_toast_added">Word delimiter added</string>
     <string name="word_delimiter_toast_invalid">Already exists or is invalid</string>
     <string name="word_delimiter_toast_reset">Word delimiters reset to defaults</string>
+
+    <!-- GenreSettings -->
+    <string name="multi_genre_rescan_banner_title">Rescan Required</string>
+    <string name="multi_genre_rescan_banner_body">Genre settings have changed. Rescan your library to apply.</string>
+    <string name="multi_genre_action_rescan">Rescan</string>
+    <string name="multi_genre_status_scanning">Scanning…</string>
+    <string name="multi_genre_parsing_section">Multi-Genre Parsing</string>
+    <string name="multi_genre_char_delimiters_title">Character Delimiters</string>
+    <string name="multi_genre_char_delimiters_subtitle">Current: %1$s</string>
+    <string name="multi_genre_word_delimiters_title">Word Delimiters</string>
+    <string name="multi_genre_word_delimiters_subtitle_none">None</string>
+    <string name="multi_genre_word_delimiters_subtitle_current">Current: %1$s</string>
+    <string name="multi_genre_cd_configure">Configure</string>
+    <string name="multi_genre_info_title">About Multi-Genre Parsing</string>
+    <string name="multi_genre_info_body">
+        PixelPlayer splits genre tags using character delimiters (e.g. \",\" or \";\") and, optionally, word delimiters.
+        Genre names are matched case- and accent-insensitively, so \"Rock\" and \"rock\" are treated as the same genre.
+        Backslash (\) can be used to escape character delimiters.
+    </string>
+    <string name="multi_genre_examples_title">Examples</string>
+    <string name="multi_genre_example_arrow">→</string>
+    <string name="multi_genre_example_bullet">♪</string>
+    <string name="multi_genre_ex_1_in">\"Rock, Pop\"</string>
+    <string name="multi_genre_ex_1_out">Rock, Pop</string>
+    <string name="multi_genre_ex_2_in">\"Cubatón; Reguetón; Salsa\"</string>
+    <string name="multi_genre_ex_2_out">Cubatón, Reguetón, Salsa (with \";\" configured)</string>
+    <string name="multi_genre_ex_3_in">\"ROCK\" and \"Rock\"</string>
+    <string name="multi_genre_ex_3_out">Same genre</string>
+
+    <!-- Genre Character Delimiters -->
+    <string name="genre_delimiters_screen_title">Delimiters</string>
+    <string name="genre_delimiter_current_title">Current Delimiters</string>
+    <string name="genre_delimiter_current_subtitle">Tap a delimiter to remove it. At least one delimiter is required.</string>
+    <string name="genre_delimiter_add_title">Add New Delimiter</string>
+    <string name="genre_delimiter_add_hint">e.g., ; or /</string>
+    <string name="genre_delimiter_cd_add">Add delimiter</string>
+    <string name="genre_delimiter_defaults_title">Default Delimiters</string>
+    <string name="genre_delimiter_reset_title">Reset Delimiters?</string>
+    <string name="genre_delimiter_reset_message">This will clear all your custom delimiters and restore the defaults. This action cannot be undone.</string>
+    <string name="genre_delimiter_toast_reset">Delimiters reset to defaults</string>
+    <string name="genre_delimiter_toast_at_least_one">At least one delimiter is required</string>
+    <string name="genre_delimiter_toast_added">Delimiter added</string>
+    <string name="genre_delimiter_toast_invalid">Delimiter already exists or is invalid</string>
+    <string name="genre_delimiter_label_space">Space</string>
+
+    <!-- Genre Word Delimiters -->
+    <string name="genre_word_delimiters_screen_title">Word Delimiters</string>
+    <string name="genre_word_delimiter_current_title">Current Word Delimiters</string>
+    <string name="genre_word_delimiter_current_subtitle">These keywords split genre names when surrounded by spaces. Matched case-insensitively. Tap to remove.</string>
+    <string name="genre_word_delimiter_empty">No word delimiters configured</string>
+    <string name="genre_word_delimiter_add_title">Add New Word Delimiter</string>
+    <string name="genre_word_delimiter_add_hint">e.g., and</string>
+    <string name="genre_word_delimiter_cd_add">Add word delimiter</string>
+    <string name="genre_word_delimiter_help_title">How Word Delimiters Work</string>
+    <string name="genre_word_delimiter_help_body">Word delimiters are matched case-insensitively with spaces around them.\n\nExample:\n  \"Rock and Pop\" -&gt; Rock, Pop</string>
+    <string name="genre_word_delimiter_reset_title">Reset Word Delimiters?</string>
+    <string name="genre_word_delimiter_reset_message">This will clear all your custom word delimiters. This action cannot be undone.</string>
+    <string name="genre_word_delimiter_toast_added">Word delimiter added</string>
+    <string name="genre_word_delimiter_toast_invalid">Already exists or is invalid</string>
+    <string name="genre_word_delimiter_toast_reset">Word delimiters reset to defaults</string>
 
     <!-- Library Sync flow -->
     <string name="settings_sync_phase_preparing">Preparing sync</string>
