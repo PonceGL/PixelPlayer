@@ -112,6 +112,8 @@ fun GenreDetailScreen(
     val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
     val libraryGenres by playerViewModel.genres.collectAsStateWithLifecycle()
     val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
+    val libraryArtists by playerViewModel.artists.collectAsStateWithLifecycle()
+    val artistDelimiters by playerViewModel.artistDelimiters.collectAsStateWithLifecycle()
 
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
@@ -694,20 +696,21 @@ fun GenreDetailScreen(
     // Batch Edit Sheet (from multi-selection)
     if (showBatchEditSheet && selectedSongs.isNotEmpty()) {
         val existingGenreNames = libraryGenres.filter { it.id != "unknown" }.map { it.name }
+        val existingArtistNames = libraryArtists.map { it.name }
         EditMultipleSongsSheet(
             visible = showBatchEditSheet,
             songs = selectedSongs,
             existingGenres = existingGenreNames,
             genreDelimiters = genreDelimiters,
+            existingArtistNames = existingArtistNames,
+            artistDelimiters = artistDelimiters,
             onDismiss = { showBatchEditSheet = false },
-            onSave = { songs, title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+            onSave = { songs, title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                 playerViewModel.saveBatchMetadata(
                     songs = songs,
                     title = title,
                     artist = artist,
-                    // Batch multi-artist chip editing isn't wired into EditMultipleSongsSheet yet
-                    // (single-song editing only, for now) - null leaves ARTISTS untouched.
-                    artists = null,
+                    artists = artists,
                     album = album,
                     albumArtist = albumArtist,
                     composer = composer,
