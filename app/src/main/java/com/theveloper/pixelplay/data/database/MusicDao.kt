@@ -1592,6 +1592,12 @@ interface MusicDao {
     // SQLite LIKE is case-insensitive for ASCII letters by default, which is sufficient
     // for genre names. All six arms use LIKE so that "rock" matches "Rock", "Rock,Pop",
     // "Rock, Pop", "Pop,Rock", "Pop, Rock", and "Pop,Rock,Jazz".
+    //
+    // Legacy fallback only: excludes songs that already have a persisted genre (via
+    // song_genre_cross_ref) - those are matched by getSongsByPersistedGenreId instead,
+    // which is case/accent-insensitive and respects configured delimiters. This query
+    // stays as the source of genre browsing for songs no sync path has migrated yet
+    // (non-local sources; see SyncWorker's local-scan-only scope for genre persistence).
     @Query("""
         SELECT * FROM songs
         WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
@@ -1603,6 +1609,7 @@ interface MusicDao {
             OR genre LIKE :genreMiddleWithSpace
             OR genre LIKE :genreMiddle
         )
+        AND NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.song_id = songs.id)
         ORDER BY title ASC
     """)
     fun getSongsByGenreContaining(
@@ -1631,16 +1638,52 @@ interface MusicDao {
     @Query("SELECT DISTINCT genre FROM songs WHERE genre IS NOT NULL AND genre != '' ORDER BY genre ASC")
     fun getUniqueGenres(): Flow<List<String>>
 
+    // Legacy fallback only - see getSongsByGenreContaining's note above.
     @Query("""
         SELECT DISTINCT genre FROM songs
         WHERE genre IS NOT NULL AND genre != ''
         AND (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
+        AND NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.song_id = songs.id)
         ORDER BY genre ASC
     """)
     fun getUniqueGenres(
         allowedParentDirs: List<String>,
         applyDirectoryFilter: Boolean
     ): Flow<List<String>>
+
+    // --- Persisted genre queries (GenreEntity / song_genre_cross_ref) ---
+
+    @Query("""
+        SELECT genres.* FROM genres
+        WHERE EXISTS (
+            SELECT 1 FROM song_genre_cross_ref
+            INNER JOIN songs ON songs.id = song_genre_cross_ref.song_id
+            WHERE song_genre_cross_ref.genre_id = genres.id
+            AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+        )
+        ORDER BY genres.name ASC
+    """)
+    fun getGenresFiltered(
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<List<GenreEntity>>
+
+    // :genreId is the slugified form of a genre's match_key (spaces/slashes -> "_", see
+    // MusicRepositoryImpl's genre id scheme) - REPLACE mirrors that transformation in SQL
+    // so the same id used to display the genre list resolves back to its songs.
+    @Query("""
+        SELECT songs.* FROM songs
+        INNER JOIN song_genre_cross_ref ON song_genre_cross_ref.song_id = songs.id
+        INNER JOIN genres ON genres.id = song_genre_cross_ref.genre_id
+        WHERE REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_') = :genreId
+        AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+        ORDER BY songs.title ASC
+    """)
+    fun getSongsByPersistedGenreId(
+        genreId: String,
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<List<SongEntity>>
 
     @Query("""
         SELECT EXISTS(

@@ -231,4 +231,118 @@ class MusicDaoTest {
         assertEquals(1, results.size)
         assertEquals("Qué ganas de comerte", results[0].title)
     }
+
+    // --- Persisted genre queries (GenreEntity / song_genre_cross_ref) ---
+
+    // SongEntity has a real FK to artists(id)/albums(id) (see SongEntity's foreignKeys),
+    // enforced by SQLite here - every test below inserts the referenced artist/album row
+    // first (matching createSongEntity's default artistId=101L/albumId=201L).
+    private suspend fun insertDefaultArtistAndAlbum() {
+        musicDao.insertArtists(listOf(createArtistEntity(101L, "Artist 1")))
+        musicDao.insertAlbums(listOf(createAlbumEntity(201L, "Album X")))
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenresFiltered_returnsOnlyGenresWithAMatchingSong() = runTest {
+        insertDefaultArtistAndAlbum()
+        val songs = listOf(
+            createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3"),
+            createSongEntity(2L, "Song B", "Artist 1", "Album X", "/p1/b.mp3")
+        )
+        musicDao.insertSongs(songs)
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+        // Song 2 has no genre cross-ref at all.
+
+        val genres = musicDao.getGenresFiltered(emptyList(), false).first()
+
+        assertEquals(1, genres.size)
+        assertEquals("Rock", genres[0].name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenresFiltered_respectsDirectoryFilter() = runTest {
+        insertDefaultArtistAndAlbum()
+        val songs = listOf(
+            createSongEntity(1L, "Allowed Song", "Artist 1", "Album X", "/allowed/a.mp3"),
+            createSongEntity(2L, "Blocked Song", "Artist 1", "Album X", "/blocked/b.mp3")
+        )
+        musicDao.insertSongs(songs)
+        musicDao.insertGenres(
+            listOf(
+                GenreEntity(id = -1L, name = "Rock", matchKey = "rock"),
+                GenreEntity(id = -2L, name = "Jazz", matchKey = "jazz")
+            )
+        )
+        musicDao.insertSongGenreCrossRefs(
+            listOf(
+                SongGenreCrossRef(songId = 1L, genreId = -1L),
+                SongGenreCrossRef(songId = 2L, genreId = -2L)
+            )
+        )
+
+        val genres = musicDao.getGenresFiltered(listOf("/allowed"), true).first()
+
+        assertEquals(1, genres.size)
+        assertEquals("Rock", genres[0].name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesBySlugifiedMatchKey() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        // matchKey has a space - the caller slugifies it to "hip_hop" the same way
+        // MusicRepositoryImpl.buildGenre() already did for the legacy id scheme.
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Hip Hop", matchKey = "hip hop")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("hip_hop", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+        assertEquals("Song A", results[0].title)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getUniqueGenres_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {
+        insertDefaultArtistAndAlbum()
+        val migratedSong = createSongEntity(1L, "Migrated Song", "Artist 1", "Album X", "/p1/a.mp3", genre = "Rock")
+        val unmigratedSong = createSongEntity(2L, "Unmigrated Song", "Artist 1", "Album X", "/p1/b.mp3", genre = "Jazz")
+        musicDao.insertSongs(listOf(migratedSong, unmigratedSong))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val legacyGenres = musicDao.getUniqueGenres(emptyList(), false).first()
+
+        assertEquals(listOf("Jazz"), legacyGenres)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByGenreContaining_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {
+        insertDefaultArtistAndAlbum()
+        val migratedSong = createSongEntity(1L, "Migrated Song", "Artist 1", "Album X", "/p1/a.mp3", genre = "Rock")
+        val unmigratedSong = createSongEntity(2L, "Unmigrated Song", "Artist 1", "Album X", "/p1/b.mp3", genre = "Rock")
+        musicDao.insertSongs(listOf(migratedSong, unmigratedSong))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByGenreContaining(
+            genreName = "Rock",
+            genrePrefix = "Rock,%",
+            genreSuffixWithSpace = "%, Rock",
+            genreSuffix = "%,Rock",
+            genreMiddleWithSpace = "%, Rock,%",
+            genreMiddle = "%,Rock,%",
+            allowedParentDirs = emptyList(),
+            applyDirectoryFilter = false
+        ).first()
+
+        assertEquals(1, results.size)
+        assertEquals("Unmigrated Song", results[0].title)
+    }
 }
