@@ -102,7 +102,7 @@
     <string name="multi_artist_info_body">
         PixelPlayer splits artist tags using character delimiters (/, ;, &amp;) and word delimiters (feat., ft., vs., x). Word delimiters are matched case-insensitively.
         \"Extract Artists from Title\" detects patterns like (feat. Artist) in song titles.
-        Backslash (\) can be used to escape character delimiters.
+        Backslash (\\) can be used to escape character delimiters.
     </string>
     <string name="multi_artist_examples_title">Examples</string>
     <string name="multi_artist_example_arrow">\u2192</string>
@@ -166,7 +166,7 @@
     <string name="multi_genre_info_body">
         PixelPlayer splits genre tags using character delimiters (e.g. \",\" or \";\") and, optionally, word delimiters.
         Genre names are matched case- and accent-insensitively, so \"Rock\" and \"rock\" are treated as the same genre.
-        Backslash (\) can be used to escape character delimiters.
+        Backslash (\\) can be used to escape character delimiters.
     </string>
     <string name="multi_genre_examples_title">Examples</string>
     <string name="multi_genre_example_arrow">→</string>
