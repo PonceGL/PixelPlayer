@@ -25,7 +25,8 @@ internal data class SheetActionHandlers(
     val onLaunchSaveQueueOverlay: (List<Song>, String, (String, Set<String>) -> Unit) -> Unit,
     val onNavigateToAlbum: (Song) -> Unit,
     val onNavigateToArtist: (Song) -> Unit,
-    val onNavigateToGenre: (Song) -> Unit
+    val onNavigateToGenre: (Song) -> Unit,
+    val onNavigateToGenreByName: (String) -> Unit
 )
 
 @OptIn(UnstableApi::class)
@@ -123,6 +124,22 @@ internal fun rememberSheetActionHandlers(
             }
         }
     }
+    val onNavigateToGenreByName = remember(scope, navController) {
+        { genreName: String ->
+            scope.launch {
+                sheetMotionControllerState.value.snapCollapsed(sheetCollapsedTargetYState.value)
+            }
+            playerViewModelState.value.collapsePlayerSheet()
+            queueSheetControllerState.value.animate(false)
+            sheetModalOverlayControllerState.value.updateSelectedSongForInfo(null)
+            val encodedGenre = java.net.URLEncoder.encode(genreName, "UTF-8")
+            navController.navigateSafelyReplacing(
+                route = Screen.GenreDetail.createRoute(encodedGenre),
+                patternToPop = Screen.GenreDetail.route
+            )
+            Unit
+        }
+    }
 
     return SheetActionHandlers(
         openQueueSheet = openQueueSheet,
@@ -134,6 +151,7 @@ internal fun rememberSheetActionHandlers(
         onLaunchSaveQueueOverlay = onLaunchSaveQueueOverlay,
         onNavigateToAlbum = onNavigateToAlbum,
         onNavigateToArtist = onNavigateToArtist,
-        onNavigateToGenre = onNavigateToGenre
+        onNavigateToGenre = onNavigateToGenre,
+        onNavigateToGenreByName = onNavigateToGenreByName
     )
 }

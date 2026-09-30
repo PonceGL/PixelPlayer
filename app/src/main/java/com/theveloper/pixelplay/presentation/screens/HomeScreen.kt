@@ -449,6 +449,9 @@ fun HomeScreen(
                                     navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")))
                                 }
                             },
+                            onNavigateToGenreByName = { genreName ->
+                                navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")))
+                            },
                             playerViewModel = playerViewModel
                         )
                     }
