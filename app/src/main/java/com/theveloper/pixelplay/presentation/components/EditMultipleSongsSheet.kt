@@ -92,10 +92,14 @@ fun EditMultipleSongsSheet(
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
+    // Writing real file tags for a whole batch takes a few seconds with no other signal that
+    // anything is happening - hoisted here (not just in the content composable) so it also
+    // blocks the Dialog's own back-button/outside-tap dismiss, not just the in-sheet buttons.
+    var isSaving by remember { mutableStateOf(false) }
 
     if (transitionState.currentState || transitionState.targetState) {
         Dialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { if (!isSaving) onDismiss() },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
                 decorFitsSystemWindows = false
@@ -110,8 +114,26 @@ fun EditMultipleSongsSheet(
                     songs = songs,
                     existingGenres = existingGenres,
                     genreDelimiters = genreDelimiters,
+                    isSaving = isSaving,
                     onDismiss = onDismiss,
-                    onSave = onSave
+                    onSave = { songs, title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                        isSaving = true
+                        onSave(
+                            songs,
+                            title,
+                            artist,
+                            album,
+                            albumArtist,
+                            composer,
+                            genre,
+                            lyrics,
+                            trackNumber,
+                            discNumber,
+                            replayGainTrackGainDb,
+                            replayGainAlbumGainDb,
+                            coverArtUpdate
+                        )
+                    }
                 )
             }
         }
@@ -124,6 +146,7 @@ private fun EditMultipleSongsContent(
     songs: List<Song>,
     existingGenres: List<String> = emptyList(),
     genreDelimiters: List<String> = emptyList(),
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
@@ -436,6 +459,7 @@ private fun EditMultipleSongsContent(
                     content = {
                         FilledTonalButton(
                             onClick = onDismiss,
+                            enabled = !isSaving,
                             modifier = Modifier.height(48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -463,9 +487,18 @@ private fun EditMultipleSongsContent(
                                     coverArtUpdate
                                 )
                             },
+                            enabled = !isSaving,
                             modifier = Modifier.height(48.dp)
                         ) {
-                            Text(stringResource(R.string.common_save))
+                            if (isSaving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = LocalContentColor.current
+                                )
+                            } else {
+                                Text(stringResource(R.string.common_save))
+                            }
                         }
                     }
                 )
