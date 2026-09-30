@@ -184,6 +184,8 @@ fun TagChipAutocompleteField(
             initialTags = tags,
             existingValues = existingValues,
             delimiters = delimiters,
+            textFieldColors = textFieldColors,
+            textFieldShape = textFieldShape,
             onDismiss = { finalTags ->
                 onValueChange(finalTags.joinToString(joinDelimiter))
                 sheetVisible = false
@@ -199,6 +201,8 @@ private fun TagChipBottomSheet(
     initialTags: List<String>,
     existingValues: List<String>,
     delimiters: List<String>,
+    textFieldColors: TextFieldColors,
+    textFieldShape: Shape,
     onDismiss: (List<String>) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -273,6 +277,8 @@ private fun TagChipBottomSheet(
                     .focusRequester(focusRequester),
                 placeholder = { Text(stringResource(R.string.tag_chip_input_placeholder)) },
                 singleLine = true,
+                shape = textFieldShape,
+                colors = textFieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
             )
 

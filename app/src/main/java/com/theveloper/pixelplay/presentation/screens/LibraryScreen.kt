@@ -578,8 +578,9 @@ fun LibraryScreen(
     val haptic = LocalHapticFeedback.current
     val lastTabIndex by playerViewModel.lastLibraryTabIndexFlow.collectAsStateWithLifecycle()
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle() // Reintroducir favoriteIds aquí
+    val allGenres by playerViewModel.genres.collectAsStateWithLifecycle()
     val existingGenreNames by remember {
-        derivedStateOf { playerViewModel.genres.value.filter { it.id != "unknown" }.map { it.name } }
+        derivedStateOf { allGenres.filter { it.id != "unknown" }.map { it.name } }
     }
     val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope() // Mantener si se usa para acciones de UI
