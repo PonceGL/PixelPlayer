@@ -21,7 +21,7 @@ import com.theveloper.pixelplay.data.database.TelegramSongEntity // Added
 import com.theveloper.pixelplay.data.database.serializeArtistRefs
 import com.theveloper.pixelplay.data.model.ArtistRef
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
-import com.theveloper.pixelplay.data.worker.collectArtistNames
+import com.theveloper.pixelplay.data.worker.resolveArtistsForSong
 import com.theveloper.pixelplay.utils.AlbumArtUtils
 import com.theveloper.pixelplay.utils.LocalArtworkUri
 import com.theveloper.pixelplay.utils.MediaStorePermissionHelper
@@ -75,11 +75,24 @@ enum class MetadataEditError {
 private const val REPLAYGAIN_TRACK_GAIN_KEY = "REPLAYGAIN_TRACK_GAIN"
 private const val REPLAYGAIN_ALBUM_GAIN_KEY = "REPLAYGAIN_ALBUM_GAIN"
 private const val MP4_REVERSE_DNS_ISSUER = "com.apple.iTunes"
+private const val ARTISTS_TAG_KEY = "ARTISTS"
 
 private sealed interface ReplayGainUpdate {
     data object Keep : ReplayGainUpdate
     data object Clear : ReplayGainUpdate
     data class Set(val formattedValue: String) : ReplayGainUpdate
+}
+
+/**
+ * Whether to touch the file's ARTISTS (plural) tag on this edit - a caller that never surfaced
+ * the multi-artist picker (e.g. a title-only batch edit) passes [Keep] so an existing enriched
+ * tag isn't clobbered by a re-derived guess; the picker's own save passes [Set], even with a
+ * single artist, once the user has actually confirmed a selection.
+ */
+internal sealed interface ArtistsFieldUpdate {
+    data object Keep : ArtistsFieldUpdate
+    data object Clear : ArtistsFieldUpdate
+    data class Set(val artists: List<String>) : ArtistsFieldUpdate
 }
 
 
@@ -155,7 +168,12 @@ class SongMetadataEditor(
         albumArtist: String?,
         genre: String?,
         trackNumber: Int,
-        discNumber: Int?
+        discNumber: Int?,
+        // The user-confirmed ARTISTS (plural) chip list, when the edit went through the
+        // multi-artist picker - takes precedence over delimiter-splitting `artist`, mirroring
+        // resolveArtistsForSong's precedence for the initial library scan. Null/empty means the
+        // edit never touched the picker, so fall back to today's delimiter-splitting heuristic.
+        explicitArtists: List<String>? = null
     ) {
         val existingArtists = musicDao.getAllArtistsListRaw()
         val existingByNormalizedName =
@@ -167,7 +185,8 @@ class SongMetadataEditor(
         val extractFromTitle = userPreferencesRepository.extractArtistsFromTitleFlow.first()
 
         val artistNames =
-            collectArtistNames(
+            resolveArtistsForSong(
+                artistsFromTag = explicitArtists ?: emptyList(),
                 rawArtistName = artist,
                 title = title,
                 artistDelimiters = artistDelimiters,
@@ -247,7 +266,15 @@ class SongMetadataEditor(
         newReplayGainTrackGainDb: String? = null,
         newReplayGainAlbumGainDb: String? = null,
         coverArtUpdate: CoverArtUpdate? = null,
+        // null = leave the file's ARTISTS tag untouched (e.g. a title-only edit never surfaced
+        // the multi-artist picker); empty list = user cleared it; non-empty = replace it.
+        newArtists: List<String>? = null,
     ): SongMetadataEditResult = withContext(Dispatchers.IO) {
+        val newArtistsUpdate = when {
+            newArtists == null -> ArtistsFieldUpdate.Keep
+            newArtists.isEmpty() -> ArtistsFieldUpdate.Clear
+            else -> ArtistsFieldUpdate.Set(newArtists)
+        }
         val validationError = validateMetadataInput(newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics)
         if (validationError != null) {
             Timber.w("Metadata validation failed: $validationError")
@@ -358,7 +385,8 @@ class SongMetadataEditor(
                         newDiscNumber = newDiscNumber,
                         replayGainTrackUpdate = replayGainTrackUpdate,
                         replayGainAlbumUpdate = replayGainAlbumUpdate,
-                        coverArtUpdate = coverArtUpdate
+                        coverArtUpdate = coverArtUpdate,
+                        artistsUpdate = newArtistsUpdate
                     )
                 } else if (useJAudioTaggerPrimary) {
                     Timber.tag(TAG).d("METADATA_EDIT: Using JAudioTagger as primary for $effectiveExtension: $path")
@@ -375,7 +403,8 @@ class SongMetadataEditor(
                         newDiscNumber = newDiscNumber,
                         replayGainTrackUpdate = replayGainTrackUpdate,
                         replayGainAlbumUpdate = replayGainAlbumUpdate,
-                        coverArtUpdate = coverArtUpdate
+                        coverArtUpdate = coverArtUpdate,
+                        artistsUpdate = newArtistsUpdate
                     )
                 } else {
                     Timber.tag(TAG).d("METADATA_EDIT: Using TagLib for $effectiveExtension: $path")
@@ -392,7 +421,8 @@ class SongMetadataEditor(
                         newDiscNumber = newDiscNumber,
                         replayGainTrackUpdate = replayGainTrackUpdate,
                         replayGainAlbumUpdate = replayGainAlbumUpdate,
-                        coverArtUpdate = coverArtUpdate
+                        coverArtUpdate = coverArtUpdate,
+                        artistsUpdate = newArtistsUpdate
                     )
                     if (!tagLibSuccess) {
                         Timber.tag(TAG)
@@ -410,7 +440,8 @@ class SongMetadataEditor(
                             newDiscNumber = newDiscNumber,
                             replayGainTrackUpdate = replayGainTrackUpdate,
                             replayGainAlbumUpdate = replayGainAlbumUpdate,
-                            coverArtUpdate = coverArtUpdate
+                            coverArtUpdate = coverArtUpdate,
+                            artistsUpdate = newArtistsUpdate
                         )
                     } else true
                 }
@@ -530,7 +561,8 @@ class SongMetadataEditor(
                 albumArtist = newAlbumArtist,
                 genre = normalizedGenre,
                 trackNumber = newTrackNumber,
-                discNumber = newDiscNumber
+                discNumber = newDiscNumber,
+                explicitArtists = newArtists
             )
 
             coverArtUpdate?.let {
@@ -761,7 +793,8 @@ class SongMetadataEditor(
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
         replayGainAlbumUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
-        coverArtUpdate: CoverArtUpdate? = null
+        coverArtUpdate: CoverArtUpdate? = null,
+        artistsUpdate: ArtistsFieldUpdate = ArtistsFieldUpdate.Keep
     ): Boolean {
         // Check for problematic FLAC files first
         when (val flacResult = isProblematicFlacFile(filePath)) {
@@ -813,6 +846,7 @@ class SongMetadataEditor(
                 }
                 propertyMap.applyReplayGainUpdate(REPLAYGAIN_TRACK_GAIN_KEY, replayGainTrackUpdate)
                 propertyMap.applyReplayGainUpdate(REPLAYGAIN_ALBUM_GAIN_KEY, replayGainAlbumUpdate)
+                propertyMap.applyArtistsUpdate(artistsUpdate)
                 Timber.tag(TAG).e("TAGLIB: Updated property map, saving...")
 
                 // Save metadata
@@ -887,7 +921,8 @@ class SongMetadataEditor(
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
         replayGainAlbumUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
-        coverArtUpdate: CoverArtUpdate? = null
+        coverArtUpdate: CoverArtUpdate? = null,
+        artistsUpdate: ArtistsFieldUpdate = ArtistsFieldUpdate.Keep
     ): Boolean {
         val targetFile = File(filePath)
         
@@ -931,6 +966,7 @@ class SongMetadataEditor(
             }
             tag.applyReplayGainUpdate(REPLAYGAIN_TRACK_GAIN_KEY, replayGainTrackUpdate)
             tag.applyReplayGainUpdate(REPLAYGAIN_ALBUM_GAIN_KEY, replayGainAlbumUpdate)
+            tag.applyArtistsUpdate(artistsUpdate)
 
             // Update cover art if provided
             coverArtUpdate?.let { update ->
@@ -985,7 +1021,8 @@ class SongMetadataEditor(
         newDiscNumber: Int?,
         replayGainTrackUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
         replayGainAlbumUpdate: ReplayGainUpdate = ReplayGainUpdate.Keep,
-        coverArtUpdate: CoverArtUpdate? = null
+        coverArtUpdate: CoverArtUpdate? = null,
+        artistsUpdate: ArtistsFieldUpdate = ArtistsFieldUpdate.Keep
     ): Boolean {
         val audioFile = File(filePath)
         val originalExtension = audioFile.extension.ifBlank { "opus" }
@@ -1018,6 +1055,7 @@ class SongMetadataEditor(
             tags.replaceSingleComment("DISCNUMBER", newDiscNumber?.takeIf { it > 0 }?.toString())
             tags.applyReplayGainUpdate(REPLAYGAIN_TRACK_GAIN_KEY, replayGainTrackUpdate)
             tags.applyReplayGainUpdate(REPLAYGAIN_ALBUM_GAIN_KEY, replayGainAlbumUpdate)
+            tags.applyArtistsUpdate(artistsUpdate)
             coverArtUpdate?.let { update ->
                 tags.applyCoverArtUpdate(update)
             }
@@ -1212,6 +1250,20 @@ private fun OpusTags.applyReplayGainUpdate(key: String, update: ReplayGainUpdate
     }
 }
 
+// ARTISTS is a true multi-value Vorbis comment (see AudioMetadataReader's read-side note) -
+// unlike replaceSingleComment, this adds one addComment call per artist instead of joining them
+// into one value, so the file ends up with repeated "ARTISTS=" entries a reader can getAll() back.
+private fun OpusTags.applyArtistsUpdate(update: ArtistsFieldUpdate) {
+    when (update) {
+        ArtistsFieldUpdate.Keep -> Unit
+        ArtistsFieldUpdate.Clear -> removeComments(ARTISTS_TAG_KEY)
+        is ArtistsFieldUpdate.Set -> {
+            removeComments(ARTISTS_TAG_KEY)
+            update.artists.forEach { addComment(ARTISTS_TAG_KEY, it) }
+        }
+    }
+}
+
 private fun OpusTags.applyCoverArtUpdate(update: CoverArtUpdate) {
     removeComments("METADATA_BLOCK_PICTURE")
     removeComments("COVERART")
@@ -1282,11 +1334,29 @@ private fun MutableMap<String, Array<String>>.applyReplayGainUpdate(
     }
 }
 
+// TagLib's property map is genuinely multi-value per key already (one array per key), so unlike
+// the OpusTags/ID3 variants there's no joining or repeated-add dance needed here.
+private fun MutableMap<String, Array<String>>.applyArtistsUpdate(update: ArtistsFieldUpdate) {
+    when (update) {
+        ArtistsFieldUpdate.Keep -> Unit
+        ArtistsFieldUpdate.Clear -> remove(ARTISTS_TAG_KEY)
+        is ArtistsFieldUpdate.Set -> this[ARTISTS_TAG_KEY] = update.artists.toTypedArray()
+    }
+}
+
 private fun Tag.applyReplayGainUpdate(key: String, update: ReplayGainUpdate) {
     when (update) {
         ReplayGainUpdate.Keep -> Unit
         ReplayGainUpdate.Clear -> removeReplayGainField(key)
         is ReplayGainUpdate.Set -> upsertReplayGainField(key, update.formattedValue)
+    }
+}
+
+private fun Tag.applyArtistsUpdate(update: ArtistsFieldUpdate) {
+    when (update) {
+        ArtistsFieldUpdate.Keep -> Unit
+        ArtistsFieldUpdate.Clear -> CustomTextTagWriter.remove(this, ARTISTS_TAG_KEY, ARTISTS_TAG_KEY)
+        is ArtistsFieldUpdate.Set -> CustomTextTagWriter.writeAll(this, ARTISTS_TAG_KEY, ARTISTS_TAG_KEY, update.artists)
     }
 }
 
