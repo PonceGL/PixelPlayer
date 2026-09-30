@@ -34,7 +34,15 @@ data class AudioMetadata(
      * (MusicBrainz Picard convention), if present. Empty when the file has
      * no such tag - callers fall back to splitting [artist] heuristically.
      */
-    val artistsFromTag: List<String> = emptyList()
+    val artistsFromTag: List<String> = emptyList(),
+    /**
+     * Genre names already unambiguous as separate physical GENRE tag values
+     * (no plural "GENRES" convention exists, unlike ARTISTS - multiple
+     * physical GENRE entries are themselves the multi-value signal). Empty
+     * when the file has a single GENRE value - callers fall back to
+     * splitting [genre] heuristically.
+     */
+    val genresFromTag: List<String> = emptyList()
 )
 
 data class AudioMetadataArtwork(
@@ -111,7 +119,11 @@ object AudioMetadataReader {
                     ?: propertyMap["ALBUM ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["BAND"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                 val album = propertyMap["ALBUM"]?.firstOrNull()?.takeIf { it.isNotBlank() }
-                val genre = propertyMap["GENRE"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+                // Some files carry more than one physical GENRE field (e.g. two
+                // "GENRE=" Vorbis comments); taking only the first silently drops
+                // the rest, same fix as ARTIST above.
+                val genre = joinMultiValue(propertyMap["GENRE"])
+                val genresFromTag = resolveGenresFromTagPropertyMap(propertyMap)
                 val composer = propertyMap["COMPOSER"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["TCOM"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                 val lyrics = propertyMap["LYRICS"]?.firstOrNull()?.takeIf { it.isNotBlank() }
@@ -178,7 +190,8 @@ object AudioMetadataReader {
                     replayGainTrackGainDb = replayGainTrackGainDb ?: fallback?.replayGainTrackGainDb,
                     replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb,
                     metadataDateAddedMillis = metadataDateAddedMillis ?: fallback?.metadataDateAddedMillis,
-                    artistsFromTag = artistsFromTag.ifEmpty { fallback?.artistsFromTag ?: emptyList() }
+                    artistsFromTag = artistsFromTag.ifEmpty { fallback?.artistsFromTag ?: emptyList() },
+                    genresFromTag = genresFromTag.ifEmpty { fallback?.genresFromTag ?: emptyList() }
                 )
             }
         } catch (error: Exception) {
@@ -227,6 +240,10 @@ object AudioMetadataReader {
             val artistsFromTag = tag?.let {
                 CustomTextTagReader.readAll(it, ARTISTS_TAG_KEY, ARTISTS_TAG_KEY)
             } ?: emptyList()
+            val genresFromTag = tag?.getAll(FieldKey.GENRE)
+                ?.filter { it.isNotBlank() }
+                ?.takeIf { it.size > 1 }
+                ?: emptyList()
 
             val durationMs = header?.trackLength?.takeIf { it > 0 }?.let { it * 1000L }
             val bitrate = header?.bitRateAsNumber?.takeIf { it > 0 }?.toInt()?.let { it * 1000 }
@@ -265,7 +282,8 @@ object AudioMetadataReader {
                 sampleRate = sampleRate,
                 artwork = artwork,
                 metadataDateAddedMillis = metadataDateAddedMillis,
-                artistsFromTag = artistsFromTag
+                artistsFromTag = artistsFromTag,
+                genresFromTag = genresFromTag
             )
         } catch (e: Exception) {
             Log.e(TAG, "JAudioTagger fallback FAILED for: ${file.name}", e)
@@ -298,6 +316,18 @@ object AudioMetadataReader {
             ?.takeIf { it.isNotEmpty() }
         val artistValues = propertyMap["ARTIST"]?.filter { it.isNotBlank() } ?: emptyList()
         return artistsFromTagValues ?: artistValues.takeIf { it.size > 1 } ?: emptyList()
+    }
+
+    /**
+     * Unlike ARTISTS, there is no plural "GENRES" tag convention to check first -
+     * multiple physical GENRE values are themselves the multi-value signal, just
+     * as unambiguous as multi-value ARTIST without an ARTISTS tag (see above). A
+     * single GENRE value stays ambiguous (may still be a delimited "Rock, Pop"
+     * string) and is left to the caller's delimiter-based split.
+     */
+    internal fun resolveGenresFromTagPropertyMap(propertyMap: Map<String, Array<String>>): List<String> {
+        val genreValues = propertyMap["GENRE"]?.filter { it.isNotBlank() } ?: emptyList()
+        return genreValues.takeIf { it.size > 1 } ?: emptyList()
     }
 
     private fun extractReplayGainDb(

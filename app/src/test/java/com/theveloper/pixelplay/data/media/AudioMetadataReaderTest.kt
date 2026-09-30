@@ -95,4 +95,38 @@ class AudioMetadataReaderTest {
     fun resolveArtistsFromTagPropertyMap_neitherTagPresent_returnsEmpty() {
         assertThat(AudioMetadataReader.resolveArtistsFromTagPropertyMap(emptyMap())).isEmpty()
     }
+
+    @Test
+    fun resolveGenresFromTagPropertyMap_multiValueGenre_usesGenreValuesDirectly() {
+        // GENRE with two physical values is just as unambiguous as multi-value
+        // ARTIST - taking only the first would silently drop the second genre.
+        val propertyMap = mapOf("GENRE" to arrayOf("Rock", "Pop"))
+
+        assertThat(AudioMetadataReader.resolveGenresFromTagPropertyMap(propertyMap))
+            .containsExactly("Rock", "Pop")
+            .inOrder()
+    }
+
+    @Test
+    fun resolveGenresFromTagPropertyMap_blankEntriesAmongMultiValue_areSkipped() {
+        val propertyMap = mapOf("GENRE" to arrayOf("Rock", "", "Pop"))
+
+        assertThat(AudioMetadataReader.resolveGenresFromTagPropertyMap(propertyMap))
+            .containsExactly("Rock", "Pop")
+            .inOrder()
+    }
+
+    @Test
+    fun resolveGenresFromTagPropertyMap_singleValueGenre_returnsEmpty() {
+        // A single GENRE value is the ambiguous case (may still contain a
+        // delimited "Rock, Pop" string) - defer to the caller's delimiter split.
+        val propertyMap = mapOf("GENRE" to arrayOf("Rock"))
+
+        assertThat(AudioMetadataReader.resolveGenresFromTagPropertyMap(propertyMap)).isEmpty()
+    }
+
+    @Test
+    fun resolveGenresFromTagPropertyMap_noGenreTag_returnsEmpty() {
+        assertThat(AudioMetadataReader.resolveGenresFromTagPropertyMap(emptyMap())).isEmpty()
+    }
 }
