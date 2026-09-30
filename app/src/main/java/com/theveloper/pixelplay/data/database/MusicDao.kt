@@ -151,6 +151,15 @@ interface MusicDao {
     @Query("SELECT * FROM artists WHERE id IN (:artistIds)")
     suspend fun getArtistsByIds(artistIds: List<Long>): List<ArtistEntity>
 
+    // Genre ids are deterministic (see genreIdFromMatchKey) so, unlike artists, an id
+    // collision always means the row is already correct - a plain ignore-on-conflict
+    // insert needs no update-merge pass.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertGenres(genres: List<GenreEntity>)
+
+    @Query("SELECT * FROM genres")
+    suspend fun getAllGenresListRaw(): List<GenreEntity>
+
     @Transaction
     suspend fun insertSongs(songs: List<SongEntity>) {
         if (songs.isEmpty()) return
@@ -228,6 +237,12 @@ interface MusicDao {
     @Query("DELETE FROM artists")
     suspend fun clearAllArtists()
 
+    @Query("DELETE FROM genres")
+    suspend fun clearAllGenres()
+
+    @Query("DELETE FROM song_genre_cross_ref")
+    suspend fun clearAllSongGenreCrossRefs()
+
     // --- Incremental Sync Operations ---
     @Query("SELECT id FROM songs")
     suspend fun getAllSongIds(): List<Long>
@@ -240,6 +255,9 @@ interface MusicDao {
 
     @Query("DELETE FROM song_artist_cross_ref WHERE song_id IN (:songIds)")
     suspend fun deleteCrossRefsBySongIds(songIds: List<Long>)
+
+    @Query("DELETE FROM song_genre_cross_ref WHERE song_id IN (:songIds)")
+    suspend fun deleteGenreCrossRefsBySongIds(songIds: List<Long>)
 
     @Query("DELETE FROM favorites WHERE songId IN (:songIds)")
     suspend fun deleteFavoritesBySongIds(songIds: List<Long>)
@@ -361,7 +379,9 @@ interface MusicDao {
         albums: List<AlbumEntity>,
         artists: List<ArtistEntity>,
         crossRefs: List<SongArtistCrossRef>,
-        deletedSongIds: List<Long>
+        deletedSongIds: List<Long>,
+        genres: List<GenreEntity> = emptyList(),
+        genreCrossRefs: List<SongGenreCrossRef> = emptyList()
     ) {
         // Protect cloud songs from deletion during generic media scan
         // Only allow explicit deletions if the list is non-empty.
@@ -388,14 +408,20 @@ interface MusicDao {
         val updatedSongIds = songs.map { it.id }
         updatedSongIds.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             deleteCrossRefsBySongIds(chunk)
+            deleteGenreCrossRefsBySongIds(chunk)
         }
         crossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             insertSongArtistCrossRefs(chunk)
         }
+        insertGenres(genres)
+        genreCrossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
+            insertSongGenreCrossRefs(chunk)
+        }
 
-        // Clean up orphaned albums and artists
+        // Clean up orphaned albums, artists, and genres
         deleteOrphanedAlbums()
         deleteOrphanedArtists()
+        deleteOrphanedGenres()
     }
 
     // --- Directory Helper ---
@@ -1639,6 +1665,9 @@ interface MusicDao {
     @Query("DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM song_artist_cross_ref WHERE song_artist_cross_ref.artist_id = artists.id)")
     suspend fun deleteOrphanedArtists()
 
+    @Query("DELETE FROM genres WHERE NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.genre_id = genres.id)")
+    suspend fun deleteOrphanedGenres()
+
     // --- Favorite Operations ---
     @Query("UPDATE songs SET is_favorite = :isFavorite WHERE id = :songId")
     suspend fun setFavoriteStatus(songId: Long, isFavorite: Boolean)
@@ -1760,6 +1789,9 @@ interface MusicDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSongArtistCrossRefs(crossRefs: List<SongArtistCrossRef>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSongGenreCrossRefs(crossRefs: List<SongGenreCrossRef>)
 
     @Query("SELECT * FROM song_artist_cross_ref")
     fun getAllSongArtistCrossRefs(): Flow<List<SongArtistCrossRef>>
@@ -1923,22 +1955,30 @@ interface MusicDao {
         songs: List<SongEntity>,
         albums: List<AlbumEntity>,
         artists: List<ArtistEntity>,
-        crossRefs: List<SongArtistCrossRef>
+        crossRefs: List<SongArtistCrossRef>,
+        genres: List<GenreEntity> = emptyList(),
+        genreCrossRefs: List<SongGenreCrossRef> = emptyList()
     ) {
         // Save current cloud songs before clearing to prevent accidental data loss
         // Only clear if we have new songs to insert, or we are explicitly asked to REBUILD everything.
         // We handle this logic at the worker/repository level to be more precise.
 
         clearAllSongArtistCrossRefs()
+        clearAllSongGenreCrossRefs()
         clearAllSongs()
         clearAllAlbums()
         clearAllArtists()
+        clearAllGenres()
 
         insertArtists(artists)
         insertAlbums(albums)
         insertSongs(songs)
         crossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             insertSongArtistCrossRefs(chunk)
+        }
+        insertGenres(genres)
+        genreCrossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
+            insertSongGenreCrossRefs(chunk)
         }
     }
 
