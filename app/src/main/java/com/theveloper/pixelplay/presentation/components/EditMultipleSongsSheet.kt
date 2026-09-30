@@ -71,6 +71,7 @@ private fun <T> List<T?>.toMixedValueField(): MixedValueField<T> {
 fun EditMultipleSongsSheet(
     visible: Boolean,
     songs: List<Song>,
+    existingGenres: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
@@ -106,6 +107,7 @@ fun EditMultipleSongsSheet(
             ) {
                 EditMultipleSongsContent(
                     songs = songs,
+                    existingGenres = existingGenres,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -118,6 +120,7 @@ fun EditMultipleSongsSheet(
 @Composable
 private fun EditMultipleSongsContent(
     songs: List<Song>,
+    existingGenres: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
@@ -348,9 +351,10 @@ private fun EditMultipleSongsContent(
 
                 // Genre field
                 item {
-                    BatchEditField(
+                    GenreAutocompleteField(
                         value = genre ?: "",
                         onValueChange = { genre = it.ifBlank { null } },
+                        existingGenres = existingGenres,
                         label = stringResource(R.string.edit_song_field_genre),
                         placeholder = if (genreField.isMixed)
                             stringResource(R.string.batch_edit_mixed_values)
