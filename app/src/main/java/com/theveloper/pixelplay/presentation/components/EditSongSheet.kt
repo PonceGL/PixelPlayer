@@ -180,7 +180,7 @@ private fun EditSongContent(
     var title by remember { mutableStateOf(song.title) }
     var artist by remember { mutableStateOf(song.displayArtist) }
     var artists by remember {
-        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: ", ") { it.name })
+        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name })
     }
     // Tracks whether the user typed directly into the singular Artist field - once true, picking
     // more/fewer artists from the plural picker stops overwriting their own wording.
@@ -212,7 +212,7 @@ private fun EditSongContent(
     LaunchedEffect(song) {
         title = song.title
         artist = song.displayArtist
-        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: ", ") { it.name }
+        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name }
         isArtistManuallyEdited = false
         album = song.album
         albumArtist = song.albumArtist ?: ""
@@ -435,6 +435,12 @@ private fun EditSongContent(
                     onValueChange = { artists = it },
                     existingValues = existingArtistNames,
                     delimiters = artistDelimiters,
+                    // Must be one of `delimiters` (or the join/split round-trip silently breaks):
+                    // the default TagChipAutocompleteField join ", " isn't in
+                    // DEFAULT_ARTIST_DELIMITERS ([";"]), unlike genre where "," already is -
+                    // found by writing a comma-joined ARTISTS tag as one literal value instead
+                    // of the intended multiple entries.
+                    joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
                     onTagsChanged = { tags ->
                         if (!isArtistManuallyEdited) {
                             artist = buildDisplayArtistText(tags)
