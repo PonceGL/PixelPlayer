@@ -706,13 +706,16 @@ class MetadataEditStateHolder @Inject constructor(
 
     /**
      * Triggers an incremental sync after a successful metadata edit and, once it finishes, shows
-     * the same "library sync finished" toast the manual rescan in Settings already uses.
+     * the same "library sync finished" toast the manual rescan in Settings already uses. Awaits
+     * this specific sync's WorkRequest id, not the shared isSyncing flow - saving edits to two
+     * songs in quick succession replaces the first sync's work with a second one (same unique
+     * work name), and isSyncing can't tell them apart, so it could resolve on the wrong sync's
+     * true->false transition and fire the toast before this edit's sync actually finished.
      */
     private fun triggerPostEditSync(cb: MetadataEditCallbacks) {
-        syncManager.incrementalSync()
+        val workId = syncManager.incrementalSync()
         cb.scope.launch {
-            syncManager.isSyncing.first { it }
-            syncManager.isSyncing.first { !it }
+            syncManager.awaitWorkFinished(workId)
             cb.sendToast(context.getString(R.string.settings_toast_library_sync_finished))
         }
     }
