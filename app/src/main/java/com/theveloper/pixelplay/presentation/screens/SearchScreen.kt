@@ -119,6 +119,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusModifier
 import androidx.compose.ui.focus.focusRequester
@@ -247,13 +248,20 @@ fun SearchScreen(
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchInputFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val releaseSearchInputFocus = remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
 
     LaunchedEffect(Unit) {
         onSearchBarActiveChange(false)
     }
 
     LaunchedEffect(playerViewModel, keyboardController) {
-        playerViewModel.searchNavDoubleTapEvents.collect {
+        playerViewModel.searchTabReselectedEvents.collect {
             delay(40L)
             searchInputFocusRequester.requestFocus()
             keyboardController?.show()
@@ -412,7 +420,10 @@ fun SearchScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ),
-                    onClick = { navController.navigateSafely(Screen.Settings.route) }
+                    onClick = {
+                        releaseSearchInputFocus()
+                        navController.navigateSafely(Screen.Settings.route)
+                    }
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.rounded_settings_24),
@@ -460,6 +471,7 @@ fun SearchScreen(
                                     Timber.tag("SearchScreen")
                                         .d("Genre clicked: ${genre.name} (ID: ${genre.id})")
                                     val encodedGenreId = java.net.URLEncoder.encode(genre.id, "UTF-8")
+                                    releaseSearchInputFocus()
                                     navController.navigateSafely(Screen.GenreDetail.createRoute(encodedGenreId))
                                 },
                                 playerViewModel = playerViewModel,
@@ -586,6 +598,7 @@ fun SearchScreen(
                                         searchQuery = searchQuery,
                                         playerViewModel = playerViewModel,
                                         onItemSelected = {
+                                            releaseSearchInputFocus()
                                             if (searchQuery.isNotBlank()) {
                                                 playerViewModel.onSearchQuerySubmitted(searchQuery)
                                             }

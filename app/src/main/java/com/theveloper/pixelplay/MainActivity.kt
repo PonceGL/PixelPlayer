@@ -846,8 +846,8 @@ class MainActivity : ComponentActivity() {
                                 .height(navBarOccupiedHeight)
                                 .clipToBounds()
                         ) {
-                            val onSearchIconDoubleTap = remember(playerViewModel) {
-                                { playerViewModel.onSearchNavIconDoubleTapped() }
+                            val onSearchTabReselected = remember(playerViewModel) {
+                                { playerViewModel.onSearchTabReselected() }
                             }
 
                             Surface(
@@ -905,7 +905,7 @@ class MainActivity : ComponentActivity() {
                                     navBarStyle = navBarStyle,
                                     compactMode = navBarCompactMode,
                                     bottomBarPadding = bottomBarPadding,
-                                    onSearchIconDoubleTap = onSearchIconDoubleTap,
+                                    onSearchTabReselected = onSearchTabReselected,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
