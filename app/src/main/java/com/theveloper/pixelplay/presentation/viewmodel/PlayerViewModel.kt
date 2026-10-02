@@ -663,8 +663,8 @@ class PlayerViewModel @Inject constructor(
     val albumNavigationRequests = _albumNavigationRequests.asSharedFlow()
     private val _artistNavigationRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val artistNavigationRequests = _artistNavigationRequests.asSharedFlow()
-    private val _searchNavDoubleTapEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val searchNavDoubleTapEvents = _searchNavDoubleTapEvents.asSharedFlow()
+    private val _searchTabReselectedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val searchTabReselectedEvents = _searchTabReselectedEvents.asSharedFlow()
     
     // New event for scrolling to a specific index in the songs list
     private val _scrollToIndexEvent = MutableSharedFlow<Int>(extraBufferCapacity = 1)
@@ -1046,8 +1046,8 @@ class PlayerViewModel @Inject constructor(
         favoriteSongIds = { favoriteSongIds.value },
     )
 
-    fun onSearchNavIconDoubleTapped() {
-        _searchNavDoubleTapEvents.tryEmit(Unit)
+    fun onSearchTabReselected() {
+        _searchTabReselectedEvents.tryEmit(Unit)
     }
 
 

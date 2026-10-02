@@ -253,7 +253,7 @@ fun SearchScreen(
     }
 
     LaunchedEffect(playerViewModel, keyboardController) {
-        playerViewModel.searchNavDoubleTapEvents.collect {
+        playerViewModel.searchTabReselectedEvents.collect {
             delay(40L)
             searchInputFocusRequester.requestFocus()
             keyboardController?.show()
