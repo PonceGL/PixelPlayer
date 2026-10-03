@@ -11,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER
 import androidx.media3.common.util.UnstableApi
+import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.data.provider.SharedArtworkContentProvider
 import com.theveloper.pixelplay.data.model.Song
 import java.io.File
@@ -103,8 +104,31 @@ object MediaItemBuilder {
             .setMediaId(song.id)
             .setUri(playbackUri(song))
             .setMimeType(playbackMimeType(song))
-            .setMediaMetadata(buildMediaMetadataForSong(song))
+            .setMediaMetadata(
+                buildMediaMetadataForSong(
+                    song = song,
+                    exposedArtworkUri = sessionArtworkUriString(BuildConfig.APPLICATION_ID, song.albumArtUriString)
+                        ?.toUri()
+                        ?: artworkUri(song.albumArtUriString)
+                )
+            )
             .build()
+    }
+
+    /**
+     * Items the app puts straight on the player never go through the session callbacks, so they
+     * would reach Android Auto with the app-private artwork scheme, which it cannot resolve
+     * (the secondary panel then shows no cover). Local artwork is exposed through the shared
+     * provider instead; returns null when the default path should be used.
+     */
+    internal fun sessionArtworkUriString(packageName: String, rawArtworkUri: String?): String? {
+        if (!LocalArtworkUri.isLocalArtworkUri(rawArtworkUri)) return null
+        val songId = rawArtworkUri?.let(LocalArtworkUri::parseSongId) ?: return null
+        return SharedArtworkContentProvider.buildSongUriString(
+            packageName = packageName,
+            songId = songId,
+            cacheBustToken = LocalArtworkUri.extractCacheBustToken(rawArtworkUri)
+        )
     }
 
     fun buildForExternalController(context: Context, song: Song): MediaItem {
