@@ -131,6 +131,28 @@ object MediaItemBuilder {
         )
     }
 
+    /**
+     * Artwork the app should keep for a song resolved from a player item. The item may carry the
+     * provider URI of the very same local artwork the library already references with the
+     * app-private scheme; in that case the library value wins so the UI keeps its cache policy.
+     */
+    internal fun reconcileSongArtwork(
+        libraryArtwork: String?,
+        itemArtwork: String?,
+        packageName: String
+    ): String? {
+        if (itemArtwork == null || itemArtwork == libraryArtwork) return itemArtwork
+        val librarySongId = libraryArtwork
+            ?.takeIf(LocalArtworkUri::isLocalArtworkUri)
+            ?.let(LocalArtworkUri::parseSongId)
+            ?: return itemArtwork
+        val itemSongId = SharedArtworkContentProvider.parseSongId(itemArtwork, packageName)
+        val sameArtwork = itemSongId == librarySongId &&
+            LocalArtworkUri.extractCacheBustToken(libraryArtwork) ==
+            LocalArtworkUri.extractCacheBustToken(itemArtwork)
+        return if (sameArtwork) libraryArtwork else itemArtwork
+    }
+
     fun buildForExternalController(context: Context, song: Song): MediaItem {
         // This is the MediaSession item path for Android Auto / other external controllers;
         // time it so the performance report can attribute browse/queue lag here.

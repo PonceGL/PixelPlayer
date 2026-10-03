@@ -106,4 +106,61 @@ class MediaItemBuilderTest {
             )
         ).isNull()
     }
+
+    @Test
+    fun reconcileSongArtwork_keepsLibraryArtworkWhenItemExposesTheSameSongThroughTheProvider() {
+        val reconciled = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = "pixelplay_local_art://song/42?t=5",
+            itemArtwork = "content://com.theveloper.pixelplay.artwork/song/42?t=5",
+            packageName = "com.theveloper.pixelplay"
+        )
+
+        assertThat(reconciled).isEqualTo("pixelplay_local_art://song/42?t=5")
+    }
+
+    @Test
+    fun reconcileSongArtwork_followsTheItemWhenTheCacheBustTokenChanged() {
+        val reconciled = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = "pixelplay_local_art://song/42?t=5",
+            itemArtwork = "content://com.theveloper.pixelplay.artwork/song/42?t=9",
+            packageName = "com.theveloper.pixelplay"
+        )
+
+        assertThat(reconciled)
+            .isEqualTo("content://com.theveloper.pixelplay.artwork/song/42?t=9")
+    }
+
+    @Test
+    fun reconcileSongArtwork_followsTheItemWhenItPointsToAnotherSong() {
+        val reconciled = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = "pixelplay_local_art://song/42",
+            itemArtwork = "content://com.theveloper.pixelplay.artwork/song/43",
+            packageName = "com.theveloper.pixelplay"
+        )
+
+        assertThat(reconciled)
+            .isEqualTo("content://com.theveloper.pixelplay.artwork/song/43")
+    }
+
+    @Test
+    fun reconcileSongArtwork_clearsArtworkWhenTheItemHasNone() {
+        val reconciled = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = "pixelplay_local_art://song/42",
+            itemArtwork = null,
+            packageName = "com.theveloper.pixelplay"
+        )
+
+        assertThat(reconciled).isNull()
+    }
+
+    @Test
+    fun reconcileSongArtwork_followsTheItemForNonLocalArtwork() {
+        val reconciled = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = null,
+            itemArtwork = "https://example.com/cover.jpg",
+            packageName = "com.theveloper.pixelplay"
+        )
+
+        assertThat(reconciled).isEqualTo("https://example.com/cover.jpg")
+    }
 }
