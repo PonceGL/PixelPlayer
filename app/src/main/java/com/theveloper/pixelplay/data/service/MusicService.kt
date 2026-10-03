@@ -1417,7 +1417,7 @@ class MusicService : MediaLibraryService() {
                     Timber.tag(TAG).d("Cleared end-of-track timer after manual track change")
                 }
             }
-            grantCurrentArtworkToExternalControllers(mediaSession?.player?.currentMediaItem)
+            grantCurrentArtworkToExternalControllers(mediaItem)
             replayGainProcessor.apply(mediaSession?.player?.currentMediaItem)
             // Pre-fetch RG for the track after this one so it's cached when needed
             val player = engine.masterPlayer
@@ -1433,6 +1433,7 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            grantCurrentArtworkToExternalControllers(mediaSession?.player?.currentMediaItem)
             // Some devices/apps deliver title/artist/art after transition callback.
             // Force an immediate publish for real-time watch metadata.
             widgetUpdateManager.requestFullUpdate(true)
@@ -2728,8 +2729,12 @@ class MusicService : MediaLibraryService() {
 
         serviceScope.launch(Dispatchers.IO) {
             externalPackages
-                .filter { artworkGrantLedger.shouldGrant(it, artworkUri) }
-                .forEach { grantArtworkUriPermissions(it, listOf(mediaItem)) }
+                .filter { artworkGrantLedger.needsGrant(it, artworkUri) }
+                .forEach { controllerPackage ->
+                    if (tryGrantArtworkUri(controllerPackage, Uri.parse(artworkUri))) {
+                        artworkGrantLedger.markGranted(controllerPackage, artworkUri)
+                    }
+                }
         }
     }
 
@@ -2739,28 +2744,31 @@ class MusicService : MediaLibraryService() {
     ) {
         if (targetPackage.isBlank()) return
 
-        val providerAuthority = "$packageName.provider"
-        val artworkAuthority = "$packageName.artwork"
         mediaItems.forEach { mediaItem ->
             val artworkUri = resolveArtworkUri(mediaItem.mediaMetadata) ?: return@forEach
-            val authority = artworkUri.authority
-            if (artworkUri.scheme?.lowercase() != "content" ||
-                (authority != providerAuthority && authority != artworkAuthority)
-            ) {
-                return@forEach
-            }
-
-            runCatching {
-                grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.onFailure { error ->
-                Timber.tag(TAG).w(
-                    error,
-                    "Failed to grant artwork URI permission to package=%s uri=%s",
-                    targetPackage,
-                    artworkUri
-                )
-            }
+            tryGrantArtworkUri(targetPackage, artworkUri)
         }
+    }
+
+    /** Returns true only when read access to an app-owned artwork URI was actually granted. */
+    private fun tryGrantArtworkUri(targetPackage: String, artworkUri: Uri): Boolean {
+        val authority = artworkUri.authority
+        if (artworkUri.scheme?.lowercase() != "content" ||
+            (authority != "$packageName.provider" && authority != "$packageName.artwork")
+        ) {
+            return false
+        }
+
+        return runCatching {
+            grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }.onFailure { error ->
+            Timber.tag(TAG).w(
+                error,
+                "Failed to grant artwork URI permission to package=%s uri=%s",
+                targetPackage,
+                artworkUri
+            )
+        }.isSuccess
     }
 
     private fun resolveAutoContextFromParentId(parentId: String): Pair<String, String?>? {

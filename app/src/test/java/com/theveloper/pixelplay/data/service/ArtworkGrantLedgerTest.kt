@@ -9,39 +9,47 @@ class ArtworkGrantLedgerTest {
     fun firstGrantForAPackageIsNeeded() {
         val ledger = ArtworkGrantLedger()
 
-        assertThat(ledger.shouldGrant("controller.a", "content://x/song/1")).isTrue()
+        assertThat(ledger.needsGrant("controller.a", "content://x/song/1")).isTrue()
     }
 
     @Test
-    fun repeatingTheSameUriForTheSamePackageIsSkipped() {
+    fun aGrantThatWasNeverConfirmedIsStillNeeded() {
         val ledger = ArtworkGrantLedger()
-        ledger.shouldGrant("controller.a", "content://x/song/1")
+        ledger.needsGrant("controller.a", "content://x/song/1")
 
-        assertThat(ledger.shouldGrant("controller.a", "content://x/song/1")).isFalse()
+        assertThat(ledger.needsGrant("controller.a", "content://x/song/1")).isTrue()
+    }
+
+    @Test
+    fun aConfirmedGrantIsNotRepeated() {
+        val ledger = ArtworkGrantLedger()
+        ledger.markGranted("controller.a", "content://x/song/1")
+
+        assertThat(ledger.needsGrant("controller.a", "content://x/song/1")).isFalse()
     }
 
     @Test
     fun aNewUriForTheSamePackageIsGranted() {
         val ledger = ArtworkGrantLedger()
-        ledger.shouldGrant("controller.a", "content://x/song/1")
+        ledger.markGranted("controller.a", "content://x/song/1")
 
-        assertThat(ledger.shouldGrant("controller.a", "content://x/song/2")).isTrue()
+        assertThat(ledger.needsGrant("controller.a", "content://x/song/2")).isTrue()
     }
 
     @Test
     fun packagesAreTrackedIndependently() {
         val ledger = ArtworkGrantLedger()
-        ledger.shouldGrant("controller.a", "content://x/song/1")
+        ledger.markGranted("controller.a", "content://x/song/1")
 
-        assertThat(ledger.shouldGrant("controller.b", "content://x/song/1")).isTrue()
+        assertThat(ledger.needsGrant("controller.b", "content://x/song/1")).isTrue()
     }
 
     @Test
     fun forgettingAPackageGrantsAgain() {
         val ledger = ArtworkGrantLedger()
-        ledger.shouldGrant("controller.a", "content://x/song/1")
+        ledger.markGranted("controller.a", "content://x/song/1")
         ledger.forget("controller.a")
 
-        assertThat(ledger.shouldGrant("controller.a", "content://x/song/1")).isTrue()
+        assertThat(ledger.needsGrant("controller.a", "content://x/song/1")).isTrue()
     }
 }

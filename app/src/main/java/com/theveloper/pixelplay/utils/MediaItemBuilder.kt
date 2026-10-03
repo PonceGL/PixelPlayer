@@ -286,12 +286,8 @@ object MediaItemBuilder {
 
     fun externalControllerArtworkUri(context: Context, rawArtworkUri: String?): Uri? {
         if (LocalArtworkUri.isLocalArtworkUri(rawArtworkUri)) {
-            val songId = rawArtworkUri?.let(LocalArtworkUri::parseSongId) ?: return null
-            return SharedArtworkContentProvider.buildSongUri(
-                context = context.applicationContext,
-                songId = songId,
-                cacheBustToken = LocalArtworkUri.extractCacheBustToken(rawArtworkUri)
-            )
+            return sessionArtworkUriString(context.applicationContext.packageName, rawArtworkUri)
+                ?.toUri()
         }
 
         LocalArtworkUri.parseSongIdFromVolatileArtworkUri(rawArtworkUri)?.let { songId ->
