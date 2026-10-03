@@ -187,6 +187,7 @@ class MusicService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private val controllerLastBrowsedParent = mutableMapOf<String, String>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val artworkGrantLedger = ArtworkGrantLedger()
     private var keepPlayingInBackground = true
     private var isManualShuffleEnabled = false
     private var persistentShuffleEnabled = false
@@ -559,6 +560,7 @@ class MusicService : MediaLibraryService() {
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
                 val controllerPackage = controller.packageName
+                artworkGrantLedger.forget(controllerPackage)
                 val hintKeys = controller.connectionHints.keySet().joinToString(",")
                 Timber.tag(TAG).d(
                     "onConnect from package=%s uid=%s trusted=%s version=%s hints=[%s]",
@@ -1415,6 +1417,7 @@ class MusicService : MediaLibraryService() {
                     Timber.tag(TAG).d("Cleared end-of-track timer after manual track change")
                 }
             }
+            grantCurrentArtworkToExternalControllers(mediaSession?.player?.currentMediaItem)
             replayGainProcessor.apply(mediaSession?.player?.currentMediaItem)
             // Pre-fetch RG for the track after this one so it's cached when needed
             val player = engine.masterPlayer
@@ -2704,6 +2707,29 @@ class MusicService : MediaLibraryService() {
             songMap[mediaId]?.let { song ->
                 MediaItemBuilder.buildForExternalController(this, song)
             }
+        }
+    }
+
+    /**
+     * Items put on the player by the app never pass through the session callbacks that grant
+     * artwork access, so grant the current cover to the connected trusted external controllers
+     * (Android Auto) as the track changes. Only the current item, once per controller and URI,
+     * off the main thread.
+     */
+    private fun grantCurrentArtworkToExternalControllers(mediaItem: MediaItem?) {
+        mediaItem ?: return
+        val artworkUri = resolveArtworkUri(mediaItem.mediaMetadata)?.toString() ?: return
+        val externalPackages = mediaSession?.connectedControllers
+            ?.filter { it.isTrusted && !it.packageName.startsWith(APP_PACKAGE_PREFIX) }
+            ?.map { it.packageName }
+            ?.distinct()
+            .orEmpty()
+        if (externalPackages.isEmpty()) return
+
+        serviceScope.launch(Dispatchers.IO) {
+            externalPackages
+                .filter { artworkGrantLedger.shouldGrant(it, artworkUri) }
+                .forEach { grantArtworkUriPermissions(it, listOf(mediaItem)) }
         }
     }
 
