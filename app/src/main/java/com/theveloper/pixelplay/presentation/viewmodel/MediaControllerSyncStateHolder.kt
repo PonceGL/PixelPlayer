@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.BuildConfig
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.scopes.ViewModelScoped
@@ -150,11 +151,15 @@ class MediaControllerSyncStateHolder @Inject constructor(
                     ?.getString(MediaItemBuilder.EXTERNAL_EXTRA_ALBUM_ART)
                     ?.takeIf { it.isNotBlank() }
 
-        return when {
-            metadataArtwork == null && song.albumArtUriString != null -> song.copy(albumArtUriString = null)
-            metadataArtwork != null && song.albumArtUriString != metadataArtwork ->
-                song.copy(albumArtUriString = metadataArtwork)
-            else -> song
+        val reconciledArtwork = MediaItemBuilder.reconcileSongArtwork(
+            libraryArtwork = song.albumArtUriString,
+            itemArtwork = metadataArtwork,
+            packageName = BuildConfig.APPLICATION_ID
+        )
+        return if (reconciledArtwork == song.albumArtUriString) {
+            song
+        } else {
+            song.copy(albumArtUriString = reconciledArtwork)
         }
     }
 

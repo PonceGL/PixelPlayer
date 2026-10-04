@@ -187,6 +187,7 @@ class MusicService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private val controllerLastBrowsedParent = mutableMapOf<String, String>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val artworkGrantLedger = ArtworkGrantLedger()
     private var keepPlayingInBackground = true
     private var isManualShuffleEnabled = false
     private var persistentShuffleEnabled = false
@@ -559,6 +560,7 @@ class MusicService : MediaLibraryService() {
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
                 val controllerPackage = controller.packageName
+                artworkGrantLedger.forget(controllerPackage)
                 val hintKeys = controller.connectionHints.keySet().joinToString(",")
                 Timber.tag(TAG).d(
                     "onConnect from package=%s uid=%s trusted=%s version=%s hints=[%s]",
@@ -1415,6 +1417,7 @@ class MusicService : MediaLibraryService() {
                     Timber.tag(TAG).d("Cleared end-of-track timer after manual track change")
                 }
             }
+            grantCurrentArtworkToExternalControllers(mediaItem)
             replayGainProcessor.apply(mediaSession?.player?.currentMediaItem)
             // Pre-fetch RG for the track after this one so it's cached when needed
             val player = engine.masterPlayer
@@ -1430,6 +1433,7 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            grantCurrentArtworkToExternalControllers(mediaSession?.player?.currentMediaItem)
             // Some devices/apps deliver title/artist/art after transition callback.
             // Force an immediate publish for real-time watch metadata.
             widgetUpdateManager.requestFullUpdate(true)
@@ -2707,34 +2711,64 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Items put on the player by the app never pass through the session callbacks that grant
+     * artwork access, so grant the current cover to the connected trusted external controllers
+     * (Android Auto) as the track changes. Only the current item, once per controller and URI,
+     * off the main thread.
+     */
+    private fun grantCurrentArtworkToExternalControllers(mediaItem: MediaItem?) {
+        mediaItem ?: return
+        val artworkUri = resolveArtworkUri(mediaItem.mediaMetadata)?.toString() ?: return
+        val externalPackages = mediaSession?.connectedControllers
+            ?.filter { it.isTrusted && !it.packageName.startsWith(APP_PACKAGE_PREFIX) }
+            ?.map { it.packageName }
+            ?.distinct()
+            .orEmpty()
+        if (externalPackages.isEmpty()) return
+
+        serviceScope.launch(Dispatchers.IO) {
+            externalPackages
+                .filter { artworkGrantLedger.needsGrant(it, artworkUri) }
+                .forEach { controllerPackage ->
+                    if (tryGrantArtworkUri(controllerPackage, Uri.parse(artworkUri))) {
+                        artworkGrantLedger.markGranted(controllerPackage, artworkUri)
+                    }
+                }
+        }
+    }
+
     private fun grantArtworkUriPermissions(
         targetPackage: String,
         mediaItems: List<MediaItem>
     ) {
         if (targetPackage.isBlank()) return
 
-        val providerAuthority = "$packageName.provider"
-        val artworkAuthority = "$packageName.artwork"
         mediaItems.forEach { mediaItem ->
             val artworkUri = resolveArtworkUri(mediaItem.mediaMetadata) ?: return@forEach
-            val authority = artworkUri.authority
-            if (artworkUri.scheme?.lowercase() != "content" ||
-                (authority != providerAuthority && authority != artworkAuthority)
-            ) {
-                return@forEach
-            }
-
-            runCatching {
-                grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.onFailure { error ->
-                Timber.tag(TAG).w(
-                    error,
-                    "Failed to grant artwork URI permission to package=%s uri=%s",
-                    targetPackage,
-                    artworkUri
-                )
-            }
+            tryGrantArtworkUri(targetPackage, artworkUri)
         }
+    }
+
+    /** Returns true only when read access to an app-owned artwork URI was actually granted. */
+    private fun tryGrantArtworkUri(targetPackage: String, artworkUri: Uri): Boolean {
+        val authority = artworkUri.authority
+        if (artworkUri.scheme?.lowercase() != "content" ||
+            (authority != "$packageName.provider" && authority != "$packageName.artwork")
+        ) {
+            return false
+        }
+
+        return runCatching {
+            grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }.onFailure { error ->
+            Timber.tag(TAG).w(
+                error,
+                "Failed to grant artwork URI permission to package=%s uri=%s",
+                targetPackage,
+                artworkUri
+            )
+        }.isSuccess
     }
 
     private fun resolveAutoContextFromParentId(parentId: String): Pair<String, String?>? {
