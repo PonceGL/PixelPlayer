@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SPIKE Sonos: multicast para SSDP y permiso de red local (Android 17+ con targetSdk 37). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!-- SPIKE Sonos (solo debug). Icono propio para no tocar la UI de la app. -->
+    <application>
+        <activity
+            android:name="com.theveloper.pixelplay.spike.sonos.SonosDebugActivity"
+            android:exported="true"
+            android:label="Sonos Spike"
+            android:taskAffinity="com.theveloper.pixelplay.spike.sonos"
+            android:launchMode="singleTask"
+            android:icon="@android:drawable/ic_media_play"
+            android:theme="@style/Theme.PixelPlay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

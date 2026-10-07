@@ -38,6 +38,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.engine.EmbeddedServer
@@ -195,6 +196,21 @@ class MediaFileHttpServerService : Service() {
         internal fun clearCastSessionAccess() {
             castAccessPolicy = CastAccessPolicy.EMPTY
         }
+
+        // ---- SPIKE Sonos (rama spike/sonos-local) -------------------------------------------
+        /** Puerto preferido persistido (null = 8080), para que las URLs de la cola de Sonos sobrevivan a un reinicio. */
+        @Volatile
+        var preferredPortOverride: Int? = null
+
+        /** Adopta un token persistido (si no, se regenera al morir el proceso y la cola del Sonos da 403). */
+        internal fun adoptAuthToken(token: String) {
+            castAccessPolicy = castAccessPolicy.copy(authToken = token)
+        }
+
+        /** Recibe una línea por petición autorizada o rechazada de /song y /art (para el log JSONL del spike). */
+        @Volatile
+        var spikeRequestLogger: ((Map<String, Any?>) -> Unit)? = null
+        // --------------------------------------------------------------------------------------
     }
 
     enum class FailureReason {
@@ -361,7 +377,7 @@ class MediaFileHttpServerService : Service() {
                     stopSelf()
                     return@launch
                 }
-                val serverPort = resolveServerPort(preferredPort = 8080)
+                val serverPort = resolveServerPort(preferredPort = preferredPortOverride ?: 8080)
                 if (serverPort != 8080) {
                     Timber.tag(castHttpLogTag).w(
                         "Port 8080 is already in use. Falling back to port %d for Cast HTTP server.",
@@ -413,6 +429,8 @@ class MediaFileHttpServerService : Service() {
 
                                 try {
                                     val uri = song.contentUriString.toUri()
+                                    // SPIKE Sonos: ?raw=1 sirve el archivo tal cual (Sonos lee FLAC/ALAC/AC3 nativo hasta 24/48).
+                                    val rawRequested = call.request.queryParameters["raw"] == "1"
                                     val codecInfo = detectAudioCodecViaExtractor(song, uri)
                                     val isAlac = codecInfo?.codecMime == "audio/alac"
                                     // Only transcode if ALAC AND a working decoder is available.
@@ -420,7 +438,7 @@ class MediaFileHttpServerService : Service() {
                                     // "Unsupported mediaType audio/alac" in AudioCapabilities,
                                     // findDecoderForFormat returns null and we fall back to
                                     // serving the raw M4A file as audio/mp4 instead.
-                                    val canTranscode = isAlac && isAlacTranscodeSupported(checkNotNull(codecInfo))
+                                    val canTranscode = !rawRequested && isAlac && isAlacTranscodeSupported(checkNotNull(codecInfo))
 
                                     if (canTranscode) {
                                         // ALAC codec inside M4A — Cast DMR cannot play ALAC.
@@ -474,7 +492,7 @@ class MediaFileHttpServerService : Service() {
                                     // causing an involuntary track skip. Transcode to AAC-ADTS so
                                     // Cast gets a CBR stream it can seek accurately.
                                     val isFlac = codecInfo?.codecMime == "audio/flac"
-                                    if (isFlac && isFlacTranscodeSupported(codecInfo)) {
+                                    if (!rawRequested && isFlac && isFlacTranscodeSupported(codecInfo)) {
                                         Timber.tag(castHttpLogTag).i(
                                             "GET /song FLAC→AAC transcode-cache songId=%s sr=%d ch=%d",
                                             song.id, codecInfo.sampleRate, codecInfo.channelCount
@@ -491,7 +509,7 @@ class MediaFileHttpServerService : Service() {
                                     // AC3/EAC3: Cast DMR cannot play Dolby audio. Transcode to AAC
                                     // when a decoder is available (Snapdragon Dolby decoder).
                                     val isAc3 = codecInfo?.codecMime == "audio/ac3" || codecInfo?.codecMime == "audio/eac3"
-                                    if (isAc3 && isAc3TranscodeSupported(codecInfo)) {
+                                    if (!rawRequested && isAc3 && isAc3TranscodeSupported(codecInfo)) {
                                         Timber.tag(castHttpLogTag).i(
                                             "GET /song AC3/EAC3→AAC transcode-cache songId=%s sr=%d ch=%d",
                                             song.id, codecInfo.sampleRate, codecInfo.channelCount
@@ -588,9 +606,11 @@ class MediaFileHttpServerService : Service() {
 
                                 try {
                                     val uri = song.contentUriString.toUri()
+                                    // SPIKE Sonos: ?raw=1 sirve el archivo tal cual (Sonos lee FLAC/ALAC/AC3 nativo hasta 24/48).
+                                    val rawRequested = call.request.queryParameters["raw"] == "1"
                                     val codecInfo = detectAudioCodecViaExtractor(song, uri)
                                     val isAlac = codecInfo?.codecMime == "audio/alac"
-                                    val canTranscode = isAlac && isAlacTranscodeSupported(checkNotNull(codecInfo))
+                                    val canTranscode = !rawRequested && isAlac && isAlacTranscodeSupported(checkNotNull(codecInfo))
 
                                     if (canTranscode) {
                                         // ALAC: serve Content-Length from cache if temp file is ready.
@@ -618,7 +638,7 @@ class MediaFileHttpServerService : Service() {
 
                                     // FLAC: transcoded to AAC-ADTS for reliable Cast seeking.
                                     val isFlac = codecInfo?.codecMime == "audio/flac"
-                                    if (isFlac && isFlacTranscodeSupported(codecInfo)) {
+                                    if (!rawRequested && isFlac && isFlacTranscodeSupported(codecInfo)) {
                                         call.response.header(HttpHeaders.ContentType, "audio/aac")
                                         val entry = transcodeCache[song.id]
                                         if (entry != null && entry.done && entry.tempFile.exists()) {
@@ -635,7 +655,7 @@ class MediaFileHttpServerService : Service() {
 
                                     // AC3/EAC3: transcoded to AAC for Cast.
                                     val isAc3 = codecInfo?.codecMime == "audio/ac3" || codecInfo?.codecMime == "audio/eac3"
-                                    if (isAc3 && isAc3TranscodeSupported(codecInfo)) {
+                                    if (!rawRequested && isAc3 && isAc3TranscodeSupported(codecInfo)) {
                                         call.response.header(HttpHeaders.ContentType, "audio/aac")
                                         val entry = transcodeCache[song.id]
                                         if (entry != null && entry.done && entry.tempFile.exists()) {
@@ -666,10 +686,10 @@ class MediaFileHttpServerService : Service() {
                                     return@head
                                 }
 
-                                    call.response.header(HttpHeaders.ContentType, contentType.toString())
+                                    // SPIKE Sonos: antes se ponia Content-Length a mano y Ktor anadia otro "Content-Length: 0"
+                                    // (cabecera duplicada). Ahora la longitud viaja en el OutgoingContent.
                                     if (source.fileSize > 0) {
                                         call.response.header(HttpHeaders.AcceptRanges, "bytes")
-                                        call.response.header(HttpHeaders.ContentLength, source.fileSize.toString())
                                     }
                                     source.lastModifiedEpochMs?.let { lastModified ->
                                         call.response.header(HttpHeaders.LastModified, formatHttpDate(lastModified))
@@ -681,7 +701,10 @@ class MediaFileHttpServerService : Service() {
                                         source.fileSize,
                                         contentType
                                     )
-                                    call.respond(HttpStatusCode.OK)
+                                    call.respondHeadOnly(
+                                        contentLength = source.fileSize.takeIf { it > 0 },
+                                        contentType = contentType
+                                    )
                                 } catch (e: Exception) {
                                     if (e.isClientAbortDuringResponse()) {
                                         Timber.tag(castHttpLogTag).d("HEAD /song client disconnected. songId=%s", song.id)
@@ -726,6 +749,17 @@ class MediaFileHttpServerService : Service() {
                                     )
                                     Timber.tag("PX_CAST_HTTP")
                                         .i("GET /art songId=${song.id} source=${artSource.sourceLabel} len=${artSource.contentLength} type=${artSource.contentType}")
+                                    runCatching {
+                                        spikeRequestLogger?.invoke(
+                                            mapOf(
+                                                "event" to "art_source",
+                                                "song_id" to song.id,
+                                                "art_source" to artSource.sourceLabel,
+                                                "art_length" to artSource.contentLength,
+                                                "art_type" to artSource.contentType.toString(),
+                                            )
+                                        )
+                                    }
                                     artSource.lastModifiedEpochMs?.let { lastModified ->
                                         call.response.header(HttpHeaders.LastModified, formatHttpDate(lastModified))
                                     }
@@ -771,10 +805,6 @@ class MediaFileHttpServerService : Service() {
 
                                 try {
                                     val artSource = resolveArtStreamSource(song)
-                                    call.response.header(HttpHeaders.ContentType, artSource.contentType.toString())
-                                    if (artSource.contentLength != null && artSource.contentLength > 0L) {
-                                        call.response.header(HttpHeaders.ContentLength, artSource.contentLength.toString())
-                                    }
                                     artSource.lastModifiedEpochMs?.let { lastModified ->
                                         call.response.header(HttpHeaders.LastModified, formatHttpDate(lastModified))
                                     }
@@ -785,7 +815,11 @@ class MediaFileHttpServerService : Service() {
                                         artSource.contentLength,
                                         artSource.contentType
                                     )
-                                    call.respond(HttpStatusCode.OK)
+                                    // SPIKE Sonos: ver nota en HEAD /song (Content-Length duplicado).
+                                    call.respondHeadOnly(
+                                        contentLength = artSource.contentLength?.takeIf { it > 0L },
+                                        contentType = artSource.contentType
+                                    )
                                 } catch (e: Exception) {
                                     if (e.isClientAbortDuringResponse()) {
                                         Timber.tag(castHttpLogTag).d("HEAD /art client disconnected. songId=%s", song.id)
@@ -996,6 +1030,19 @@ class MediaFileHttpServerService : Service() {
         val remoteAddress = request.origin.remoteHost
         val policy = currentCastAccessPolicy()
         val providedToken = request.queryParameters[CastSessionSecurity.AUTH_QUERY_PARAMETER]
+        runCatching {
+            spikeRequestLogger?.invoke(
+                mapOf(
+                    "method" to request.local.method.value,
+                    "uri" to request.local.uri.replace(Regex("auth=[^&]+"), "auth=<redacted>"),
+                    "song_id" to songId,
+                    "client" to remoteAddress,
+                    "range" to request.headers[HttpHeaders.Range],
+                    "user_agent" to request.headers[HttpHeaders.UserAgent],
+                    "token_ok" to (providedToken == policy.authToken && !policy.authToken.isNullOrBlank()),
+                )
+            )
+        }
 
         // Cast receivers can fetch byte ranges through alternate LAN endpoints during seek.
         // The per-session token and song allowlist are the stable authorization boundary.
@@ -1017,6 +1064,7 @@ class MediaFileHttpServerService : Service() {
                 remoteAddress,
                 songId
             )
+            runCatching { spikeRequestLogger?.invoke(mapOf("event" to "auth_denied", "song_id" to songId, "status" to 401, "reason" to "invalid_token", "client" to remoteAddress)) }
             respond(HttpStatusCode.Unauthorized, "Unauthorized")
         } else {
             Timber.tag(castHttpLogTag).w(
@@ -1024,6 +1072,7 @@ class MediaFileHttpServerService : Service() {
                 remoteAddress,
                 songId
             )
+            runCatching { spikeRequestLogger?.invoke(mapOf("event" to "auth_denied", "song_id" to songId, "status" to 404, "reason" to "song_not_allowed", "client" to remoteAddress)) }
             respond(HttpStatusCode.NotFound, "Song not found")
         }
 
@@ -1684,12 +1733,15 @@ class MediaFileHttpServerService : Service() {
             response.header(HttpHeaders.AcceptRanges, "bytes")
             response.header(HttpHeaders.ContentLength, length.toString())
 
+            val spikeCall = this
             respondOutputStream(contentType, HttpStatusCode.PartialContent) {
-                inputStreamFactory().use { inputStream ->
-                    if (!skipFully(inputStream, clampedStart)) {
-                        return@use
+                spikeLoggedTransfer(spikeCall, this, "$clampedStart-$clampedEnd", length, 206) { out ->
+                    inputStreamFactory().use { inputStream ->
+                        if (!skipFully(inputStream, clampedStart)) {
+                            return@use
+                        }
+                        copyLimited(inputStream, out, length)
                     }
-                    copyLimited(inputStream, this, length)
                 }
             }
             return
@@ -1700,9 +1752,12 @@ class MediaFileHttpServerService : Service() {
             response.header(HttpHeaders.ContentLength, fileSize.toString())
         }
 
+        val spikeCallFull = this
         respondOutputStream(contentType) {
-            inputStreamFactory().use { inputStream ->
-                inputStream.copyTo(this)
+            spikeLoggedTransfer(spikeCallFull, this, null, fileSize, 200) { out ->
+              inputStreamFactory().use { inputStream ->
+                inputStream.copyTo(out)
+              }
             }
         }
     }
@@ -2935,5 +2990,65 @@ class MediaFileHttpServerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
+    }
+}
+
+/**
+ * SPIKE Sonos: respuesta a HEAD sin cuerpo y con un unico Content-Length correcto.
+ * (Poner la cabecera a mano + respond(OK) producia "Content-Length: N" y "Content-Length: 0".)
+ */
+private suspend fun ApplicationCall.respondHeadOnly(contentLength: Long?, contentType: ContentType?) {
+    respond(object : OutgoingContent.NoContent() {
+        override val status: HttpStatusCode = HttpStatusCode.OK
+        override val contentLength: Long? = contentLength
+        override val contentType: ContentType? = contentType
+    })
+}
+
+/** SPIKE Sonos: cuenta los bytes realmente escritos al cliente. */
+private class SpikeCountingOutputStream(private val delegate: java.io.OutputStream) : java.io.OutputStream() {
+    @Volatile var count: Long = 0
+    override fun write(b: Int) { delegate.write(b); count += 1 }
+    override fun write(b: ByteArray, off: Int, len: Int) { delegate.write(b, off, len); count += len }
+    override fun flush() = delegate.flush()
+    override fun close() = delegate.close()
+}
+
+/**
+ * SPIKE Sonos: envuelve una transferencia de /song y emite un evento `song_transfer` al terminar
+ * (completa, o cortada por el cliente / error), con bytes enviados y duración.
+ */
+private fun spikeLoggedTransfer(
+    call: ApplicationCall,
+    target: java.io.OutputStream,
+    range: String?,
+    expected: Long,
+    status: Int,
+    body: (java.io.OutputStream) -> Unit,
+) {
+    val counting = SpikeCountingOutputStream(target)
+    val t0 = System.nanoTime()
+    var outcome = "completed"
+    try {
+        body(counting)
+    } catch (t: Throwable) {
+        outcome = t.javaClass.simpleName
+        throw t
+    } finally {
+        runCatching {
+            MediaFileHttpServerService.spikeRequestLogger?.invoke(
+                mapOf(
+                    "event" to "song_transfer",
+                    "song_id" to call.parameters["songId"],
+                    "client" to call.request.origin.remoteHost,
+                    "status" to status,
+                    "range" to range,
+                    "expected_bytes" to expected,
+                    "bytes_sent" to counting.count,
+                    "ms" to (System.nanoTime() - t0) / 1_000_000,
+                    "outcome" to outcome,
+                )
+            )
+        }
     }
 }
