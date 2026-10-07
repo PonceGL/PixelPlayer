@@ -106,10 +106,14 @@ private fun SonosDebugScreen() {
     var fieldWifi by remember { mutableStateOf(prefs.getString("field_wifi", "none") ?: "none") }
     var fieldWake by remember { mutableStateOf(prefs.getBoolean("field_wake", false)) }
     var fieldStatus by remember { mutableStateOf("") }
+    var blockName by remember { mutableStateOf(prefs.getString("block_name", "") ?: "") }
+    var blockStart by remember { mutableStateOf(prefs.getLong("block_start", 0L)) }
+    var blockNow by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             serverStatus = SonosServer.statusLine()
             fieldStatus = SonosField.statusLine()
+            blockNow = System.currentTimeMillis()
             delay(1000)
         }
     }
@@ -189,8 +193,8 @@ private fun SonosDebugScreen() {
                     Button(onClick = { SonosField.stop(context) }) { Text("Detener observación") }
                 }
                 Text(
-                    "Pasos: 1) pestaña Servidor: publica las 5 pistas; 2) pestaña Cola: crea la cola con REPEAT_ALL; " +
-                        "3) aquí: Iniciar observación; 4) desenchufa el cable, apaga la pantalla y NO toques nada ≥ 20 min.",
+                    "Pasos F-4: 1) Servidor: publica ≥15 pistas; 2) Cola: REPEAT_ALL + Play; " +
+                        "3) aquí: Iniciar observación y pulsa A; 4) desenchufa y apaga la pantalla.",
                     fontSize = 11.sp,
                 )
                 OutlinedTextField(
@@ -204,6 +208,25 @@ private fun SonosDebugScreen() {
                     run.event("mark", "msg" to note)
                     note = ""
                 }) { Text("Marcar evento") }
+                Text("Bloques de la prueba F-4 (cada botón escribe un evento 'block' en el log):", fontSize = 12.sp)
+                val el = if (blockName.isNotEmpty() && blockStart > 0) (blockNow - blockStart) / 1000 else 0L
+                Text(
+                    if (blockName.isEmpty()) "Ningún bloque activo" else "Bloque activo: $blockName · %d:%02d".format(el / 60, el % 60),
+                    fontFamily = FontFamily.Monospace, fontSize = 14.sp,
+                )
+                fun setBlock(name: String) {
+                    val now = System.currentTimeMillis()
+                    run.event("block", "name" to name, "prev" to blockName, "prev_elapsed_s" to (if (blockStart > 0) (now - blockStart) / 1000 else 0L))
+                    blockName = if (name == "FIN") "" else name
+                    blockStart = if (name == "FIN") 0L else now
+                    prefs.edit().putString("block_name", blockName).putLong("block_start", blockStart).apply()
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { setBlock("A_idle") }) { Text("A", fontSize = 12.sp) }
+                    Button(onClick = { setBlock("B_uso") }) { Text("B", fontSize = 12.sp) }
+                    Button(onClick = { setBlock("C_idle") }) { Text("C", fontSize = 12.sp) }
+                    OutlinedButton(onClick = { setBlock("FIN") }) { Text("FIN", fontSize = 12.sp) }
+                }
             } else if (tab == 2) {
                 Text(serverStatus, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 Text("Publicadas: ${published.size} · IP: ${ip.ifBlank { "—" }}", fontSize = 12.sp)
