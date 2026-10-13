@@ -47,6 +47,13 @@ class SsdpTest {
     }
 
     @Test
+    fun `a reply with bare LF line endings is still understood`() {
+        val raw = SonosFixtures.ssdpResponse().replace("\r\n", "\n")
+
+        assertThat(Ssdp.parseResponse(raw, sourceHost)?.udn).isEqualTo(SonosUdn("RINCON_000E58000001001400"))
+    }
+
+    @Test
     fun `the host comes from the packet source and not from the LOCATION header`() {
         val response = Ssdp.parseResponse(SonosFixtures.ssdpResponse(), "10.9.9.9")
 

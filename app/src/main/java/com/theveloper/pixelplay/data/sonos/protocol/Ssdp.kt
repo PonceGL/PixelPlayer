@@ -32,7 +32,8 @@ internal object Ssdp {
      */
     fun parseResponse(raw: String, sourceHost: String): SsdpResponse? {
         if (raw.length > MAX_RESPONSE_CHARS) return null
-        val lines = raw.split("\r\n")
+        // Header values are trimmed below, so a stray \r from CRLF endings needs no special case.
+        val lines = raw.split('\n')
         if (lines.firstOrNull()?.startsWith(STATUS_OK) != true) return null
         val headers = lines.drop(1).mapNotNull { line ->
             val separator = line.indexOf(':')
