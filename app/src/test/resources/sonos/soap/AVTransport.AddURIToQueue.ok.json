@@ -1,0 +1,16 @@
+{
+ "service": "AVTransport",
+ "action": "AddURIToQueue",
+ "args": {
+  "InstanceID": 0,
+  "EnqueuedURI": "http://192.168.1.20:8765/t/testtok1/formatos/aac_256_44.m4a",
+  "EnqueuedURIMetaData": "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"><item id=\"-1\" parentID=\"-1\" restricted=\"true\"><dc:title>AAC 256 kbps</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class><dc:creator>Prueba formatos</dc:creator><upnp:album>Matriz de formatos</upnp:album><upnp:albumArtURI>http://192.168.1.20:8765/t/testtok1/_art/8b50d0bb846f4fae.jpg</upnp:albumArtURI><res protocolInfo=\"http-get:*:audio/mp4:*\" duration=\"0:00:30\">http://192.168.1.20:8765/t/testtok1/formatos/aac_256_44.m4a</res></item></DIDL-Lite>",
+  "DesiredFirstTrackNumberEnqueued": 0,
+  "EnqueueAsNext": 0
+ },
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 28.4,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:AddURIToQueue xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><EnqueuedURI>http://192.168.1.20:8765/t/testtok1/formatos/aac_256_44.m4a</EnqueuedURI><EnqueuedURIMetaData>&lt;DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"&gt;&lt;item id=\"-1\" parentID=\"-1\" restricted=\"true\"&gt;&lt;dc:title&gt;AAC 256 kbps&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;dc:creator&gt;Prueba formatos&lt;/dc:creator&gt;&lt;upnp:album&gt;Matriz de formatos&lt;/upnp:album&gt;&lt;upnp:albumArtURI&gt;http://192.168.1.20:8765/t/testtok1/_art/8b50d0bb846f4fae.jpg&lt;/upnp:albumArtURI&gt;&lt;res protocolInfo=\"http-get:*:audio/mp4:*\" duration=\"0:00:30\"&gt;http://192.168.1.20:8765/t/testtok1/formatos/aac_256_44.m4a&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</EnqueuedURIMetaData><DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued><EnqueueAsNext>0</EnqueueAsNext></u:AddURIToQueue></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:AddURIToQueueResponse xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><FirstTrackNumberEnqueued>1</FirstTrackNumberEnqueued><NumTracksAdded>1</NumTracksAdded><NewQueueLength>1</NewQueueLength></u:AddURIToQueueResponse></s:Body></s:Envelope>"
+}

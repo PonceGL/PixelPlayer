@@ -1,0 +1,14 @@
+{
+ "service": "AVTransport",
+ "action": "SetAVTransportURI",
+ "args": {
+  "InstanceID": 0,
+  "CurrentURI": "x-rincon-queue:RINCON_000E58000001001400#0",
+  "CurrentURIMetaData": ""
+ },
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 21.4,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><CurrentURI>x-rincon-queue:RINCON_000E58000001001400#0</CurrentURI><CurrentURIMetaData></CurrentURIMetaData></u:SetAVTransportURI></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetAVTransportURIResponse xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"></u:SetAVTransportURIResponse></s:Body></s:Envelope>"
+}
