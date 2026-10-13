@@ -713,7 +713,7 @@ private fun CastSheetContent(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "CONTROLS",
+                        stringResource(R.string.cast_tab_controls).uppercase(),
                         fontFamily = GoogleSansRounded,
                         fontWeight = FontWeight.Bold
                     )
@@ -739,7 +739,7 @@ private fun CastSheetContent(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "DEVICES",
+                        stringResource(R.string.cast_tab_devices).uppercase(),
                         fontFamily = GoogleSansRounded,
                         fontWeight = FontWeight.Bold
                     )
@@ -790,7 +790,7 @@ private fun CastControlsTabContent(
                         text = if (allConnectivityOff) {
                             stringResource(R.string.cast_turn_on_wifi_bt)
                         } else {
-                            "Manage active radios and rescan"
+                            stringResource(R.string.cast_manage_radios_hint)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1250,7 +1250,9 @@ private fun DeviceSectionHeader(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Text(
-                text = if (hasDevices) "Tap to connect" else "No devices yet",
+                text = stringResource(
+                    if (hasDevices) R.string.cast_header_tap_to_connect else R.string.cast_header_no_devices
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
