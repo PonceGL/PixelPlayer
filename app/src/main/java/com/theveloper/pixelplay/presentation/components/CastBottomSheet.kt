@@ -171,6 +171,7 @@ import kotlin.math.roundToInt
 
 /** First Android version where reaching devices on the local network needs its own permission. */
 private const val LOCAL_NETWORK_PERMISSION_SDK = 37
+private const val ACCESS_LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,7 +212,7 @@ fun CastBottomSheet(
                 add(Manifest.permission.ACCESS_FINE_LOCATION)
             }
             if (Build.VERSION.SDK_INT >= LOCAL_NETWORK_PERMISSION_SDK) {
-                add(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                add(ACCESS_LOCAL_NETWORK_PERMISSION)
             }
         }
     }
@@ -252,8 +253,8 @@ fun CastBottomSheet(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         val before = missingPermissions
         missingPermissions = missingCastPermissions(context, requiredPermissions)
-        val localNetworkJustGranted = Manifest.permission.ACCESS_LOCAL_NETWORK in before &&
-            Manifest.permission.ACCESS_LOCAL_NETWORK !in missingPermissions
+        val localNetworkJustGranted = ACCESS_LOCAL_NETWORK_PERMISSION in before &&
+            ACCESS_LOCAL_NETWORK_PERMISSION !in missingPermissions
         if (missingPermissions.isEmpty()) {
             resumeSearch((sonosState as? SonosSearchState.Blocked)?.reason, localNetworkJustGranted)?.let {
                 sonosViewModel.search(permissionJustGranted = it.permissionJustGranted)
@@ -569,7 +570,7 @@ private fun CastPermissionStep(
                     title = stringResource(R.string.cast_perm_location_title),
                     description = stringResource(R.string.cast_perm_location_desc)
                 )
-                if (Manifest.permission.ACCESS_LOCAL_NETWORK in missingPermissions) {
+                if (ACCESS_LOCAL_NETWORK_PERMISSION in missingPermissions) {
                     PermissionHighlight(
                         icon = Icons.Rounded.Speaker,
                         title = stringResource(R.string.sonos_perm_local_network_title),
