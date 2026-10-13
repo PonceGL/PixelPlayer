@@ -230,8 +230,12 @@ object SonosQueue {
      * y vuelve a autorizar esos ids en el servidor. No reconstruye la cola. Así no hace falta persistir la lista.
      */
     fun reattach(context: Context, log: SonosRunLog, ip: String): Boolean {
+        if (com.theveloper.pixelplay.data.service.http.MediaFileHttpServerService.serverAddress == null) {
+            log.info("Reenganche: el servidor no estaba en marcha; lo arranco con el puerto y el token guardados")
+            if (!SonosServer.start(context, log, ip)) return false
+        }
         val address = com.theveloper.pixelplay.data.service.http.MediaFileHttpServerService.serverAddress
-        if (address == null) { log.err("Reenganche: el servidor no está iniciado (pestaña Servidor -> Iniciar servidor)"); return false }
+        if (address == null) { log.err("Reenganche: el servidor no arrancó"); return false }
         val coord = resolveTarget(context, log, ip)?.coordinatorIp ?: ip
         val r = SonosSoap.call(context, log, coord, "ContentDirectory", "Browse", mapOf(
             "ObjectID" to "Q:0", "BrowseFlag" to "BrowseDirectChildren", "Filter" to "*",
@@ -268,6 +272,52 @@ object SonosQueue {
     }
 
     /** Sondea cada [intervalMs] hasta [stop] o [maxSeconds]; escribe `state` al cambiar estado/pista y cada 5 s. */
+    /** SPIKE (G): reengancha la cola del altavoz y, si está detenido, la reanuda donde la vio el teléfono por última vez. */
+    fun reattachAndResume(context: Context, log: SonosRunLog, ip: String): Boolean {
+        if (!reattach(context, log, ip)) return false
+        val coord = resolveTarget(context, log, ip)?.coordinatorIp ?: ip
+        val prefs = context.getSharedPreferences("sonos_spike", Context.MODE_PRIVATE)
+        val savedTrack = prefs.getInt("resume_track", 0)
+        val savedRel = prefs.getFloat("resume_rel", 0f).toDouble()
+        val savedDur = prefs.getFloat("resume_dur", 0f).toDouble()
+        val savedAge = (System.currentTimeMillis() - prefs.getLong("resume_at", 0L)) / 1000.0
+        val s = snapshot(context, log, coord, quiet = true) ?: return false
+        val nr = SonosSoap.call(context, log, coord, "AVTransport", "GetMediaInfo", mapOf("InstanceID" to 0), quiet = true)
+            .values["NrTracks"]?.trim()?.toIntOrNull() ?: 0
+        log.event("resume_plan", "speaker_state" to s.state, "speaker_track" to s.track, "speaker_rel" to s.rel,
+            "queue_tracks" to nr, "saved_track" to savedTrack, "saved_rel" to savedRel, "saved_dur" to savedDur, "saved_age_s" to savedAge)
+        when (s.state) {
+            "PLAYING", "TRANSITIONING" -> { log.info("Reanudar: el altavoz ya está reproduciendo; no toco nada"); return true }
+            "PAUSED_PLAYBACK" -> { log.info("Reanudar: pausado en pista ${s.track} (${s.rel}s); solo Play"); return transport(context, log, ip, "Play") }
+        }
+        if (savedTrack < 1 || nr < 1) { log.warn("Reanudar: no hay posición guardada; solo Play (empieza donde diga el altavoz)"); return transport(context, log, ip, "Play") }
+        var track = savedTrack
+        var rel = savedRel
+        val finished = savedDur > 0 && savedRel + savedAge >= savedDur - 3
+        if (finished) { track = if (savedTrack + 1 > nr) 1 else savedTrack + 1; rel = 0.0 }
+        if (track > nr) track = 1
+        log.event("resume_target", "track" to track, "rel" to rel, "track_presumed_finished" to finished)
+        val sk = SonosSoap.call(context, log, coord, "AVTransport", "Seek",
+            mapOf("InstanceID" to 0, "Unit" to "TRACK_NR", "Target" to track.toString()), write = true)
+        if (!sk.ok) { log.warn("Reanudar: Seek TRACK_NR falló (${sk.errorCode})"); return false }
+        transport(context, log, ip, "Play")
+        var cur: Snapshot? = null
+        for (i in 0 until 16) {
+            Thread.sleep(500)
+            cur = snapshot(context, log, coord, quiet = true)
+            if (cur?.state == "PLAYING" && cur.track == track) break
+        }
+        var seekRel: Boolean? = null
+        if (rel > 3) {
+            val r = SonosSoap.call(context, log, coord, "AVTransport", "Seek",
+                mapOf("InstanceID" to 0, "Unit" to "REL_TIME", "Target" to (fmtDuration((rel * 1000).toLong()) ?: "0:00:00")), write = true)
+            seekRel = r.ok
+        }
+        val after = snapshot(context, log, coord, quiet = true)
+        log.event("resume_done", "track_now" to after?.track, "rel_now" to after?.rel, "state_now" to after?.state, "seek_rel_ok" to seekRel)
+        return after?.state == "PLAYING"
+    }
+
     fun monitor(context: Context, ip: String, stop: AtomicBoolean, maxSeconds: Int = 1800, intervalMs: Long = 1000) {
         val first = SonosSpike.current(context)
         val coord = resolveTarget(context, first, ip)?.coordinatorIp ?: ip
@@ -289,6 +339,21 @@ object SonosQueue {
                 val power = powerInfo(context)
                 if (changed) { logSnapshot(log, s, "change", power); lastTick = now }
                 else if (now - lastTick >= 5000) { logSnapshot(log, s, "tick", power); lastTick = now }
+                val pv = last
+                if (pv != null && pv.state == "PLAYING" && s.state == "PLAYING" && pv.track == s.track &&
+                    pv.rel != null && s.rel != null && s.rel < pv.rel - 3 &&
+                    now - SonosEvents.lastCmdAt > 6000 &&
+                    (!SonosEvents.isRunning() || now - SonosEvents.lastAvChangeAt > 8000)
+                ) {
+                    log.event("ev_detect", "what" to "loop_suspected", "track" to s.track, "title" to s.title,
+                        "rel_before" to pv.rel, "rel_now" to s.rel, "dur" to s.dur, "play_mode" to SonosEvents.playMode)
+                }
+                if (s.track != null && s.state in setOf("PLAYING", "PAUSED_PLAYBACK", "TRANSITIONING")) {
+                    context.getSharedPreferences("sonos_spike", Context.MODE_PRIVATE).edit()
+                        .putInt("resume_track", s.track).putFloat("resume_rel", (s.rel ?: 0.0).toFloat())
+                        .putFloat("resume_dur", (s.dur ?: 0.0).toFloat()).putString("resume_state", s.state)
+                        .putString("resume_title", s.title).putLong("resume_at", System.currentTimeMillis()).apply()
+                }
                 last = s
             }
             Thread.sleep(intervalMs)

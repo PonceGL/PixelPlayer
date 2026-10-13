@@ -106,6 +106,8 @@ private fun SonosDebugScreen() {
     var fieldWifi by remember { mutableStateOf(prefs.getString("field_wifi", "none") ?: "none") }
     var fieldWake by remember { mutableStateOf(prefs.getBoolean("field_wake", false)) }
     var fieldStatus by remember { mutableStateOf("") }
+    var evTimeout by remember { mutableStateOf(prefs.getInt("ev_timeout", 120)) }
+    var evStatus by remember { mutableStateOf("") }
     var blockName by remember { mutableStateOf(prefs.getString("block_name", "") ?: "") }
     var blockStart by remember { mutableStateOf(prefs.getLong("block_start", 0L)) }
     var blockNow by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -114,6 +116,7 @@ private fun SonosDebugScreen() {
             serverStatus = SonosServer.statusLine()
             fieldStatus = SonosField.statusLine()
             blockNow = System.currentTimeMillis()
+            evStatus = SonosEvents.statusLine()
             delay(1000)
         }
     }
@@ -208,6 +211,20 @@ private fun SonosDebugScreen() {
                     run.event("mark", "msg" to note)
                     note = ""
                 }) { Text("Marcar evento") }
+                Text("Eventos UPnP (fase E): suscripciones al altavoz", fontSize = 12.sp)
+                Text(evStatus, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(60, 120, 300).forEach { t ->
+                        val pick = { evTimeout = t; prefs.edit().putInt("ev_timeout", t).apply() }
+                        if (t == evTimeout) Button(onClick = pick) { Text("${t}s", fontSize = 11.sp) }
+                        else OutlinedButton(onClick = pick) { Text("${t}s", fontSize = 11.sp) }
+                    }
+                }
+                if (!SonosEvents.isRunning()) {
+                    Button(onClick = { SonosEvents.start(context, ip, evTimeout) }) { Text("Iniciar eventos") }
+                } else {
+                    Button(onClick = { SonosEvents.stop(context) }) { Text("Detener eventos") }
+                }
                 Text("Bloques de la prueba F-4 (cada botón escribe un evento 'block' en el log):", fontSize = 12.sp)
                 val el = if (blockName.isNotEmpty() && blockStart > 0) (blockNow - blockStart) / 1000 else 0L
                 Text(
@@ -259,6 +276,9 @@ private fun SonosDebugScreen() {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(enabled = ready, onClick = { task("Reenganchar") { r -> SonosQueue.reattach(context, r, ip) } }) { Text("Reenganchar cola del altavoz") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(enabled = ready, onClick = { task("Reenganchar y reanudar") { r -> SonosQueue.reattachAndResume(context, r, ip) } }) { Text("Reenganchar y reanudar") }
                     OutlinedButton(enabled = ready, onClick = { task("Vol -2") { r -> SonosLab.nudgeVolume(context, r, ip, -2) } }) { Text("Vol −2") }
                     OutlinedButton(enabled = ready, onClick = { task("Vol +2") { r -> SonosLab.nudgeVolume(context, r, ip, +2) } }) { Text("Vol +2") }
                 }

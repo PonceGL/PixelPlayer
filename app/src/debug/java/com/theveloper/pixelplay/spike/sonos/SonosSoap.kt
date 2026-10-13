@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.spike.sonos
 
 import android.content.Context
+import android.os.SystemClock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -46,6 +47,7 @@ object SonosSoap {
         quiet: Boolean = false,
     ): SoapResult {
         require(write || action.startsWith("Get") || action == "Browse") { "$action no es de solo lectura; pasa write=true de forma explícita" }
+        if (write) SonosEvents.lastCmdAt = SystemClock.elapsedRealtime()
         val svc = SonosProtocol.SERVICES.getValue(service)
         val body = SonosProtocol.buildEnvelope(svc.type, action, args)
         val meta = linkedMapOf<String, Any?>(
