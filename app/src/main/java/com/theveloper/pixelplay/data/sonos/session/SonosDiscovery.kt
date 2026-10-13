@@ -22,6 +22,10 @@ internal sealed interface DiscoveryUpdate {
     data class Blocked(val failure: SonosFailure) : DiscoveryUpdate
 }
 
+internal fun interface SpeakerDiscovery {
+    fun discover(): Flow<DiscoveryUpdate>
+}
+
 /**
  * Finds the speakers on the network and lists them as groups. Speakers answering the search are
  * asked for the household topology once per household; the flow completes when the search ends,
@@ -32,7 +36,7 @@ internal class SonosDiscovery(
     private val transport: SonosTransport,
     private val topologyTimeoutMs: Long = 2_000,
     private val overallTimeoutMs: Long = 6_000,
-) {
+) : SpeakerDiscovery {
 
     private sealed interface Step {
         data class Search(val event: SsdpEvent) : Step
@@ -48,7 +52,7 @@ internal class SonosDiscovery(
         var devices: List<SonosDevice> = emptyList()
     }
 
-    fun discover(): Flow<DiscoveryUpdate> = channelFlow {
+    override fun discover(): Flow<DiscoveryUpdate> = channelFlow {
         withTimeoutOrNull(overallTimeoutMs) {
             coroutineScope {
                 val steps = Channel<Step>(Channel.UNLIMITED)
