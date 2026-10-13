@@ -41,8 +41,19 @@ class MediaServerLease @Inject constructor(
         if (owners.isEmpty()) controller.stop()
     }
 
-    /** Stops the server so it can be started again on another network; every owner keeps its claim. */
-    fun stopForRestart() = synchronized(lock) { controller.stop() }
+    /** Registers [owner] on a server that is already running, without asking it to start. */
+    fun claim(owner: ServerOwner) = synchronized(lock) { owners += owner }
+
+    /**
+     * Stops the server so [requestedBy] can start it again on another network. Every owner keeps its
+     * claim. Returns false, doing nothing, when another owner is using the server right now: a restart
+     * would cut its open transfers.
+     */
+    fun stopForRestart(requestedBy: ServerOwner): Boolean = synchronized(lock) {
+        if ((owners - requestedBy).isNotEmpty()) return@synchronized false
+        controller.stop()
+        true
+    }
 
     fun isHeldBy(owner: ServerOwner): Boolean = synchronized(lock) { owner in owners }
 }

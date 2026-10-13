@@ -96,22 +96,44 @@ class MediaServerLeaseTest {
     }
 
     @Test
+    fun `claiming joins a running server without starting it and keeps it alive`() {
+        lease.acquire(ServerOwner.SONOS)
+
+        lease.claim(ServerOwner.CAST)
+        lease.release(ServerOwner.SONOS)
+
+        assertThat(controller.calls).containsExactly("start(null)")
+        assertThat(lease.isHeldBy(ServerOwner.CAST)).isTrue()
+    }
+
+    @Test
+    fun `a restart is skipped while another owner depends on the server`() {
+        lease.acquire(ServerOwner.SONOS)
+        lease.claim(ServerOwner.CAST)
+
+        val restarted = lease.stopForRestart(requestedBy = ServerOwner.CAST)
+
+        assertThat(restarted).isFalse()
+        assertThat(controller.calls).containsExactly("start(null)")
+    }
+
+    @Test
+    fun `a restart goes ahead when only the requester holds the server`() {
+        lease.acquire(ServerOwner.CAST)
+
+        val restarted = lease.stopForRestart(requestedBy = ServerOwner.CAST)
+
+        assertThat(restarted).isTrue()
+        assertThat(controller.calls).containsExactly("start(null)", "stop").inOrder()
+    }
+
+    @Test
     fun `releasing an owner that is not held does not stop a server held by another`() {
         lease.acquire(ServerOwner.SONOS)
 
         lease.release(ServerOwner.CAST)
 
         assertThat(controller.calls).containsExactly("start(null)")
-    }
-
-    @Test
-    fun `stopping for a restart stops the server and keeps the owners`() {
-        lease.acquire(ServerOwner.CAST, "192.168.1.30")
-
-        lease.stopForRestart()
-
-        assertThat(controller.calls).containsExactly("start(192.168.1.30)", "stop").inOrder()
-        assertThat(lease.isHeldBy(ServerOwner.CAST)).isTrue()
     }
 
     @Test

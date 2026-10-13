@@ -1209,7 +1209,10 @@ class CastTransferStateHolder @Inject constructor(
     }
 
     fun primeHttpServerStart() {
-        if (MediaFileHttpServerService.isServerRunning || MediaFileHttpServerService.isServerStarting) return
+        if (MediaFileHttpServerService.isServerRunning || MediaFileHttpServerService.isServerStarting) {
+            mediaServerLease.claim(ServerOwner.CAST)
+            return
+        }
 
         MediaFileHttpServerService.lastFailureReason = null
         MediaFileHttpServerService.lastFailureMessage = null
@@ -1232,6 +1235,7 @@ class CastTransferStateHolder @Inject constructor(
         val runningServerAddress = MediaFileHttpServerService.serverAddress
         if (MediaFileHttpServerService.isServerRunning && runningServerAddress != null) {
             if (isServerAddressCompatibleWithCastDevice(runningServerAddress, castDeviceIpHint)) {
+                mediaServerLease.claim(ServerOwner.CAST)
                 return@withLock true
             }
             Timber.tag(CAST_LOG_TAG).w(
@@ -1240,12 +1244,13 @@ class CastTransferStateHolder @Inject constructor(
                 castDeviceIpHint,
                 MediaFileHttpServerService.serverPrefixLength
             )
-            mediaServerLease.stopForRestart()
-            for (attempt in 0 until 30) {
-                if (!MediaFileHttpServerService.isServerRunning && !MediaFileHttpServerService.isServerStarting) {
-                    break
+            if (mediaServerLease.stopForRestart(ServerOwner.CAST)) {
+                for (attempt in 0 until 30) {
+                    if (!MediaFileHttpServerService.isServerRunning && !MediaFileHttpServerService.isServerStarting) {
+                        break
+                    }
+                    delay(100)
                 }
-                delay(100)
             }
         }
 
