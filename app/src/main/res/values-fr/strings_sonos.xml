@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Gérer les connexions actives et relancer la recherche</string>
+    <string name="cast_header_tap_to_connect">Appuyez pour vous connecter</string>
+    <string name="cast_header_no_devices">Aucun appareil pour le moment</string>
+    <string name="sonos_empty_title">Aucun appareil trouvé</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d pièce</item>
+        <item quantity="many">%d pièces</item>
+        <item quantity="other">%d pièces</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Connectez-vous au Wi-Fi pour trouver des enceintes</string>
+    <string name="sonos_no_wifi_action">Paramètres Wi-Fi</string>
+    <string name="sonos_blocked_local_network_title">L\'accès au réseau local est désactivé</string>
+    <string name="sonos_blocked_local_network_body">Autorisez l\'accès aux appareils de votre réseau pour que PixelPlayer trouve vos enceintes Sonos.</string>
+    <string name="sonos_blocked_local_network_action">Ouvrir les paramètres</string>
+    <string name="sonos_blocked_pending">Application de l\'autorisation…</string>
+    <string name="sonos_unavailable_title">Impossible de rechercher des enceintes</string>
+    <string name="sonos_unavailable_action">Réessayer</string>
+    <string name="sonos_perm_local_network_title">Réseau local</string>
+    <string name="sonos_perm_local_network_desc">Permet à PixelPlayer de trouver et de contrôler les enceintes Sonos de votre réseau Wi-Fi.</string>
+</resources>

@@ -1334,7 +1334,7 @@ private fun DeviceSectionHeader(
             Text(
                 text = stringResource(
                     when (header) {
-                        DevicesHeader.SEARCHING -> R.string.cast_header_searching
+                        DevicesHeader.SEARCHING -> R.string.cast_searching
                         DevicesHeader.TAP_TO_CONNECT -> R.string.cast_header_tap_to_connect
                         DevicesHeader.NO_DEVICES -> R.string.cast_header_no_devices
                     }
@@ -1353,7 +1353,7 @@ private fun DeviceSectionHeader(
             modifier = Modifier.clip(RoundedCornerShape(16.dp))
         ) {
             if (isSearching) {
-                val searchingLabel = stringResource(R.string.cast_cd_searching)
+                val searchingLabel = stringResource(R.string.cast_searching)
                 CircularProgressIndicator(
                     modifier = Modifier
                         .size(20.dp)

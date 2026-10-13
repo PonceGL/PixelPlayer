@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Administrer aktive tilkoblinger og søk på nytt</string>
+    <string name="cast_header_tap_to_connect">Trykk for å koble til</string>
+    <string name="cast_header_no_devices">Ingen enheter ennå</string>
+    <string name="sonos_empty_title">Fant ingen enheter</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d rom</item>
+        <item quantity="other">%d rom</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Koble til Wi-Fi for å finne høyttalere</string>
+    <string name="sonos_no_wifi_action">Wi-Fi-innstillinger</string>
+    <string name="sonos_blocked_local_network_title">Tilgang til lokalt nettverk er av</string>
+    <string name="sonos_blocked_local_network_body">Gi tilgang til enheter på nettverket ditt slik at PixelPlayer kan finne Sonos-høyttalerne dine.</string>
+    <string name="sonos_blocked_local_network_action">Åpne innstillinger</string>
+    <string name="sonos_blocked_pending">Bruker tillatelsen…</string>
+    <string name="sonos_unavailable_title">Kunne ikke søke etter høyttalere</string>
+    <string name="sonos_unavailable_action">Prøv igjen</string>
+    <string name="sonos_perm_local_network_title">Lokalt nettverk</string>
+    <string name="sonos_perm_local_network_desc">Lar PixelPlayer finne og styre Sonos-høyttalere på Wi-Fi-nettverket ditt.</string>
+</resources>

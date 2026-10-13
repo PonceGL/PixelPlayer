@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Gestiona las conexiones activas y vuelve a buscar</string>
+    <string name="cast_header_tap_to_connect">Toca para conectar</string>
+    <string name="cast_header_no_devices">Aún no hay dispositivos</string>
+    <string name="sonos_empty_title">No se encontraron dispositivos</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d habitación</item>
+        <item quantity="many">%d habitaciones</item>
+        <item quantity="other">%d habitaciones</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Conéctate a una red Wi‑Fi para encontrar altavoces</string>
+    <string name="sonos_no_wifi_action">Ajustes de Wi‑Fi</string>
+    <string name="sonos_blocked_local_network_title">El acceso a la red local está desactivado</string>
+    <string name="sonos_blocked_local_network_body">Permite el acceso a los dispositivos de tu red para que PixelPlayer encuentre tus altavoces Sonos.</string>
+    <string name="sonos_blocked_local_network_action">Abrir ajustes</string>
+    <string name="sonos_blocked_pending">Aplicando el permiso…</string>
+    <string name="sonos_unavailable_title">No se pudo buscar altavoces</string>
+    <string name="sonos_unavailable_action">Reintentar</string>
+    <string name="sonos_perm_local_network_title">Red local</string>
+    <string name="sonos_perm_local_network_desc">Permite que PixelPlayer encuentre y se comunique con los altavoces Sonos de tu red Wi‑Fi.</string>
+</resources>

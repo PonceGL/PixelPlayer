@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">管理已启用的无线连接并重新扫描</string>
+    <string name="cast_header_tap_to_connect">点按即可连接</string>
+    <string name="cast_header_no_devices">暂无设备</string>
+    <string name="sonos_empty_title">未找到设备</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="other">%d 个房间</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">连接 Wi-Fi 以查找扬声器</string>
+    <string name="sonos_no_wifi_action">Wi-Fi 设置</string>
+    <string name="sonos_blocked_local_network_title">本地网络访问已关闭</string>
+    <string name="sonos_blocked_local_network_body">请允许访问网络中的设备，以便 PixelPlayer 找到您的 Sonos 扬声器。</string>
+    <string name="sonos_blocked_local_network_action">打开设置</string>
+    <string name="sonos_blocked_pending">正在应用权限…</string>
+    <string name="sonos_unavailable_title">无法搜索扬声器</string>
+    <string name="sonos_unavailable_action">重试</string>
+    <string name="sonos_perm_local_network_title">本地网络</string>
+    <string name="sonos_perm_local_network_desc">让 PixelPlayer 能够在您的 Wi-Fi 网络中发现并控制 Sonos 扬声器。</string>
+</resources>

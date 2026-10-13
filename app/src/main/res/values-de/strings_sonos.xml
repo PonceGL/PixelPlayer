@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Aktive Funkverbindungen verwalten und neu suchen</string>
+    <string name="cast_header_tap_to_connect">Zum Verbinden tippen</string>
+    <string name="cast_header_no_devices">Noch keine Geräte</string>
+    <string name="sonos_empty_title">Keine Geräte gefunden</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d Raum</item>
+        <item quantity="other">%d Räume</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Mit dem WLAN verbinden, um Lautsprecher zu finden</string>
+    <string name="sonos_no_wifi_action">WLAN-Einstellungen</string>
+    <string name="sonos_blocked_local_network_title">Zugriff auf das lokale Netzwerk ist aus</string>
+    <string name="sonos_blocked_local_network_body">Zugriff auf Geräte in deinem Netzwerk erlauben, damit PixelPlayer deine Sonos-Lautsprecher finden kann.</string>
+    <string name="sonos_blocked_local_network_action">Einstellungen öffnen</string>
+    <string name="sonos_blocked_pending">Berechtigung wird angewendet…</string>
+    <string name="sonos_unavailable_title">Lautsprechersuche nicht möglich</string>
+    <string name="sonos_unavailable_action">Erneut versuchen</string>
+    <string name="sonos_perm_local_network_title">Lokales Netzwerk</string>
+    <string name="sonos_perm_local_network_desc">Damit PixelPlayer Sonos-Lautsprecher in deinem WLAN finden und steuern kann.</string>
+</resources>

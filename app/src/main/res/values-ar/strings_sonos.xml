@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">إدارة الاتصالات النشطة وإعادة البحث</string>
+    <string name="cast_header_tap_to_connect">المس للاتصال</string>
+    <string name="cast_header_no_devices">لا توجد أجهزة بعد</string>
+    <string name="sonos_empty_title">لم يتم العثور على أجهزة</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="zero">لا توجد غرف</item>
+        <item quantity="one">غرفة واحدة</item>
+        <item quantity="two">غرفتان</item>
+        <item quantity="few">%d غرف</item>
+        <item quantity="many">%d غرفة</item>
+        <item quantity="other">%d غرفة</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">اتصل بشبكة Wi‑Fi للعثور على مكبرات الصوت</string>
+    <string name="sonos_no_wifi_action">إعدادات Wi‑Fi</string>
+    <string name="sonos_blocked_local_network_title">الوصول إلى الشبكة المحلية متوقف</string>
+    <string name="sonos_blocked_local_network_body">اسمح بالوصول إلى الأجهزة في شبكتك ليتمكن PixelPlayer من العثور على مكبرات صوت Sonos.</string>
+    <string name="sonos_blocked_local_network_action">فتح الإعدادات</string>
+    <string name="sonos_blocked_pending">جارٍ تطبيق الإذن…</string>
+    <string name="sonos_unavailable_title">تعذّر البحث عن مكبرات الصوت</string>
+    <string name="sonos_unavailable_action">أعد المحاولة</string>
+    <string name="sonos_perm_local_network_title">الشبكة المحلية</string>
+    <string name="sonos_perm_local_network_desc">يتيح لـ PixelPlayer العثور على مكبرات صوت Sonos في شبكة Wi‑Fi والتحكم بها.</string>
+</resources>

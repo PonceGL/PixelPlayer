@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="cast_manage_radios_hint">Manage active radios and rescan</string>
-    <string name="cast_header_searching">Searching…</string>
     <string name="cast_header_tap_to_connect">Tap to connect</string>
     <string name="cast_header_no_devices">No devices yet</string>
-    <string name="cast_cd_searching">Searching for devices</string>
     <string name="sonos_empty_title">No devices found</string>
     <plurals name="sonos_rooms_count">
         <item quantity="one">%d room</item>
