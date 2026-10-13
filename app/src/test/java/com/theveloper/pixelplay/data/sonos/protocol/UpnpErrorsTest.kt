@@ -17,9 +17,13 @@ class UpnpErrorsTest {
     }
 
     @Test
-    fun `701 and 800 mean the speaker is not the coordinator`() {
-        assertThat(UpnpErrors.classify("Play", 701)).isEqualTo(UpnpErrorKind.NotCoordinator)
+    fun `800 means the speaker is not the coordinator`() {
         assertThat(UpnpErrors.classify("Play", 800)).isEqualTo(UpnpErrorKind.NotCoordinator)
+    }
+
+    @Test
+    fun `701 means the action is not allowed in the current state`() {
+        assertThat(UpnpErrors.classify("Pause", 701)).isEqualTo(UpnpErrorKind.TransitionNotAvailable)
     }
 
     @Test

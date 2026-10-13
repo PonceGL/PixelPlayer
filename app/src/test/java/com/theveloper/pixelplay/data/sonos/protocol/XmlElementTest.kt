@@ -52,4 +52,27 @@ class XmlElementTest {
 
         assertThat(track?.text).isEqualTo("1")
     }
+
+    @Test
+    fun `absurdly deep documents are rejected instead of overflowing the stack`() {
+        val depth = 100_000
+        val xml = "<a>".repeat(depth) + "</a>".repeat(depth)
+
+        assertThat(SafeXml.parse(xml)).isNull()
+    }
+
+    @Test
+    fun `documents nested as deep as real speaker payloads still parse`() {
+        val depth = 40
+        val xml = "<a>".repeat(depth) + "x" + "</a>".repeat(depth)
+
+        assertThat(SafeXml.parse(xml)).isNotNull()
+    }
+
+    @Test
+    fun `oversized documents are rejected before parsing`() {
+        val xml = "<a>" + "x".repeat(SafeXml.MAX_DOCUMENT_CHARS) + "</a>"
+
+        assertThat(SafeXml.parse(xml)).isNull()
+    }
 }

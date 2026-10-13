@@ -11,4 +11,4 @@ sends and not against hand-written XML.
   are the initial full-state events (`SEQ 0`); the others are partial deltas.
 
 Sanitized: LAN addresses, the speaker UUID and the file-server tokens were
-replaced with documentation-range values.
+replaced with placeholder values from private address ranges.

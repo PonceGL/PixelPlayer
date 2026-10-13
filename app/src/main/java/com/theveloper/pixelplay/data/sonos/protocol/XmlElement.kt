@@ -28,14 +28,19 @@ internal data class XmlElement(
 
 /**
  * Parses untrusted XML coming from the network. Documents declaring a DOCTYPE are rejected so
- * external entities can never be resolved.
+ * external entities can never be resolved, and size and nesting are capped so a hostile or broken
+ * device cannot exhaust memory or the stack.
  */
 internal object SafeXml {
 
     private const val DOCTYPE_MARKER = "<!DOCTYPE"
+    const val MAX_DOCUMENT_CHARS = 8 * 1024 * 1024
+
+    /** Real speaker documents (SOAP, events, DIDL, topology) nest fewer than ten levels. */
+    private const val MAX_DEPTH = 64
 
     fun parse(xml: String): XmlElement? {
-        if (xml.isBlank() || xml.contains(DOCTYPE_MARKER)) return null
+        if (xml.isBlank() || xml.length > MAX_DOCUMENT_CHARS || xml.contains(DOCTYPE_MARKER)) return null
         val handler = TreeBuilder()
         return try {
             val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = false }
@@ -64,6 +69,7 @@ internal object SafeXml {
         val root: XmlElement? get() = rootNode?.freeze()
 
         override fun startElement(uri: String?, localName: String?, qName: String, attributes: Attributes) {
+            if (stack.size >= MAX_DEPTH) throw SAXException("XML nested deeper than $MAX_DEPTH levels")
             val attrs = LinkedHashMap<String, String>()
             for (i in 0 until attributes.length) {
                 val attrName = attributes.getQName(i)

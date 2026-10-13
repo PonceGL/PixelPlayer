@@ -18,8 +18,10 @@ internal object SonosStateReducer {
             currentTrackNumber = change.currentTrackNumber ?: state.currentTrackNumber,
             numberOfTracks = change.numberOfTracks ?: state.numberOfTracks,
             currentTrackUri = if (uriReported) uri else state.currentTrackUri,
+            // The duration belongs to one uri, like the metadata below.
             currentTrackDurationMs = when {
                 trackCleared -> null
+                uriChanged -> change.currentTrackDurationMs
                 else -> change.currentTrackDurationMs ?: state.currentTrackDurationMs
             },
             // Metadata belongs to one uri: a new uri without new metadata must not keep the old one.

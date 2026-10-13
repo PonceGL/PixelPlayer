@@ -133,4 +133,29 @@ class SonosStateReducerTest {
         assertThat(none.nextTrackUri).isNull()
         assertThat(untouched.nextTrackUri).isEqualTo("http://h/b.flac")
     }
+
+    @Test
+    fun `the duration of the previous track is dropped when the uri changes without a new one`() {
+        val next = SonosStateReducer.reduce(playing, AvTransportChange(currentTrackUri = "http://h/stream"))
+
+        assertThat(next.currentTrackUri).isEqualTo("http://h/stream")
+        assertThat(next.currentTrackDurationMs).isNull()
+    }
+
+    @Test
+    fun `a new uri brings its own duration`() {
+        val next = SonosStateReducer.reduce(
+            playing,
+            AvTransportChange(currentTrackUri = "http://h/z.flac", currentTrackDurationMs = 90_000L),
+        )
+
+        assertThat(next.currentTrackDurationMs).isEqualTo(90_000L)
+    }
+
+    @Test
+    fun `the duration is kept while the same track keeps playing`() {
+        val next = SonosStateReducer.reduce(playing, AvTransportChange(currentTrackUri = "http://h/a.flac"))
+
+        assertThat(next.currentTrackDurationMs).isEqualTo(180_000L)
+    }
 }
