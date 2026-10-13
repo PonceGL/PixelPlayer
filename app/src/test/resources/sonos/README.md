@@ -9,6 +9,7 @@ sends and not against hand-written XML.
   (`request_body`, `response_body`, `http_status`, `error_code`).
 - `notify/*.xml`: raw NOTIFY bodies. `AVTransport_0` and `RenderingControl_0`
   are the initial full-state events (`SEQ 0`); the others are partial deltas.
+- `ssdp/zoneplayer_response.txt`: raw reply to the SSDP `M-SEARCH` (CRLF line endings).
 
-Sanitized: LAN addresses, the speaker UUID and the file-server tokens were
+Sanitized: LAN addresses, the speaker UUID, the household id and the file-server tokens were
 replaced with placeholder values from private address ranges.
