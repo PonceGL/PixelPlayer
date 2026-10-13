@@ -188,6 +188,7 @@ class MediaFileHttpServerService : Service() {
         var lastFailureMessage: String? = null
         @Volatile
         private var castAccessPolicy: CastAccessPolicy = CastAccessPolicy.EMPTY
+        private const val DEFAULT_SERVER_PORT = 8080
         private const val SERVER_START_PORT_RETRY_LIMIT = 3
         private const val ISO_BMFF_CODEC_PROBE_BYTES = 1024 * 1024
         private const val TRANSCODE_RANGE_WAIT_TIMEOUT_MINUTES = 10L
@@ -300,12 +301,20 @@ class MediaFileHttpServerService : Service() {
                 // Ensure we are in foreground immediately if started this way.
                 startForegroundService()
                 startServer()
+                rememberPortForSonos()
             }
             else -> {
                 Timber.w("Ignoring unknown media server action: %s", intent.action)
             }
         }
         return START_STICKY
+    }
+
+    /** Remembers the port in use when Sonos depends on the server, so queued speaker URLs survive a restart. */
+    private fun rememberPortForSonos() {
+        if (!mediaServerLease.isHeldBy(ServerOwner.SONOS)) return
+        val port = serverAddress?.substringAfterLast(':')?.toIntOrNull() ?: return
+        if (isServerRunning) sonosIdentity.rememberPort(port)
     }
 
     private fun startForegroundService() {
@@ -383,14 +392,16 @@ class MediaFileHttpServerService : Service() {
                 }
                 // The port is only remembered for Sonos: the URLs queued on a speaker must survive a
                 // restart. Cast keeps asking for 8080 as before.
-                val sonosHoldsServer = mediaServerLease.isHeldBy(ServerOwner.SONOS)
-                val serverPort = resolveServerPort(
-                    preferredPort = if (sonosHoldsServer) sonosIdentity.current().port ?: 8080 else 8080
-                )
-                if (sonosHoldsServer) sonosIdentity.rememberPort(serverPort)
-                if (serverPort != 8080) {
+                val preferredPort = if (mediaServerLease.isHeldBy(ServerOwner.SONOS)) {
+                    sonosIdentity.current().port ?: DEFAULT_SERVER_PORT
+                } else {
+                    DEFAULT_SERVER_PORT
+                }
+                val serverPort = resolveServerPort(preferredPort = preferredPort)
+                if (serverPort != preferredPort) {
                     Timber.tag(castHttpLogTag).w(
-                        "Port 8080 is already in use. Falling back to port %d for Cast HTTP server.",
+                        "Port %d is already in use. Falling back to port %d for the media HTTP server.",
+                        preferredPort,
                         serverPort
                     )
                 }
@@ -844,6 +855,7 @@ class MediaFileHttpServerService : Service() {
                         }
                 }.start(wait = false)
                 isServerRunning = true
+                rememberPortForSonos()
             } catch (e: Exception) {
                 isServerRunning = false
                 serverAddress = null
@@ -892,9 +904,12 @@ class MediaFileHttpServerService : Service() {
                 } catch (e: IllegalStateException) {
                     throw IOException("Song file unavailable", e)
                 }
-                if (offset > 0 && !skipFully(stream, offset)) {
-                    stream.close()
-                    throw IOException("Offset past the end of the file")
+                var ready = false
+                try {
+                    if (offset > 0 && !skipFully(stream, offset)) throw IOException("Offset past the end of the file")
+                    ready = true
+                } finally {
+                    if (!ready) stream.close()
                 }
                 stream
             }

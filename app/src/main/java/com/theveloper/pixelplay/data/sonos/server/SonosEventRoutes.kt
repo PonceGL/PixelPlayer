@@ -3,7 +3,6 @@ package com.theveloper.pixelplay.data.sonos.server
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.plugins.origin
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -44,7 +43,7 @@ private suspend fun ApplicationCall.receiveNotification(
 
     if (request.local.method != NOTIFY) return reply(HttpStatusCode.MethodNotAllowed)
     val registration = router.find(parameters["key"]) ?: return reply(HttpStatusCode.NotFound)
-    if (!sameHost(request.origin.remoteAddress, registration.expectedHost)) return reply(HttpStatusCode.Forbidden)
+    if (!sameHost(request.local.remoteAddress, registration.expectedHost)) return reply(HttpStatusCode.Forbidden)
 
     val declared = request.headers["Content-Length"]?.toLongOrNull()
     if (declared != null && declared > maxBodyBytes) return reply(HttpStatusCode.PayloadTooLarge)
@@ -63,8 +62,9 @@ private suspend fun ApplicationCall.receiveNotification(
         registration.sink.onNotification(notification)
     } catch (e: CancellationException) {
         throw e
-    } catch (_: RuntimeException) {
-        // A faulty consumer must not take the media server down with it.
+    } catch (e: RuntimeException) {
+        // A faulty consumer must not take the media server down with it. Only the class is logged.
+        log("NOTIFY /sonos/events/* sink failed: ${e.javaClass.simpleName}")
         return reply(HttpStatusCode.InternalServerError)
     }
     reply(HttpStatusCode.OK)

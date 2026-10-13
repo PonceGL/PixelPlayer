@@ -35,17 +35,30 @@ internal class SonosServerIdentityProvider(
         if (previous != null && previous != port) portChanged = true
         val updated = current().copy(port = port)
         identity = updated
-        store.save(updated.token, updated.port)
+        persist(updated)
+    }
+
+    private fun persist(identity: SonosServerIdentity) {
+        try {
+            store.save(identity.token, identity.port)
+        } catch (_: RuntimeException) {
+            // The token then lives only in memory for this run.
+        }
     }
 
     private fun load(): SonosServerIdentity {
-        val stored = store.load()
+        // Storage is best effort: a store that fails must never keep the server from starting.
+        val stored = try {
+            store.load()
+        } catch (_: RuntimeException) {
+            null
+        }
         val token = stored?.token?.takeIf(TOKEN_FORMAT::matches)
         if (token != null) {
             return SonosServerIdentity(token, stored.port?.takeIf { it in VALID_PORTS })
         }
         val created = SonosServerIdentity(newToken(), port = null)
-        store.save(created.token, created.port)
+        persist(created)
         return created
     }
 

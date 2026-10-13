@@ -72,7 +72,7 @@ private suspend fun ApplicationCall.serveAudio(
 ) {
     val songId = rejectUnlessAllowed(access, log) ?: return
     val payload = try {
-        source.audio(songId)
+        withContext(io) { source.audio(songId) }
     } catch (e: IOException) {
         finish(HttpStatusCode.InternalServerError, log)
         return
@@ -113,7 +113,7 @@ private suspend fun ApplicationCall.serveArt(
 ) {
     val songId = rejectUnlessAllowed(access, log) ?: return
     val payload = try {
-        source.art(songId)
+        withContext(io) { source.art(songId) }
     } catch (e: IOException) {
         finish(HttpStatusCode.InternalServerError, log)
         return
@@ -149,17 +149,25 @@ private suspend fun ApplicationCall.respondBody(
 
         override suspend fun writeTo(channel: ByteWriteChannel) {
             val stream = try {
-                open()
-            } catch (_: IOException) {
-                return // The file vanished after the headers were decided; closing the response is all that is left.
+                withContext(io) { open() }
+            } catch (e: IOException) {
+                // The file vanished after the headers were decided; closing the response is all that is left.
+                log("${request.httpMethod.value} ${request.path()} file unavailable: ${e.javaClass.simpleName}")
+                return
             }
-            stream.use { copy(it, channel, length ?: Long.MAX_VALUE, io) }
+            stream.use { copy(it, channel, length ?: Long.MAX_VALUE, io, log) }
         }
     })
 }
 
 /** Copies up to [limit] bytes. A speaker closing the connection halfway ends the copy quietly. */
-private suspend fun copy(stream: InputStream, channel: ByteWriteChannel, limit: Long, io: CoroutineDispatcher) {
+private suspend fun copy(
+    stream: InputStream,
+    channel: ByteWriteChannel,
+    limit: Long,
+    io: CoroutineDispatcher,
+    log: (String) -> Unit,
+) {
     val buffer = ByteArray(COPY_BUFFER_BYTES)
     var remaining = limit
     try {
@@ -169,8 +177,10 @@ private suspend fun copy(stream: InputStream, channel: ByteWriteChannel, limit: 
             channel.writeFully(buffer, 0, read)
             remaining -= read
         }
-    } catch (_: IOException) {
-        // The speaker aborted the transfer, which it does routinely when it seeks.
+    } catch (e: IOException) {
+        // Usually the speaker aborting a transfer, which it does routinely when it seeks; a read error on
+        // the file looks the same from here, so the kind is logged to tell them apart.
+        log("transfer ended early: ${e.javaClass.simpleName}")
     }
 }
 

@@ -93,7 +93,19 @@ class SonosMediaAccessTest {
 
         access.clear()
 
-        assertThat(access.authorize(token, "1")).isEqualTo(AccessDecision.NotPublished)
+        assertThat(access.authorize(token, "1")).isNotEqualTo(AccessDecision.Allowed)
+        assertThat(access.authorize(token, "1")).isEqualTo(AccessDecision.InvalidToken)
+    }
+
+    @Test
+    fun `nothing is asked of the identity while nothing is published`() {
+        var asked = false
+        val idle = SonosMediaAccess { asked = true; SonosServerIdentity(token, null) }
+
+        val decision = idle.authorize(token, "42")
+
+        assertThat(decision).isEqualTo(AccessDecision.InvalidToken)
+        assertThat(asked).isFalse()
     }
 
     @Test

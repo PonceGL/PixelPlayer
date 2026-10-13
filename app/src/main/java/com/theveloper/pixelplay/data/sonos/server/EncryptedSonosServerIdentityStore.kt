@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.ProviderException
 import javax.inject.Inject
 import timber.log.Timber
 
@@ -20,23 +21,43 @@ internal class EncryptedSonosServerIdentityStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : SonosServerIdentityStore {
 
+    @Volatile
+    private var unusable = false
     private val prefs: SharedPreferences? by lazy { createPreferences() }
 
     override fun load(): StoredIdentity? {
         val preferences = prefs ?: return null
-        return StoredIdentity(
-            token = preferences.getString(KEY_TOKEN, null),
-            port = preferences.getInt(KEY_PORT, NO_PORT).takeIf { it != NO_PORT },
-        )
+        return try {
+            StoredIdentity(
+                token = preferences.getString(KEY_TOKEN, null),
+                port = preferences.getInt(KEY_PORT, NO_PORT).takeIf { it != NO_PORT },
+            )
+        } catch (e: SecurityException) {
+            giveUp(e) // The file cannot be decrypted, for example after a restore on another device.
+            null
+        } catch (e: ClassCastException) {
+            giveUp(e)
+            null
+        }
     }
 
     override fun save(token: String, port: Int?): Boolean {
-        val preferences = prefs ?: return false
-        preferences.edit {
-            putString(KEY_TOKEN, token)
-            if (port == null) remove(KEY_PORT) else putInt(KEY_PORT, port)
+        val preferences = prefs?.takeUnless { unusable } ?: return false
+        return try {
+            preferences.edit {
+                putString(KEY_TOKEN, token)
+                if (port == null) remove(KEY_PORT) else putInt(KEY_PORT, port)
+            }
+            true
+        } catch (e: SecurityException) {
+            giveUp(e)
+            false
         }
-        return true
+    }
+
+    private fun giveUp(cause: Exception) {
+        unusable = true
+        Timber.w(cause, "Encrypted storage failed; the Sonos server token stays in memory for this run")
     }
 
     private fun createPreferences(): SharedPreferences? = try {
@@ -52,6 +73,12 @@ internal class EncryptedSonosServerIdentityStore @Inject constructor(
         Timber.w(e, "Encrypted storage unavailable; the Sonos server token will not be persisted")
         null
     } catch (e: IOException) {
+        Timber.w(e, "Encrypted storage unavailable; the Sonos server token will not be persisted")
+        null
+    } catch (e: SecurityException) {
+        Timber.w(e, "Encrypted storage unavailable; the Sonos server token will not be persisted")
+        null
+    } catch (e: ProviderException) {
         Timber.w(e, "Encrypted storage unavailable; the Sonos server token will not be persisted")
         null
     }

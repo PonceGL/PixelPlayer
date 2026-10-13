@@ -220,6 +220,9 @@ class SonosMediaRoutesTest {
     fun `a file that cannot be opened after the answer started does not break the server`() {
         runCatching { get(songUrl("broken")).use { it.body.bytes() } }
 
+        assertThat(logLines.any { it.contains("unavailable") && it.contains("IOException") }).isTrue()
+        assertThat(logLines.joinToString()).doesNotContain("file vanished")
+
         get(songUrl()).use { assertThat(it.code).isEqualTo(200) }
     }
 

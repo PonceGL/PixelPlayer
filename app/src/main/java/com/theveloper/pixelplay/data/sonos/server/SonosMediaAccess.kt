@@ -26,6 +26,9 @@ internal class SonosMediaAccess(private val identity: () -> SonosServerIdentity)
     fun clear() = published.clear()
 
     fun authorize(providedToken: String?, songId: String?): AccessDecision {
+        // Before anything is published there is nothing to protect, and the identity must not be created
+        // just because someone on the network knocked.
+        if (published.isEmpty()) return AccessDecision.InvalidToken
         if (providedToken == null || !tokensMatch(providedToken, identity().token)) return AccessDecision.InvalidToken
         return if (songId != null && songId in published) AccessDecision.Allowed else AccessDecision.NotPublished
     }

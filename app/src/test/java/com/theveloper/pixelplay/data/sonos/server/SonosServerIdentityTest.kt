@@ -8,11 +8,17 @@ class SonosServerIdentityTest {
     private class FakeStore(
         var stored: StoredIdentity? = null,
         var saveWorks: Boolean = true,
+        var throwOnLoad: Boolean = false,
+        var throwOnSave: Boolean = false,
     ) : SonosServerIdentityStore {
         var saves = 0
-        override fun load(): StoredIdentity? = stored
+        override fun load(): StoredIdentity? {
+            if (throwOnLoad) throw SecurityException("Could not decrypt value")
+            return stored
+        }
         override fun save(token: String, port: Int?): Boolean {
             saves++
+            if (throwOnSave) throw SecurityException("keystore unavailable")
             if (!saveWorks) return false
             stored = StoredIdentity(token, port)
             return true
@@ -105,6 +111,24 @@ class SonosServerIdentityTest {
 
         assertThat(provider.current().port).isNull()
         assertThat(store.saves).isEqualTo(savesBefore)
+    }
+
+    @Test
+    fun `a store that throws when reading starts a fresh identity`() {
+        val provider = provider(FakeStore(throwOnLoad = true))
+
+        assertThat(provider.current().token).matches("[0-9a-f]{32}")
+    }
+
+    @Test
+    fun `a store that throws when saving still lets the run continue`() {
+        val provider = provider(FakeStore(throwOnSave = true))
+
+        val first = provider.current()
+        provider.rememberPort(8123)
+
+        assertThat(provider.current().token).isEqualTo(first.token)
+        assertThat(provider.current().port).isEqualTo(8123)
     }
 
     @Test

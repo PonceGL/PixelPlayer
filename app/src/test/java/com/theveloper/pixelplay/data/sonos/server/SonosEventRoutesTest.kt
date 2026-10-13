@@ -180,6 +180,7 @@ class SonosEventRoutesTest {
         notify(good).use { assertThat(it.code).isEqualTo(200) }
         assertThat(received).hasSize(1)
         assertThat(logLines.joinToString()).doesNotContain("boom")
+        assertThat(logLines.any { it.contains("sink failed") && it.contains("IllegalStateException") }).isTrue()
     }
 
     @Test
