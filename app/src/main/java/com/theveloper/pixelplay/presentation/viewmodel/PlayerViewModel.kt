@@ -1734,7 +1734,7 @@ class PlayerViewModel @Inject constructor(
                     if (hasActiveRemoteSession) {
                         return@collect
                     }
-                    context.stopService(Intent(context, MediaFileHttpServerService::class.java))
+                    castTransferStateHolder.releaseMediaServer()
                 }
             }
         }
