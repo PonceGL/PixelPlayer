@@ -18,10 +18,16 @@ internal data class XmlElement(
 ) {
     fun child(name: String): XmlElement? = children.firstOrNull { it.name == name }
 
-    fun descendants(name: String): List<XmlElement> = buildList {
+    fun descendants(name: String): List<XmlElement> {
+        val found = mutableListOf<XmlElement>()
+        collectDescendants(name, found)
+        return found
+    }
+
+    private fun collectDescendants(name: String, into: MutableList<XmlElement>) {
         for (child in children) {
-            if (child.name == name) add(child)
-            addAll(child.descendants(name))
+            if (child.name == name) into.add(child)
+            child.collectDescendants(name, into)
         }
     }
 }
