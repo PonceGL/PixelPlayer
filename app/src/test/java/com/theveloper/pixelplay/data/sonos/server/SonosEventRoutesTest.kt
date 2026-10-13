@@ -220,4 +220,23 @@ class SonosEventRoutesTest {
             assertThat(line).doesNotContain("unknown-key-123")
         }
     }
+
+    @Test
+    fun `addresses are compared by value and not by spelling`() {
+        assertThat(sameHost("10.0.0.5", "10.0.0.5")).isTrue()
+        assertThat(sameHost("::ffff:10.0.0.5", "10.0.0.5")).isTrue()
+        assertThat(sameHost("fe80:0:0:0:0:0:0:1", "fe80::1")).isTrue()
+        assertThat(sameHost("FE80::1", "fe80::1")).isTrue()
+        assertThat(sameHost("fe80::1", "[fe80::1]")).isTrue()
+        assertThat(sameHost("fe80::1%wlan0", "[fe80::1]")).isTrue()
+    }
+
+    @Test
+    fun `different addresses and names are not the same`() {
+        assertThat(sameHost("10.0.0.5", "10.0.0.6")).isFalse()
+        assertThat(sameHost("fe80::1", "fe80::2")).isFalse()
+        assertThat(sameHost("10.0.0.5", "speaker.local")).isFalse()
+        assertThat(sameHost("", "")).isFalse()
+        assertThat(sameHost("not an address", "not an address")).isTrue()
+    }
 }

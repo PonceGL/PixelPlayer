@@ -32,10 +32,9 @@ internal class EncryptedSonosServerIdentityStore @Inject constructor(
                 token = preferences.getString(KEY_TOKEN, null),
                 port = preferences.getInt(KEY_PORT, NO_PORT).takeIf { it != NO_PORT },
             )
-        } catch (e: SecurityException) {
-            giveUp(e) // The file cannot be decrypted, for example after a restore on another device.
-            null
-        } catch (e: ClassCastException) {
+        } catch (e: RuntimeException) {
+            // The library surfaces keystore and decryption problems as several unrelated runtime
+            // exceptions (SecurityException when a restored file cannot be decrypted, among others).
             giveUp(e)
             null
         }
@@ -49,13 +48,13 @@ internal class EncryptedSonosServerIdentityStore @Inject constructor(
                 if (port == null) remove(KEY_PORT) else putInt(KEY_PORT, port)
             }
             true
-        } catch (e: SecurityException) {
+        } catch (e: RuntimeException) {
             giveUp(e)
             false
         }
     }
 
-    private fun giveUp(cause: Exception) {
+    private fun giveUp(cause: RuntimeException) {
         unusable = true
         Timber.w(cause, "Encrypted storage failed; the Sonos server token stays in memory for this run")
     }

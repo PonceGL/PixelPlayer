@@ -36,7 +36,9 @@ class SonosMediaRoutesTest {
     private val closedStreams = CountDownLatch(1)
 
     private val source = object : SonosMediaSource {
-        override suspend fun audio(songId: String): AudioPayload? = when (songId) {
+        override suspend fun audio(songId: String): AudioPayload? = audioFor(songId)
+
+        private fun audioFor(id: String): AudioPayload? = when (id) {
             "42", "Café (live)", "a b" -> AudioPayload(songBytes.size.toLong(), "audio/flac", 1_700_000_000_000L) { offset ->
                 openedOffsets += offset
                 ByteArrayInputStream(songBytes, offset.toInt(), songBytes.size - offset.toInt())
@@ -51,7 +53,9 @@ class SonosMediaRoutesTest {
             "unknown" -> AudioPayload(-1, "audio/mpeg", null) { _ -> ByteArrayInputStream(songBytes) }
             "broken" -> AudioPayload(1_000, "audio/flac", null) { _ -> throw java.io.IOException("file vanished") }
             "missing-file" -> null
-            else -> null
+            else -> if (id.startsWith("mime:")) {
+                AudioPayload(10, id.removePrefix("mime:"), null) { _ -> ByteArrayInputStream(ByteArray(10)) }
+            } else null
         }
 
         override suspend fun art(songId: String): ArtPayload? = when (songId) {
@@ -224,6 +228,20 @@ class SonosMediaRoutesTest {
         assertThat(logLines.joinToString()).doesNotContain("file vanished")
 
         get(songUrl()).use { assertThat(it.code).isEqualTo(200) }
+    }
+
+    @Test
+    fun `an odd mime type from the source never breaks the answer`() {
+        val odd = listOf("", " ", "audio", "audio/", "/flac", "a/b/c", "audio/flac;;;", "audio/flac; =", "@@@", "audio/fl ac", "audio/flac; charset")
+        for (mime in odd) {
+            val id = "mime:$mime"
+            access.publish(listOf(id))
+
+            get(songUrl(id)).use { response ->
+                assertThat(response.code).isEqualTo(200)
+                assertThat(response.header("Content-Type")).isNotNull()
+            }
+        }
     }
 
     @Test
