@@ -21,6 +21,8 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
 import com.theveloper.pixelplay.data.service.http.CastSessionSecurity
 import com.theveloper.pixelplay.data.service.http.MediaFileHttpServerService
+import com.theveloper.pixelplay.data.service.http.MediaServerLease
+import com.theveloper.pixelplay.data.service.http.ServerOwner
 import com.theveloper.pixelplay.data.service.player.CastPlayer
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 
@@ -51,7 +53,8 @@ class CastTransferStateHolder @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val castStateHolder: CastStateHolder,
     private val playbackStateHolder: PlaybackStateHolder,
-    private val dualPlayerEngine: DualPlayerEngine // For local player control during transfer
+    private val dualPlayerEngine: DualPlayerEngine, // For local player control during transfer
+    private val mediaServerLease: MediaServerLease
 ) {
     private val CAST_LOG_TAG = "PlayerCastTransfer"
     private val remoteBufferingSoftRecoveryMs = 6_000L
@@ -1107,7 +1110,7 @@ class CastTransferStateHolder @Inject constructor(
         castStateHolder.setRemotePlaybackActive(false)
         
         if (castStateHolder.pendingCastRouteId == null) {
-            context.stopService(Intent(context, MediaFileHttpServerService::class.java))
+            mediaServerLease.release(ServerOwner.CAST)
             // Signal disconnect to PlayerViewModel if needed, or rely on state holder
             onDisconnect?.invoke() 
         } else {
@@ -1200,6 +1203,11 @@ class CastTransferStateHolder @Inject constructor(
         onTransferBackComplete?.invoke()
     }
 
+    /** The Cast side of the media server is no longer needed; it keeps running if another owner needs it. */
+    fun releaseMediaServer() {
+        mediaServerLease.release(ServerOwner.CAST)
+    }
+
     fun primeHttpServerStart() {
         if (MediaFileHttpServerService.isServerRunning || MediaFileHttpServerService.isServerStarting) return
 
@@ -1210,16 +1218,8 @@ class CastTransferStateHolder @Inject constructor(
             session = castStateHolder.castSession.value ?: sessionManager?.currentCastSession
         )
 
-        val intent = Intent(context, MediaFileHttpServerService::class.java).apply {
-            action = MediaFileHttpServerService.ACTION_START_SERVER
-            castDeviceIpHint?.let { putExtra(MediaFileHttpServerService.EXTRA_CAST_DEVICE_IP, it) }
-        }
         runCatching {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            mediaServerLease.acquire(ServerOwner.CAST, castDeviceIpHint)
         }.onFailure { throwable ->
             Timber.tag(CAST_LOG_TAG).e(throwable, "Failed to pre-start media server service")
             emitCastError(
@@ -1240,7 +1240,7 @@ class CastTransferStateHolder @Inject constructor(
                 castDeviceIpHint,
                 MediaFileHttpServerService.serverPrefixLength
             )
-            context.stopService(Intent(context, MediaFileHttpServerService::class.java))
+            mediaServerLease.stopForRestart()
             for (attempt in 0 until 30) {
                 if (!MediaFileHttpServerService.isServerRunning && !MediaFileHttpServerService.isServerStarting) {
                     break
@@ -1253,16 +1253,8 @@ class CastTransferStateHolder @Inject constructor(
         MediaFileHttpServerService.lastFailureReason = null
         MediaFileHttpServerService.lastFailureMessage = null
 
-        val intent = Intent(context, MediaFileHttpServerService::class.java).apply {
-            action = MediaFileHttpServerService.ACTION_START_SERVER
-            castDeviceIpHint?.let { putExtra(MediaFileHttpServerService.EXTRA_CAST_DEVICE_IP, it) }
-        }
         try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            mediaServerLease.acquire(ServerOwner.CAST, castDeviceIpHint)
         } catch (e: Exception) {
             Timber.tag(CAST_LOG_TAG).e(e, "Failed to start media server service")
             emitCastError("Couldn't start Cast service: ${e.javaClass.simpleName}: ${e.message ?: "Unknown"}")

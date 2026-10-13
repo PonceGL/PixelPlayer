@@ -10,7 +10,11 @@ class MediaServerLeaseTest {
 
     private class FakeController : MediaServerController {
         val calls = CopyOnWriteArrayList<String>()
-        override fun start(deviceIpHint: String?) { calls += "start($deviceIpHint)" }
+        var startFailure: RuntimeException? = null
+        override fun start(deviceIpHint: String?) {
+            startFailure?.let { throw it }
+            calls += "start($deviceIpHint)"
+        }
         override fun stop() { calls += "stop" }
     }
 
@@ -18,7 +22,7 @@ class MediaServerLeaseTest {
     private val lease = MediaServerLease(controller)
 
     @Test
-    fun `the first owner starts the server with its address hint`() {
+    fun `an owner asks the server to start with its address hint`() {
         lease.acquire(ServerOwner.CAST, "192.168.1.30")
 
         assertThat(controller.calls).containsExactly("start(192.168.1.30)")
@@ -26,19 +30,32 @@ class MediaServerLeaseTest {
     }
 
     @Test
-    fun `a second owner does not restart a running server`() {
+    fun `asking again starts again so a server that died on its own comes back`() {
         lease.acquire(ServerOwner.CAST, "192.168.1.30")
-        lease.acquire(ServerOwner.SONOS, "192.168.1.10")
+        lease.acquire(ServerOwner.CAST, "192.168.1.30")
 
-        assertThat(controller.calls).containsExactly("start(192.168.1.30)")
+        assertThat(controller.calls).containsExactly("start(192.168.1.30)", "start(192.168.1.30)")
+        assertThat(lease.isHeldBy(ServerOwner.CAST)).isTrue()
     }
 
     @Test
-    fun `acquiring twice as the same owner does nothing`() {
-        lease.acquire(ServerOwner.CAST)
-        lease.acquire(ServerOwner.CAST)
+    fun `a start that fails does not leave the owner holding the server`() {
+        controller.startFailure = IllegalStateException("not allowed")
 
-        assertThat(controller.calls).containsExactly("start(null)")
+        val failure = runCatching { lease.acquire(ServerOwner.CAST) }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(IllegalStateException::class.java)
+        assertThat(lease.isHeldBy(ServerOwner.CAST)).isFalse()
+    }
+
+    @Test
+    fun `a failed start keeps an owner that already held the server`() {
+        lease.acquire(ServerOwner.SONOS)
+        controller.startFailure = IllegalStateException("not allowed")
+
+        runCatching { lease.acquire(ServerOwner.SONOS) }
+
+        assertThat(lease.isHeldBy(ServerOwner.SONOS)).isTrue()
     }
 
     @Test
@@ -54,19 +71,28 @@ class MediaServerLeaseTest {
     }
 
     @Test
-    fun `releasing the last owner stops the server once`() {
+    fun `releasing the last owner stops the server`() {
+        lease.acquire(ServerOwner.CAST)
+        lease.release(ServerOwner.CAST)
+
+        assertThat(controller.calls).containsExactly("start(null)", "stop").inOrder()
+        assertThat(lease.isHeldBy(ServerOwner.CAST)).isFalse()
+    }
+
+    @Test
+    fun `releasing twice is harmless because stopping is idempotent`() {
         lease.acquire(ServerOwner.CAST)
         lease.release(ServerOwner.CAST)
         lease.release(ServerOwner.CAST)
 
-        assertThat(controller.calls).containsExactly("start(null)", "stop").inOrder()
+        assertThat(controller.calls).containsExactly("start(null)", "stop", "stop").inOrder()
     }
 
     @Test
-    fun `releasing without having acquired does nothing`() {
-        lease.release(ServerOwner.SONOS)
+    fun `releasing with nobody holding the server still stops an orphaned one`() {
+        lease.release(ServerOwner.CAST)
 
-        assertThat(controller.calls).isEmpty()
+        assertThat(controller.calls).containsExactly("stop")
     }
 
     @Test
@@ -79,20 +105,13 @@ class MediaServerLeaseTest {
     }
 
     @Test
-    fun `restart stops and starts again while someone holds the server`() {
+    fun `stopping for a restart stops the server and keeps the owners`() {
         lease.acquire(ServerOwner.CAST, "192.168.1.30")
 
-        lease.restart("192.168.5.30")
+        lease.stopForRestart()
 
-        assertThat(controller.calls).containsExactly("start(192.168.1.30)", "stop", "start(192.168.5.30)").inOrder()
+        assertThat(controller.calls).containsExactly("start(192.168.1.30)", "stop").inOrder()
         assertThat(lease.isHeldBy(ServerOwner.CAST)).isTrue()
-    }
-
-    @Test
-    fun `restart with no owners does nothing`() {
-        lease.restart("192.168.5.30")
-
-        assertThat(controller.calls).isEmpty()
     }
 
     @Test
@@ -105,20 +124,29 @@ class MediaServerLeaseTest {
     }
 
     @Test
-    fun `many threads acquiring at once start the server a single time`() {
+    fun `many threads taking and releasing at once never break the bookkeeping`() {
         val ready = CountDownLatch(8)
         val go = CountDownLatch(1)
         val threads = List(8) { index ->
             thread {
                 ready.countDown()
                 go.await()
-                lease.acquire(if (index % 2 == 0) ServerOwner.CAST else ServerOwner.SONOS)
+                val owner = if (index % 2 == 0) ServerOwner.CAST else ServerOwner.SONOS
+                repeat(200) {
+                    lease.acquire(owner)
+                    lease.release(owner)
+                }
+                lease.acquire(owner)
             }
         }
         ready.await()
         go.countDown()
         threads.forEach { it.join() }
 
-        assertThat(controller.calls).containsExactly("start(null)")
+        assertThat(lease.isHeldBy(ServerOwner.CAST)).isTrue()
+        assertThat(lease.isHeldBy(ServerOwner.SONOS)).isTrue()
+        val stops = controller.calls.count { it == "stop" }
+        val starts = controller.calls.count { it.startsWith("start") }
+        assertThat(starts).isAtLeast(stops)
     }
 }
