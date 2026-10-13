@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Kelola koneksi aktif dan pindai ulang</string>
+    <string name="cast_header_tap_to_connect">Ketuk untuk terhubung</string>
+    <string name="cast_header_no_devices">Belum ada perangkat</string>
+    <string name="sonos_empty_title">Perangkat tidak ditemukan</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="other">%d ruangan</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Hubungkan ke Wi‑Fi untuk menemukan speaker</string>
+    <string name="sonos_no_wifi_action">Pengaturan Wi‑Fi</string>
+    <string name="sonos_blocked_local_network_title">Akses jaringan lokal nonaktif</string>
+    <string name="sonos_blocked_local_network_body">Izinkan akses ke perangkat di jaringan Anda agar PixelPlayer dapat menemukan speaker Sonos Anda.</string>
+    <string name="sonos_blocked_local_network_action">Buka pengaturan</string>
+    <string name="sonos_blocked_pending">Menerapkan izin…</string>
+    <string name="sonos_unavailable_title">Tidak dapat mencari speaker</string>
+    <string name="sonos_unavailable_action">Coba lagi</string>
+    <string name="sonos_perm_local_network_title">Jaringan lokal</string>
+    <string name="sonos_perm_local_network_desc">Memungkinkan PixelPlayer menemukan dan mengontrol speaker Sonos di jaringan Wi‑Fi Anda.</string>
+</resources>

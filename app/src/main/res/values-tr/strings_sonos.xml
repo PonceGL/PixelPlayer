@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cast_manage_radios_hint">Etkin bağlantıları yönetin ve yeniden tarayın</string>
+    <string name="cast_header_tap_to_connect">Bağlanmak için dokunun</string>
+    <string name="cast_header_no_devices">Henüz cihaz yok</string>
+    <string name="sonos_empty_title">Cihaz bulunamadı</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d oda</item>
+        <item quantity="other">%d oda</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Hoparlörleri bulmak için Wi‑Fi\'ye bağlanın</string>
+    <string name="sonos_no_wifi_action">Wi‑Fi ayarları</string>
+    <string name="sonos_blocked_local_network_title">Yerel ağ erişimi kapalı</string>
+    <string name="sonos_blocked_local_network_body">PixelPlayer\'ın Sonos hoparlörlerinizi bulabilmesi için ağınızdaki cihazlara erişime izin verin.</string>
+    <string name="sonos_blocked_local_network_action">Ayarları aç</string>
+    <string name="sonos_blocked_pending">İzin uygulanıyor…</string>
+    <string name="sonos_unavailable_title">Hoparlörler aranamadı</string>
+    <string name="sonos_unavailable_action">Tekrar dene</string>
+    <string name="sonos_perm_local_network_title">Yerel ağ</string>
+    <string name="sonos_perm_local_network_desc">PixelPlayer\'ın Wi‑Fi ağınızdaki Sonos hoparlörlerini bulup kontrol etmesini sağlar.</string>
+</resources>

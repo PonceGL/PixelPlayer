@@ -15,6 +15,9 @@ internal object SonosFixtures {
     /** Raw NOTIFY body, e.g. `AVTransport_0`. */
     fun notify(name: String): String = read("sonos/notify/$name.xml")
 
+    /** Raw SSDP reply of a speaker to the discovery search. */
+    fun ssdpResponse(): String = read("sonos/ssdp/zoneplayer_response.txt")
+
     private fun soapField(name: String, field: String): String {
         val json = Json.parseToJsonElement(read("sonos/soap/$name.json")).jsonObject
         return checkNotNull(json[field]) { "Fixture $name has no $field" }.jsonPrimitive.content
