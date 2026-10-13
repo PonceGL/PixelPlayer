@@ -41,7 +41,7 @@
     <string name="cast_status_connecting">جارٍ الاتصال</string>
     <string name="cast_status_available_connect">متاح للاتصال</string>
     <string name="cast_status_available">متاح</string>
-    <string name="cast_connecting_ellipsis">جارٍ الاتصال...</string>
+    <string name="cast_connecting_ellipsis">جارٍ الاتصال…</string>
     <string name="cast_searching">جارٍ البحث عن الأجهزة…</string>
     <string name="cast_searching_hint">تأكد من تشغيل التلفاز أو مكبر الصوت ومن اتصاله بنفس شبكة Wi‑Fi.</string>
     <string name="cast_tab_controls">التحكم</string>
