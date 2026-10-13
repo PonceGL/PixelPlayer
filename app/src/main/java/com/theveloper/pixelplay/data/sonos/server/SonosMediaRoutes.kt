@@ -148,7 +148,12 @@ private suspend fun ApplicationCall.respondBody(
         override val contentType: ContentType = type
 
         override suspend fun writeTo(channel: ByteWriteChannel) {
-            open().use { stream -> copy(stream, channel, length ?: Long.MAX_VALUE, io) }
+            val stream = try {
+                open()
+            } catch (_: IOException) {
+                return // The file vanished after the headers were decided; closing the response is all that is left.
+            }
+            stream.use { copy(it, channel, length ?: Long.MAX_VALUE, io) }
         }
     })
 }

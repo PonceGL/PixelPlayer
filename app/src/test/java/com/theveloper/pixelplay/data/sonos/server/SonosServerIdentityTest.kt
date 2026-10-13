@@ -128,6 +128,32 @@ class SonosServerIdentityTest {
     }
 
     @Test
+    fun `the port counts as changed when the saved one was taken`() {
+        val token = "0123456789abcdef0123456789abcdef"
+        val provider = provider(FakeStore(StoredIdentity(token, 8123)))
+        provider.current()
+
+        provider.rememberPort(8124)
+
+        assertThat(provider.portChanged).isTrue()
+        assertThat(provider.current().port).isEqualTo(8124)
+    }
+
+    @Test
+    fun `the port does not count as changed when it is the same or there was none`() {
+        val token = "0123456789abcdef0123456789abcdef"
+        val same = provider(FakeStore(StoredIdentity(token, 8123)))
+        same.current()
+        same.rememberPort(8123)
+        val fresh = provider(FakeStore())
+        fresh.current()
+        fresh.rememberPort(8123)
+
+        assertThat(same.portChanged).isFalse()
+        assertThat(fresh.portChanged).isFalse()
+    }
+
+    @Test
     fun `two fresh installs do not share a token`() {
         val a = provider(FakeStore()).current().token
         val b = provider(FakeStore()).current().token

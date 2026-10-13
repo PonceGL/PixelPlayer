@@ -20,12 +20,19 @@ internal class SonosServerIdentityProvider(
     private val lock = Any()
     private var identity: SonosServerIdentity? = null
 
+    /** True once the saved port could not be reused: URLs already queued on a speaker no longer work. */
+    @Volatile
+    var portChanged: Boolean = false
+        private set
+
     fun current(): SonosServerIdentity = synchronized(lock) {
         identity ?: load().also { identity = it }
     }
 
     fun rememberPort(port: Int) = synchronized(lock) {
         if (port !in VALID_PORTS) return@synchronized
+        val previous = current().port
+        if (previous != null && previous != port) portChanged = true
         val updated = current().copy(port = port)
         identity = updated
         store.save(updated.token, updated.port)

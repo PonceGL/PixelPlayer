@@ -34,6 +34,14 @@ import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.cast.CastAudioMimeUtils
 import com.theveloper.pixelplay.data.service.cast.IsoBmffAudioCodecDetector
 import com.theveloper.pixelplay.utils.AlbumArtUtils
+import com.theveloper.pixelplay.data.sonos.server.ArtPayload
+import com.theveloper.pixelplay.data.sonos.server.AudioPayload
+import com.theveloper.pixelplay.data.sonos.server.SonosEventRouter
+import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
+import com.theveloper.pixelplay.data.sonos.server.SonosMediaSource
+import com.theveloper.pixelplay.data.sonos.server.SonosServerIdentityProvider
+import com.theveloper.pixelplay.data.sonos.server.sonosEventRoutes
+import com.theveloper.pixelplay.data.sonos.server.sonosMediaRoutes
 import dagger.hilt.android.AndroidEntryPoint
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -95,6 +103,18 @@ class MediaFileHttpServerService : Service() {
 
     @Inject
     lateinit var musicRepository: MusicRepository
+
+    @Inject
+    internal lateinit var sonosMediaAccess: SonosMediaAccess
+
+    @Inject
+    internal lateinit var sonosEventRouter: SonosEventRouter
+
+    @Inject
+    internal lateinit var sonosIdentity: SonosServerIdentityProvider
+
+    @Inject
+    lateinit var mediaServerLease: MediaServerLease
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     @Volatile
@@ -361,7 +381,13 @@ class MediaFileHttpServerService : Service() {
                     stopSelf()
                     return@launch
                 }
-                val serverPort = resolveServerPort(preferredPort = 8080)
+                // The port is only remembered for Sonos: the URLs queued on a speaker must survive a
+                // restart. Cast keeps asking for 8080 as before.
+                val sonosHoldsServer = mediaServerLease.isHeldBy(ServerOwner.SONOS)
+                val serverPort = resolveServerPort(
+                    preferredPort = if (sonosHoldsServer) sonosIdentity.current().port ?: 8080 else 8080
+                )
+                if (sonosHoldsServer) sonosIdentity.rememberPort(serverPort)
                 if (serverPort != 8080) {
                     Timber.tag(castHttpLogTag).w(
                         "Port 8080 is already in use. Falling back to port %d for Cast HTTP server.",
@@ -391,6 +417,16 @@ class MediaFileHttpServerService : Service() {
                                 if (!call.ensureLoopbackHealthRequest()) return@head
                                 call.respond(HttpStatusCode.OK)
                             }
+                            sonosMediaRoutes(
+                                access = sonosMediaAccess,
+                                source = sonosMediaSource,
+                                io = Dispatchers.IO,
+                                log = { line -> Timber.tag(castHttpLogTag).d(line) }
+                            )
+                            sonosEventRoutes(
+                                router = sonosEventRouter,
+                                log = { line -> Timber.tag(castHttpLogTag).d(line) }
+                            )
                             get("/song/{songId}") {
                                 val songId = call.parameters["songId"]
                                 if (songId == null) {
@@ -836,6 +872,43 @@ class MediaFileHttpServerService : Service() {
 
             if (shouldRetryAfterBindFailure) {
                 startServer(retryAttempt + 1)
+            }
+        }
+    }
+
+    /**
+     * What the Sonos routes serve: the original file as stored, resolved with the same lookups the Cast
+     * routes use but without any transcoding.
+     */
+    private val sonosMediaSource = object : SonosMediaSource {
+        override suspend fun audio(songId: String): AudioPayload? {
+            val song = resolveSongForServing(songId) ?: return null
+            val uri = song.contentUriString.toUri()
+            val source = resolveAudioStreamSource(song, uri) ?: return null
+            val mimeType = resolveAudioContentType(resolvePreferredAudioMimeType(song, uri)).toString()
+            return AudioPayload(source.fileSize, mimeType, source.lastModifiedEpochMs) { offset ->
+                val stream = try {
+                    source.inputStreamFactory()
+                } catch (e: IllegalStateException) {
+                    throw IOException("Song file unavailable", e)
+                }
+                if (offset > 0 && !skipFully(stream, offset)) {
+                    stream.close()
+                    throw IOException("Offset past the end of the file")
+                }
+                stream
+            }
+        }
+
+        override suspend fun art(songId: String): ArtPayload? {
+            val song = resolveSongForServing(songId) ?: return null
+            val art = resolveArtStreamSource(song)
+            return ArtPayload(art.contentLength, art.contentType.toString(), art.lastModifiedEpochMs) {
+                try {
+                    art.inputStreamFactory()
+                } catch (e: IllegalStateException) {
+                    throw IOException("Cover unavailable", e)
+                }
             }
         }
     }

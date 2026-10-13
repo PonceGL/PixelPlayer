@@ -49,6 +49,7 @@ class SonosMediaRoutesTest {
                 CountingZeros(onClose = { closedStreams.countDown() })
             }
             "unknown" -> AudioPayload(-1, "audio/mpeg", null) { _ -> ByteArrayInputStream(songBytes) }
+            "broken" -> AudioPayload(1_000, "audio/flac", null) { _ -> throw java.io.IOException("file vanished") }
             "missing-file" -> null
             else -> null
         }
@@ -70,7 +71,7 @@ class SonosMediaRoutesTest {
 
     @BeforeEach
     fun start() {
-        access.publish(listOf("42", "Café (live)", "a b", "huge", "endless", "unknown", "missing-file"))
+        access.publish(listOf("42", "Café (live)", "a b", "huge", "endless", "unknown", "missing-file", "broken"))
         server = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
             routing { sonosMediaRoutes(access, source, Dispatchers.IO) { logLines += it } }
         }.start(wait = false)
@@ -213,6 +214,13 @@ class SonosMediaRoutesTest {
     @Test
     fun `a published song whose file cannot be found is 404`() {
         get(songUrl("missing-file")).use { assertThat(it.code).isEqualTo(404) }
+    }
+
+    @Test
+    fun `a file that cannot be opened after the answer started does not break the server`() {
+        runCatching { get(songUrl("broken")).use { it.body.bytes() } }
+
+        get(songUrl()).use { assertThat(it.code).isEqualTo(200) }
     }
 
     @Test
