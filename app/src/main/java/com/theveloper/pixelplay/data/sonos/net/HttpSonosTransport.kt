@@ -7,9 +7,12 @@ import com.theveloper.pixelplay.data.sonos.protocol.UpnpErrors
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,6 +23,7 @@ import okhttp3.Response
 internal class HttpSonosTransport(
     private val network: LanNetworkProvider,
     private val baseClient: OkHttpClient,
+    private val io: CoroutineDispatcher,
     private val port: Int = SONOS_PORT,
 ) : SonosTransport {
 
@@ -29,8 +33,8 @@ internal class HttpSonosTransport(
         action: String,
         arguments: List<Pair<String, String>>,
         timeoutMs: Long,
-    ): SonosResult<Map<String, String>> {
-        val lan = network.wifi() ?: return SonosResult.Err(SonosFailure.NoWifi)
+    ): SonosResult<Map<String, String>> = withContext(io) {
+        val lan = network.wifi() ?: return@withContext SonosResult.Err(SonosFailure.NoWifi)
         val client = baseClient.newBuilder()
             .socketFactory(lan.socketFactory)
             .retryOnConnectionFailure(false)
@@ -39,13 +43,15 @@ internal class HttpSonosTransport(
             .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
             .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
             .build()
+        val url = "http://$host:$port${service.controlPath}".toHttpUrlOrNull()
+            ?: return@withContext SonosResult.Err(SonosFailure.MalformedResponse)
         val request = Request.Builder()
-            .url("http://$host:$port${service.controlPath}")
+            .url(url)
             .header("SOAPACTION", SoapEnvelope.soapActionHeader(service, action))
             .header("Connection", "close")
             .post(SoapEnvelope.build(service, action, arguments).toRequestBody(XML_MEDIA_TYPE))
             .build()
-        return try {
+        try {
             client.newCall(request).await().use { response -> interpret(action, response) }
         } catch (e: IOException) {
             SonosResult.Err(NetFailureClassifier.classify(e))

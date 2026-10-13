@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
@@ -40,6 +42,7 @@ class SonosDiscoveryTest {
 
     private class FakeTransport(private val behavior: suspend (host: String) -> SonosResult<Map<String, String>>) : SonosTransport {
         val queried = mutableListOf<String>()
+        val timeouts = mutableListOf<Long>()
         var cancelled = 0
 
         override suspend fun call(
@@ -52,6 +55,7 @@ class SonosDiscoveryTest {
             assertThat(service).isEqualTo(SonosService.ZONE_GROUP_TOPOLOGY)
             assertThat(action).isEqualTo("GetZoneGroupState")
             queried += host
+            timeouts += timeoutMs
             try {
                 return behavior(host)
             } catch (e: CancellationException) {
@@ -75,8 +79,8 @@ class SonosDiscoveryTest {
         }
     }
 
-    private fun discoveryOf(search: () -> Flow<SsdpEvent>, transport: FakeTransport) =
-        SonosDiscovery(search, transport, topologyTimeoutMs = 2_000, overallTimeoutMs = 6_000)
+    private fun TestScope.discoveryOf(search: () -> Flow<SsdpEvent>, transport: FakeTransport) =
+        SonosDiscovery(search, transport, StandardTestDispatcher(testScheduler), topologyTimeoutMs = 2_000, overallTimeoutMs = 6_000)
 
     private suspend fun Flow<DiscoveryUpdate>.lastDevices(): List<SonosDevice> =
         toList().filterIsInstance<DiscoveryUpdate.Devices>().lastOrNull()?.devices.orEmpty()
@@ -170,6 +174,7 @@ class SonosDiscoveryTest {
         val devices = discoveryOf(searchOf(100L to ssdp("10.0.0.6"), 500L to ssdp("10.0.0.5")), transport).discover().lastDevices()
 
         assertThat(transport.queried).containsExactly("10.0.0.6", "10.0.0.5").inOrder()
+        assertThat(transport.timeouts).containsExactly(2_000L, 2_000L)
         assertThat(devices.map { it.name }).containsExactly("Salón")
     }
 
@@ -194,6 +199,30 @@ class SonosDiscoveryTest {
         assertThat(updates.filterIsInstance<DiscoveryUpdate.Devices>()).isEmpty()
         assertThat(currentTime).isEqualTo(6_000L)
         assertThat(transport.cancelled).isEqualTo(1)
+    }
+
+    @Test
+    fun `speakers that answer the search but refuse every topology query are a failure and not an empty list`() = runTest {
+        val transport = FakeTransport { SonosResult.Err(SonosFailure.LocalNetworkDenied) }
+
+        val updates = discoveryOf(searchOf(100L to ssdp("10.0.0.5")), transport).discover().toList()
+
+        assertThat(updates).containsExactly(DiscoveryUpdate.Blocked(SonosFailure.LocalNetworkDenied))
+    }
+
+    @Test
+    fun `a topology failure is not reported when another household resolved`() = runTest {
+        val xml = topology("RINCON_A" to listOf(Triple("RINCON_A", "Salón", "10.0.0.5")))
+        val transport = FakeTransport { host ->
+            if (host == "10.0.0.9") SonosResult.Err(SonosFailure.Timeout) else ok(xml)
+        }
+
+        val updates = discoveryOf(
+            searchOf(100L to ssdp("10.0.0.5", household = "HH1"), 200L to ssdp("10.0.0.9", household = "HH2")),
+            transport,
+        ).discover().toList()
+
+        assertThat(updates.filterIsInstance<DiscoveryUpdate.Blocked>()).isEmpty()
     }
 
     @Test

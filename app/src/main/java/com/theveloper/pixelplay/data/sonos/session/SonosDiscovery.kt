@@ -9,11 +9,13 @@ import com.theveloper.pixelplay.data.sonos.net.SsdpEvent
 import com.theveloper.pixelplay.data.sonos.protocol.SonosService
 import com.theveloper.pixelplay.data.sonos.protocol.ZoneGroupTopologyParser
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -34,6 +36,7 @@ internal fun interface SpeakerDiscovery {
 internal class SonosDiscovery(
     private val searchSpeakers: () -> Flow<SsdpEvent>,
     private val transport: SonosTransport,
+    private val io: CoroutineDispatcher,
     private val topologyTimeoutMs: Long = 2_000,
     private val overallTimeoutMs: Long = 6_000,
 ) : SpeakerDiscovery {
@@ -41,13 +44,19 @@ internal class SonosDiscovery(
     private sealed interface Step {
         data class Search(val event: SsdpEvent) : Step
         data object SearchEnded : Step
-        data class Topology(val household: String, val groups: List<SonosGroup>?) : Step
+        data class Topology(val household: String, val outcome: TopologyOutcome) : Step
+    }
+
+    private sealed interface TopologyOutcome {
+        data class Found(val groups: List<SonosGroup>) : TopologyOutcome
+        data class Failed(val failure: SonosFailure) : TopologyOutcome
     }
 
     private class Household {
         val pendingHosts = ArrayDeque<String>()
         val knownHosts = mutableSetOf<String>()
         var resolved = false
+        var lastFailure: SonosFailure? = null
         var querying = false
         var devices: List<SonosDevice> = emptyList()
     }
@@ -94,29 +103,38 @@ internal class SonosDiscovery(
                             running--
                             val household = households.getValue(step.household)
                             household.querying = false
-                            if (step.groups != null) {
+                            val outcome = step.outcome
+                            if (outcome is TopologyOutcome.Found) {
                                 household.resolved = true
                                 household.pendingHosts.clear()
-                                household.devices = SonosDeviceMapper.fromGroups(step.groups)
+                                household.devices = SonosDeviceMapper.fromGroups(outcome.groups)
                                 send(DiscoveryUpdate.Devices(SonosDeviceMapper.merge(households.values.flatMap { it.devices })))
-                            } else {
+                            } else if (outcome is TopologyOutcome.Failed) {
+                                household.lastFailure = outcome.failure
                                 query(step.household, household)
                             }
                         }
                     }
                 }
+                // Speakers answered the search but none could be asked: that is a failure, not an empty network.
+                val unresolved = households.values.filter { !it.resolved }
+                if (households.isNotEmpty() && households.values.none { it.resolved }) {
+                    unresolved.firstNotNullOfOrNull { it.lastFailure }?.let { send(DiscoveryUpdate.Blocked(it)) }
+                }
             }
         }
-    }
+    }.flowOn(io)
 
-    private suspend fun topologyOf(host: String): List<SonosGroup>? {
+    private suspend fun topologyOf(host: String): TopologyOutcome {
         val result = transport.call(
             host = host,
             service = SonosService.ZONE_GROUP_TOPOLOGY,
             action = "GetZoneGroupState",
             timeoutMs = topologyTimeoutMs,
         )
-        val xml = (result as? SonosResult.Ok)?.value?.get("ZoneGroupState") ?: return null
-        return ZoneGroupTopologyParser.parse(xml).takeIf { it.isNotEmpty() }
+        if (result is SonosResult.Err) return TopologyOutcome.Failed(result.failure)
+        val xml = (result as SonosResult.Ok).value["ZoneGroupState"]
+        val groups = xml?.let(ZoneGroupTopologyParser::parse).orEmpty()
+        return if (groups.isEmpty()) TopologyOutcome.Failed(SonosFailure.MalformedResponse) else TopologyOutcome.Found(groups)
     }
 }

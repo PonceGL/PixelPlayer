@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -66,6 +67,7 @@ class SsdpDiscoveryTest {
         SsdpDiscovery(
             openSocket = { net -> opened?.add(net); socket },
             network = FakeProvider(lan),
+            io = StandardTestDispatcher(testScheduler),
             elapsedRealtimeMs = { currentTime },
         )
 
@@ -149,6 +151,19 @@ class SsdpDiscoveryTest {
     }
 
     @Test
+    fun `a collector that throws an io error is not mistaken for a socket failure`() = runTest {
+        val socket = FakeSocket(this, listOf(100L to speaker()))
+
+        val error = runCatching {
+            discovery(socket).search().collect { throw IOException("collector failed") }
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IOException::class.java)
+        assertThat(error).hasMessageThat().isEqualTo("collector failed")
+        assertThat(socket.closed).isTrue()
+    }
+
+    @Test
     fun `a failure while receiving ends the search with a failure`() = runTest {
         val socket = FakeSocket(this, receiveError = IOException("socket closed"))
 
@@ -163,6 +178,7 @@ class SsdpDiscoveryTest {
         val discovery = SsdpDiscovery(
             openSocket = { throw IOException("EPERM (Operation not permitted)") },
             network = FakeProvider(FakeLan()),
+            io = StandardTestDispatcher(testScheduler),
             elapsedRealtimeMs = { currentTime },
         )
 

@@ -8,6 +8,7 @@ import com.theveloper.pixelplay.data.sonos.net.SonosTransport
 import com.theveloper.pixelplay.data.sonos.net.SsdpDiscovery
 import com.theveloper.pixelplay.data.sonos.session.SonosDiscovery
 import com.theveloper.pixelplay.data.sonos.session.SpeakerDiscovery
+import com.theveloper.pixelplay.di.IoDispatcher
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -15,6 +16,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Qualifier
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
 import okhttp3.OkHttpClient
 
 /** Plain client for talking to speakers: no logging or cache interceptors of the app's internet clients. */
@@ -40,14 +42,23 @@ internal object SonosModule {
     fun provideSonosHttpClient(): OkHttpClient = OkHttpClient()
 
     @Provides
-    fun provideSsdpDiscovery(network: LanNetworkProvider, sockets: MulticastSsdpSocket.Factory): SsdpDiscovery =
-        SsdpDiscovery(openSocket = sockets::open, network = network)
+    fun provideSsdpDiscovery(
+        network: LanNetworkProvider,
+        sockets: MulticastSsdpSocket.Factory,
+        @IoDispatcher io: CoroutineDispatcher,
+    ): SsdpDiscovery = SsdpDiscovery(openSocket = sockets::open, network = network, io = io)
 
     @Provides
-    fun provideSonosTransport(network: LanNetworkProvider, @SonosHttpClient client: OkHttpClient): SonosTransport =
-        HttpSonosTransport(network, client)
+    fun provideSonosTransport(
+        network: LanNetworkProvider,
+        @SonosHttpClient client: OkHttpClient,
+        @IoDispatcher io: CoroutineDispatcher,
+    ): SonosTransport = HttpSonosTransport(network, client, io)
 
     @Provides
-    fun provideSpeakerDiscovery(ssdp: SsdpDiscovery, transport: SonosTransport): SpeakerDiscovery =
-        SonosDiscovery(searchSpeakers = { ssdp.search() }, transport = transport)
+    fun provideSpeakerDiscovery(
+        ssdp: SsdpDiscovery,
+        transport: SonosTransport,
+        @IoDispatcher io: CoroutineDispatcher,
+    ): SpeakerDiscovery = SonosDiscovery(searchSpeakers = { ssdp.search() }, transport = transport, io = io)
 }

@@ -10,12 +10,15 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.SocketFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterEach
@@ -33,11 +36,19 @@ class HttpSonosTransportTest {
         override fun bind(socket: DatagramSocket) = Unit
     }
 
+    private val ioExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "sonos-io-test") }
+    private val io = ioExecutor.asCoroutineDispatcher()
+    private val wifiLookupThreads = CopyOnWriteArrayList<String>()
+
     private fun transport(wifi: Boolean = true, port: Int = server.address.port) = HttpSonosTransport(
         network = object : LanNetworkProvider {
-            override fun wifi(): LanNetwork? = if (wifi) FakeLan() else null
+            override fun wifi(): LanNetwork? {
+                wifiLookupThreads += Thread.currentThread().name
+                return if (wifi) FakeLan() else null
+            }
         },
         baseClient = baseClient,
+        io = io,
         port = port,
     )
 
@@ -57,6 +68,7 @@ class HttpSonosTransportTest {
     fun stopServer() {
         server.stop(0)
         baseClient.dispatcher.executorService.shutdown()
+        ioExecutor.shutdownNow()
     }
 
     private fun answer(path: String, status: Int, body: String) {
@@ -133,6 +145,22 @@ class HttpSonosTransportTest {
 
         assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
         assertThat(elapsedMs).isLessThan(2_000)
+    }
+
+    @Test
+    fun `the whole call runs on the io dispatcher and not on the caller thread`() = runBlocking {
+        answer(SonosService.AV_TRANSPORT.controlPath, 200, SonosFixtures.soapResponseBody("AVTransport.Next.ok"))
+
+        transport().call("127.0.0.1", SonosService.AV_TRANSPORT, "Next", listOf("InstanceID" to "0"))
+
+        assertThat(wifiLookupThreads).containsExactly("sonos-io-test")
+    }
+
+    @Test
+    fun `a host that cannot be part of a URL is a malformed response and not a crash`() = runBlocking {
+        val result = transport().call("fe80::1%wlan0 bad host", SonosService.AV_TRANSPORT, "Play")
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
     }
 
     @Test

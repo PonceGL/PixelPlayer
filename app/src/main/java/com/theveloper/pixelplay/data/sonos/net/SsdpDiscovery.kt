@@ -3,9 +3,11 @@ package com.theveloper.pixelplay.data.sonos.net
 import com.theveloper.pixelplay.data.sonos.protocol.Ssdp
 import com.theveloper.pixelplay.data.sonos.protocol.SsdpResponse
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 internal sealed interface SsdpEvent {
     data class Response(val response: SsdpResponse) : SsdpEvent
@@ -19,6 +21,7 @@ internal sealed interface SsdpEvent {
 internal class SsdpDiscovery(
     private val openSocket: (LanNetwork) -> SsdpSocket,
     private val network: LanNetworkProvider,
+    private val io: CoroutineDispatcher,
     private val elapsedRealtimeMs: () -> Long = { System.nanoTime() / NANOS_PER_MILLI },
 ) {
 
@@ -38,7 +41,7 @@ internal class SsdpDiscovery(
             return@flow
         }
         socket.use { listen(it, listenMs, sendAtMs) }
-    }
+    }.flowOn(io)
 
     private suspend fun FlowCollector<SsdpEvent>.listen(
         socket: SsdpSocket,
@@ -49,23 +52,27 @@ internal class SsdpDiscovery(
         val seen = mutableSetOf<String>()
         val start = elapsedRealtimeMs()
         var sent = 0
-        try {
-            while (true) {
-                val elapsed = elapsedRealtimeMs() - start
-                if (elapsed >= listenMs) return
-                val nextSendAt = sendAtMs.getOrNull(sent)
-                if (nextSendAt != null && elapsed >= nextSendAt) {
+        while (true) {
+            val elapsed = elapsedRealtimeMs() - start
+            if (elapsed >= listenMs) return
+            val nextSendAt = sendAtMs.getOrNull(sent)
+            val due = nextSendAt != null && elapsed >= nextSendAt
+            val untilNextSend = nextSendAt?.let { it - elapsed } ?: Long.MAX_VALUE
+            // Only the socket calls are guarded: an error thrown by the collector must not be taken for one.
+            val packet = try {
+                if (due) {
                     socket.send(request)
                     sent++
-                    continue
+                    null
+                } else {
+                    socket.receive(minOf(RECEIVE_SLICE_MS, untilNextSend, listenMs - elapsed))
                 }
-                val untilNextSend = nextSendAt?.let { it - elapsed } ?: Long.MAX_VALUE
-                val packet = socket.receive(minOf(RECEIVE_SLICE_MS, untilNextSend, listenMs - elapsed)) ?: continue
-                val response = Ssdp.parseResponse(packet.payload.toString(Charsets.UTF_8), packet.sourceHost)
-                if (response != null && seen.add(response.host)) emit(SsdpEvent.Response(response))
-            }
-        } catch (e: IOException) {
-            emit(SsdpEvent.Failed(NetFailureClassifier.classify(e)))
+            } catch (e: IOException) {
+                emit(SsdpEvent.Failed(NetFailureClassifier.classify(e)))
+                return
+            } ?: continue
+            val response = Ssdp.parseResponse(packet.payload.toString(Charsets.UTF_8), packet.sourceHost)
+            if (response != null && seen.add(response.host)) emit(SsdpEvent.Response(response))
         }
     }
 
