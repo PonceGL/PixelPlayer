@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.data.service.http
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -20,11 +19,7 @@ internal class ServiceMediaServerController @Inject constructor(
             action = MediaFileHttpServerService.ACTION_START_SERVER
             deviceIpHint?.let { putExtra(MediaFileHttpServerService.EXTRA_CAST_DEVICE_IP, it) }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        context.startForegroundService(intent)
     }
 
     override fun stop() {
