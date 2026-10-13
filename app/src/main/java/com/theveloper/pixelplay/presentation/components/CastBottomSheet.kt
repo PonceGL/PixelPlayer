@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import android.content.Intent
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
@@ -116,7 +117,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.theveloper.pixelplay.R
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -134,7 +141,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.mediarouter.media.MediaRouter
 import com.theveloper.pixelplay.presentation.screens.TabAnimation
 import com.theveloper.pixelplay.presentation.viewmodel.BluetoothAudioDeviceState
+import com.theveloper.pixelplay.presentation.viewmodel.BlockReason
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.SonosDevicesViewModel
+import com.theveloper.pixelplay.presentation.viewmodel.SonosSearchState
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import android.content.pm.PackageManager
@@ -158,6 +168,9 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/** First Android version where reaching devices on the local network needs its own permission. */
+private const val LOCAL_NETWORK_PERMISSION_SDK = 37
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -180,6 +193,8 @@ fun CastBottomSheet(
     val isCastConnecting by playerViewModel.isCastConnecting.collectAsStateWithLifecycle()
     val trackVolume by playerViewModel.trackVolume.collectAsStateWithLifecycle()
     val isPlaying = playerViewModel.stablePlayerState.collectAsStateWithLifecycle().value.isPlaying
+    val sonosViewModel: SonosDevicesViewModel = hiltViewModel()
+    val sonosState by sonosViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val requiredPermissions = remember {
@@ -194,15 +209,21 @@ fun CastBottomSheet(
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
                 add(Manifest.permission.ACCESS_FINE_LOCATION)
             }
+            if (Build.VERSION.SDK_INT >= LOCAL_NETWORK_PERMISSION_SDK) {
+                add(Manifest.permission.ACCESS_LOCAL_NETWORK)
+            }
         }
     }
     var missingPermissions by remember { mutableStateOf(missingCastPermissions(context, requiredPermissions)) }
+    var permissionGrantedInSheet by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
+        val hadMissing = missingPermissions.isNotEmpty()
         missingPermissions = missingCastPermissions(context, requiredPermissions)
         if (missingPermissions.isEmpty()) {
+            permissionGrantedInSheet = hadMissing
             playerViewModel.refreshLocalConnectionInfo(refreshBluetoothDevices = true)
         }
     }
@@ -211,6 +232,22 @@ fun CastBottomSheet(
         missingPermissions = missingCastPermissions(context, requiredPermissions)
         if (missingPermissions.isEmpty()) {
             playerViewModel.refreshLocalConnectionInfo(refreshBluetoothDevices = true)
+        }
+    }
+
+    // The speaker search lives exactly as long as the sheet and starts once permissions allow it.
+    val permissionsGranted = missingPermissions.isEmpty()
+    LaunchedEffect(permissionsGranted) {
+        if (permissionsGranted) sonosViewModel.search(permissionJustGranted = permissionGrantedInSheet)
+    }
+    DisposableEffect(Unit) {
+        onDispose { sonosViewModel.stop() }
+    }
+    // Coming back from the system settings (Wi-Fi or app permissions) is the moment to look again.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val blocked = (sonosState as? SonosSearchState.Blocked)?.reason
+        if (permissionsGranted && (blocked == BlockReason.NO_WIFI || blocked == BlockReason.LOCAL_NETWORK_DENIED)) {
+            sonosViewModel.search(permissionJustGranted = blocked == BlockReason.LOCAL_NETWORK_DENIED)
         }
     }
 
@@ -232,6 +269,11 @@ fun CastBottomSheet(
             activeName.isNotEmpty() && bluetoothDevices.any { it.name == activeName }
         }
 
+    val sonosDevices = when (val sonos = sonosState) {
+        is SonosSearchState.Searching -> sonos.devices
+        is SonosSearchState.Finished -> sonos.devices
+        else -> emptyList()
+    }
     val devices = buildList {
         if (isWifiEnabled) {
             addAll(
@@ -261,6 +303,8 @@ fun CastBottomSheet(
                 }
             )
         }
+
+        addAll(sonosDevices.map { it.toCastDeviceUi() })
 
         if (isBluetoothEnabled) {
             bluetoothDevices.forEach { bluetoothDevice ->
@@ -325,8 +369,11 @@ fun CastBottomSheet(
         wifiRadioOn = isWifiRadioOn,
         wifiEnabled = isWifiEnabled,
         wifiSsid = wifiName,
-        isScanning = isRefreshing && availableRoutes.isEmpty(),
-        isRefreshing = isRefreshing,
+        presentation = devicesPresentation(
+            castRefreshing = isRefreshing,
+            sonos = sonosState,
+            hasDevices = devices.isNotEmpty()
+        ),
         devices = devices,
         activeDevice = activeDevice,
         isBluetoothEnabled = isBluetoothEnabled,
@@ -371,6 +418,7 @@ fun CastBottomSheet(
                         state = uiState,
                         onSelectDevice = { id ->
                             when {
+                                id.startsWith("sonos_") -> Unit
                                 id.startsWith("bluetooth_") -> {
                                     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
                                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -403,6 +451,15 @@ fun CastBottomSheet(
                         onRefresh = {
                             playerViewModel.refreshCastRoutes()
                             playerViewModel.refreshLocalConnectionInfo(refreshBluetoothDevices = true)
+                            sonosViewModel.search()
+                        },
+                        onOpenAppSettings = {
+                            val intent = Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null)
+                            )
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
                         },
                         startWithControls = isRemoteSession
                     )
@@ -444,13 +501,15 @@ private data class CastSheetUiState(
     val wifiRadioOn: Boolean,
     val wifiEnabled: Boolean,
     val wifiSsid: String? = null,
-    val isScanning: Boolean,
-    val isRefreshing: Boolean,
+    val presentation: DevicesPresentation,
     val devices: List<CastDeviceUi>,
     val activeDevice: ActiveDeviceUi,
     val isBluetoothEnabled: Boolean,
     val bluetoothName: String? = null
-)
+) {
+    /** Looking for devices and nothing to show yet. */
+    val isScanning: Boolean get() = presentation.isSearching && devices.isEmpty()
+}
 
 private fun BluetoothAudioDeviceState.stableId(): String {
     return address ?: name.lowercase()
@@ -500,6 +559,13 @@ private fun CastPermissionStep(
                     title = stringResource(R.string.cast_perm_location_title),
                     description = stringResource(R.string.cast_perm_location_desc)
                 )
+                if (Manifest.permission.ACCESS_LOCAL_NETWORK in missingPermissions) {
+                    PermissionHighlight(
+                        icon = Icons.Rounded.Speaker,
+                        title = stringResource(R.string.sonos_perm_local_network_title),
+                        description = stringResource(R.string.sonos_perm_local_network_desc)
+                    )
+                }
             }
         }
 
@@ -575,6 +641,7 @@ private fun CastSheetContent(
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAppSettings: () -> Unit = {},
     startWithControls: Boolean = true
 ) {
     val allConnectivityOff = !state.wifiEnabled && !state.isBluetoothEnabled
@@ -677,6 +744,7 @@ private fun CastSheetContent(
                         onTurnOnWifi = onTurnOnWifi,
                         onOpenBluetoothSettings = onOpenBluetoothSettings,
                         onRefresh = onRefresh,
+                        onOpenAppSettings = onOpenAppSettings,
                         maxContentHeight = maxPagerHeight,
                     )
                 }
@@ -825,6 +893,7 @@ private fun CastDevicesTabContent(
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     maxContentHeight: Dp,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -841,14 +910,15 @@ private fun CastDevicesTabContent(
             item(key = "deviceSectionHeader") {
                 DeviceSectionHeader(
                     modifier = Modifier.fillMaxWidth(),
-                    hasDevices = state.devices.isNotEmpty(),
-                        onRefresh = onRefresh
+                    header = state.presentation.header,
+                    isSearching = state.presentation.isSearching,
+                    onRefresh = onRefresh
                 )
             }
 
             item(key = "refreshIndicator") {
                 AnimatedVisibility(
-                    visible = state.isRefreshing,
+                    visible = state.presentation.isSearching,
                     enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)),
                     exit = fadeOut(animationSpec = tween(180)),
                     label = "refreshIndicator"
@@ -864,16 +934,25 @@ private fun CastDevicesTabContent(
             }
         }
 
-        if (state.isScanning && state.devices.isEmpty()) {
-            item(key = "scanningPlaceholder") {
+        state.presentation.blocked?.let { reason ->
+            item(key = "sonosNotice") {
+                SonosNoticeCard(
+                    reason = reason,
+                    onTurnOnWifi = onTurnOnWifi,
+                    onOpenAppSettings = onOpenAppSettings,
+                    onRetry = onRefresh
+                )
+            }
+        }
+
+        when (state.presentation.body) {
+            DevicesBody.PLACEHOLDER -> item(key = "scanningPlaceholder") {
                 ScanningPlaceholderList()
             }
-        } else if (state.devices.isEmpty()) {
-            item(key = "emptyDevices") {
+            DevicesBody.EMPTY -> item(key = "emptyDevices") {
                 EmptyDeviceState()
             }
-        } else {
-            items(state.devices, key = { it.id }) { device ->
+            DevicesBody.LIST -> items(state.devices, key = { it.id }) { device ->
                 CastDeviceRow(
                     device = device,
                     onSelect = { onSelectDevice(device.id) },
@@ -1235,7 +1314,8 @@ private fun CollapsibleCastTopBar(
 @Composable
 private fun DeviceSectionHeader(
     modifier: Modifier = Modifier,
-    hasDevices: Boolean,
+    header: DevicesHeader,
+    isSearching: Boolean,
     onRefresh: () -> Unit
 ) {
     Row(
@@ -1253,7 +1333,11 @@ private fun DeviceSectionHeader(
             )
             Text(
                 text = stringResource(
-                    if (hasDevices) R.string.cast_header_tap_to_connect else R.string.cast_header_no_devices
+                    when (header) {
+                        DevicesHeader.SEARCHING -> R.string.cast_header_searching
+                        DevicesHeader.TAP_TO_CONNECT -> R.string.cast_header_tap_to_connect
+                        DevicesHeader.NO_DEVICES -> R.string.cast_header_no_devices
+                    }
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1268,7 +1352,17 @@ private fun DeviceSectionHeader(
             ),
             modifier = Modifier.clip(RoundedCornerShape(16.dp))
         ) {
-            Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.cast_cd_refresh_devices))
+            if (isSearching) {
+                val searchingLabel = stringResource(R.string.cast_cd_searching)
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .semantics { contentDescription = searchingLabel },
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.cast_cd_refresh_devices))
+            }
         }
     }
 }
@@ -1485,6 +1579,80 @@ private fun buildVolumeLabel(value: Float, max: Float): String {
 }
 
 @Composable
+private fun SonosNoticeCard(
+    reason: BlockReason,
+    onTurnOnWifi: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onRetry: () -> Unit
+) {
+    val title = stringResource(
+        when (reason) {
+            BlockReason.NO_WIFI -> R.string.sonos_no_wifi_title
+            BlockReason.LOCAL_NETWORK_DENIED -> R.string.sonos_blocked_local_network_title
+            BlockReason.PERMISSION_PENDING -> R.string.sonos_blocked_pending
+            BlockReason.UNAVAILABLE -> R.string.sonos_unavailable_title
+        }
+    )
+    val body = if (reason == BlockReason.LOCAL_NETWORK_DENIED) {
+        stringResource(R.string.sonos_blocked_local_network_body)
+    } else {
+        null
+    }
+    val actionLabel = when (reason) {
+        BlockReason.NO_WIFI -> stringResource(R.string.sonos_no_wifi_action)
+        BlockReason.LOCAL_NETWORK_DENIED -> stringResource(R.string.sonos_blocked_local_network_action)
+        BlockReason.UNAVAILABLE -> stringResource(R.string.sonos_unavailable_action)
+        BlockReason.PERMISSION_PENDING -> null
+    }
+    val onAction = when (reason) {
+        BlockReason.NO_WIFI -> onTurnOnWifi
+        BlockReason.LOCAL_NETWORK_DENIED -> onOpenAppSettings
+        else -> onRetry
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (reason == BlockReason.PERMISSION_PENDING) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+            } else {
+                Icon(
+                    imageVector = if (reason == BlockReason.NO_WIFI) Icons.Rounded.WifiOff else Icons.Rounded.Speaker,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center
+            )
+            if (body != null) {
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (actionLabel != null) {
+                Button(onClick = onAction, shape = RoundedCornerShape(50)) {
+                    Text(text = actionLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EmptyDeviceState() {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1505,7 +1673,7 @@ private fun EmptyDeviceState() {
                 modifier = Modifier.size(36.dp)
             )
             Text(
-                text = stringResource(R.string.cast_searching),
+                text = stringResource(R.string.sonos_empty_title),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1564,7 +1732,8 @@ private fun CastDeviceRow(
             .fillMaxWidth()
             .clip(CircleShape) // Mantenemos el clip circular para el ripple
             .clickable(
-                enabled = true,
+                // Playing on a speaker is not available from this list yet.
+                enabled = !device.isSonos,
                 onClick = when {
                     device.isBluetooth -> onSelect
                     device.isSelected &&
@@ -1648,6 +1817,15 @@ private fun CastDeviceRow(
                     icon = statusIcon,
                     contentColor = onContainer
                 )
+
+                if (device.isSonos && device.roomCount > 1) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = pluralStringResource(R.plurals.sonos_rooms_count, device.roomCount, device.roomCount),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = onContainer
+                    )
+                }
             }
 
             when {
@@ -1927,8 +2105,7 @@ private fun CastSheetScanningPreview() {
         wifiRadioOn = true,
         wifiEnabled = true,
         wifiSsid = "Home Wi-Fi",
-        isScanning = true,
-        isRefreshing = true,
+        presentation = devicesPresentation(castRefreshing = true, sonos = SonosSearchState.Idle, hasDevices = false),
         devices = emptyList(),
         activeDevice = ActiveDeviceUi(
             id = "phone",
@@ -1986,8 +2163,7 @@ private fun CastSheetDevicesPreview() {
         wifiRadioOn = true,
         wifiEnabled = true,
         wifiSsid = "Office 5G",
-        isScanning = false,
-        isRefreshing = false,
+        presentation = devicesPresentation(castRefreshing = false, sonos = SonosSearchState.Idle, hasDevices = true),
         devices = devices,
         activeDevice = ActiveDeviceUi(
             id = "2",
@@ -2020,8 +2196,7 @@ private fun CastSheetWifiOffPreview() {
     val state = CastSheetUiState(
         wifiRadioOn = false,
         wifiEnabled = false,
-        isScanning = false,
-        isRefreshing = false,
+        presentation = devicesPresentation(castRefreshing = false, sonos = SonosSearchState.Idle, hasDevices = false),
         devices = emptyList(),
         activeDevice = ActiveDeviceUi(
             id = "phone",

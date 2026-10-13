@@ -4,4 +4,20 @@
     <string name="cast_header_searching">Searching…</string>
     <string name="cast_header_tap_to_connect">Tap to connect</string>
     <string name="cast_header_no_devices">No devices yet</string>
+    <string name="cast_cd_searching">Searching for devices</string>
+    <string name="sonos_empty_title">No devices found</string>
+    <plurals name="sonos_rooms_count">
+        <item quantity="one">%d room</item>
+        <item quantity="other">%d rooms</item>
+    </plurals>
+    <string name="sonos_no_wifi_title">Connect to Wi‑Fi to find speakers</string>
+    <string name="sonos_no_wifi_action">Wi‑Fi settings</string>
+    <string name="sonos_blocked_local_network_title">Local network access is off</string>
+    <string name="sonos_blocked_local_network_body">Allow access to devices on your network so PixelPlayer can find your Sonos speakers.</string>
+    <string name="sonos_blocked_local_network_action">Open settings</string>
+    <string name="sonos_blocked_pending">Applying permission…</string>
+    <string name="sonos_unavailable_title">Couldn\'t search for speakers</string>
+    <string name="sonos_unavailable_action">Try again</string>
+    <string name="sonos_perm_local_network_title">Local network</string>
+    <string name="sonos_perm_local_network_desc">Lets PixelPlayer find and talk to Sonos speakers on your Wi‑Fi.</string>
 </resources>
