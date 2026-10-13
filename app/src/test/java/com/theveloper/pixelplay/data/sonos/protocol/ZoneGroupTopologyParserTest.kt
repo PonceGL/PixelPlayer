@@ -76,6 +76,29 @@ class ZoneGroupTopologyParserTest {
     }
 
     @Test
+    fun `an IPv6 location keeps its bracketed host so it can be reused in a URL`() {
+        val xml = """
+            <ZoneGroupState><ZoneGroups><ZoneGroup Coordinator="RINCON_A">
+              <ZoneGroupMember UUID="RINCON_A" Location="http://[fe80::1]:1400/xml/d.xml" ZoneName="Living"/>
+            </ZoneGroup></ZoneGroups></ZoneGroupState>
+        """.trimIndent()
+
+        assertThat(ZoneGroupTopologyParser.parse(xml).single().members.single().host).isEqualTo("[fe80::1]")
+    }
+
+    @Test
+    fun `a location that is not a valid URL skips the member`() {
+        val xml = """
+            <ZoneGroupState><ZoneGroups><ZoneGroup Coordinator="RINCON_A">
+              <ZoneGroupMember UUID="RINCON_A" Location="not a url" ZoneName="Broken"/>
+              <ZoneGroupMember UUID="RINCON_B" Location="/relative/path" ZoneName="Relative"/>
+            </ZoneGroup></ZoneGroups></ZoneGroupState>
+        """.trimIndent()
+
+        assertThat(ZoneGroupTopologyParser.parse(xml).single().members).isEmpty()
+    }
+
+    @Test
     fun `malformed input yields no groups`() {
         assertThat(ZoneGroupTopologyParser.parse("")).isEmpty()
         assertThat(ZoneGroupTopologyParser.parse("garbage")).isEmpty()
