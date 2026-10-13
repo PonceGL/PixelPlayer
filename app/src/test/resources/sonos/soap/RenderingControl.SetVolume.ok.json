@@ -1,0 +1,14 @@
+{
+ "service": "RenderingControl",
+ "action": "SetVolume",
+ "args": {
+  "InstanceID": 0,
+  "Channel": "Master",
+  "DesiredVolume": 8
+ },
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 19.6,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>8</DesiredVolume></u:SetVolume></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetVolumeResponse xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"></u:SetVolumeResponse></s:Body></s:Envelope>"
+}

@@ -1,0 +1,10 @@
+{
+ "service": "ZoneGroupTopology",
+ "action": "GetZoneGroupState",
+ "args": {},
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 18.6,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetZoneGroupState xmlns:u=\"urn:schemas-upnp-org:service:ZoneGroupTopology:1\"></u:GetZoneGroupState></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetZoneGroupStateResponse xmlns:u=\"urn:schemas-upnp-org:service:ZoneGroupTopology:1\"><ZoneGroupState>&lt;ZoneGroupState&gt;&lt;ZoneGroups&gt;&lt;ZoneGroup Coordinator=&quot;RINCON_000E58000001001400&quot; ID=&quot;RINCON_000E58000001001400:2154754070&quot;&gt;&lt;ZoneGroupMember UUID=&quot;RINCON_000E58000001001400&quot; Location=&quot;http://192.168.1.10:1400/xml/device_description.xml&quot; ZoneName=&quot;Salón&quot; Icon=&quot;&quot; Configuration=&quot;1&quot; SoftwareVersion=&quot;93.1-73290&quot; SWGen=&quot;2&quot; MinCompatibleVersion=&quot;92.0-00000&quot; LegacyCompatibleVersion=&quot;58.0-00000&quot; BootSeq=&quot;238&quot; TVConfigurationError=&quot;0&quot; HdmiCecAvailable=&quot;0&quot; WirelessMode=&quot;1&quot; ConnectionType=&quot;5&quot; ChannelFreq=&quot;5745&quot; BehindWifiExtender=&quot;0&quot; WifiEnabled=&quot;1&quot; EthLink=&quot;0&quot; Orientation=&quot;0&quot; RoomCalibrationState=&quot;4&quot; SecureRegState=&quot;3&quot; VoiceConfigState=&quot;0&quot; MicEnabled=&quot;0&quot; HeadphoneSwapActive=&quot;0&quot; AirPlayEnabled=&quot;1&quot; IdleState=&quot;1&quot; MoreInfo=&quot;RawBattPct:95,BattPct:97,BattChg:NOT_CHARGING,BattTmp:23&quot; SSLPort=&quot;1443&quot; HHSSLPort=&quot;1843&quot;/&gt;&lt;/ZoneGroup&gt;&lt;/ZoneGroups&gt;&lt;VanishedDevices&gt;&lt;/VanishedDevices&gt;&lt;/ZoneGroupState&gt;</ZoneGroupState></u:GetZoneGroupStateResponse></s:Body></s:Envelope>"
+}

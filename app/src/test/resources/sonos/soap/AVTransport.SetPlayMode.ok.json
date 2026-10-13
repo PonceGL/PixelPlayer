@@ -1,0 +1,13 @@
+{
+ "service": "AVTransport",
+ "action": "SetPlayMode",
+ "args": {
+  "InstanceID": 0,
+  "NewPlayMode": "NORMAL"
+ },
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 20.0,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetPlayMode xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><NewPlayMode>NORMAL</NewPlayMode></u:SetPlayMode></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:SetPlayModeResponse xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"></u:SetPlayModeResponse></s:Body></s:Envelope>"
+}

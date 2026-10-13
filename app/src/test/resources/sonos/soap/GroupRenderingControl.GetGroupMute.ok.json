@@ -1,0 +1,12 @@
+{
+ "service": "GroupRenderingControl",
+ "action": "GetGroupMute",
+ "args": {
+  "InstanceID": 0
+ },
+ "http_status": 200,
+ "error_code": null,
+ "latency_ms": 19.4,
+ "request_body": "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGroupMute xmlns:u=\"urn:schemas-upnp-org:service:GroupRenderingControl:1\"><InstanceID>0</InstanceID></u:GetGroupMute></s:Body></s:Envelope>",
+ "response_body": "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetGroupMuteResponse xmlns:u=\"urn:schemas-upnp-org:service:GroupRenderingControl:1\"><CurrentMute>0</CurrentMute></u:GetGroupMuteResponse></s:Body></s:Envelope>"
+}
