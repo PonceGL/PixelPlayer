@@ -412,7 +412,7 @@ fun CastBottomSheet(
     }
 }
 
-private data class CastDeviceUi(
+internal data class CastDeviceUi(
     val id: String,
     val name: String,
     val deviceType: Int,
@@ -423,7 +423,9 @@ private data class CastDeviceUi(
     val volumeMax: Int,
     val isSelected: Boolean,
     val batteryPercent: Int? = null,
-    val isBluetooth: Boolean = false
+    val isBluetooth: Boolean = false,
+    val isSonos: Boolean = false,
+    val roomCount: Int = 1
 )
 
 private data class ActiveDeviceUi(
