@@ -31,6 +31,13 @@ class NetFailureClassifierTest {
     }
 
     @Test
+    fun `the cause of a wrapped failure decides the classification`() {
+        val wrapped = IOException("Failed to connect to /192.168.1.10:1400", ConnectException("Connection refused"))
+
+        assertThat(NetFailureClassifier.classify(wrapped)).isEqualTo(SonosFailure.ConnectionRefused)
+    }
+
+    @Test
     fun `a refused connection is reported as refused`() {
         val e = ConnectException("failed to connect to /192.168.1.10 (port 1400): connect failed: ECONNREFUSED (Connection refused)")
 
