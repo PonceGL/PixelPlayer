@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.data.sonos.net
 
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketException
@@ -15,6 +16,18 @@ class NetFailureClassifierTest {
     fun `a socket timeout is a timeout`() {
         assertThat(NetFailureClassifier.classify(SocketTimeoutException("timeout")))
             .isEqualTo(SonosFailure.Timeout)
+    }
+
+    @Test
+    fun `a call that ran out of time is a timeout`() {
+        assertThat(NetFailureClassifier.classify(InterruptedIOException("timeout")))
+            .isEqualTo(SonosFailure.Timeout)
+    }
+
+    @Test
+    fun `a refused connection on the jvm is reported as refused`() {
+        assertThat(NetFailureClassifier.classify(ConnectException("Connection refused")))
+            .isEqualTo(SonosFailure.ConnectionRefused)
     }
 
     @Test

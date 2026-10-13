@@ -1,8 +1,8 @@
 package com.theveloper.pixelplay.data.sonos.net
 
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.NoRouteToHostException
-import java.net.SocketTimeoutException
 import java.net.UnknownServiceException
 
 internal object NetFailureClassifier {
@@ -10,11 +10,11 @@ internal object NetFailureClassifier {
     fun classify(e: IOException): SonosFailure {
         val message = e.message.orEmpty()
         return when {
-            e is SocketTimeoutException -> SonosFailure.Timeout
+            e is InterruptedIOException -> SonosFailure.Timeout
             e is UnknownServiceException && message.contains("CLEARTEXT", ignoreCase = true) ->
                 SonosFailure.CleartextBlocked
             message.contains("EPERM") -> SonosFailure.LocalNetworkDenied
-            message.contains("ECONNREFUSED") -> SonosFailure.ConnectionRefused
+            message.contains("ECONNREFUSED") || message.contains("Connection refused", ignoreCase = true) -> SonosFailure.ConnectionRefused
             e is NoRouteToHostException || UNREACHABLE_MARKERS.any { message.contains(it, ignoreCase = true) } ->
                 SonosFailure.NetworkUnreachable
             else -> SonosFailure.Network(message)
