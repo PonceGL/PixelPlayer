@@ -114,4 +114,29 @@ class SonosSheetModelTest {
         assertThat(ui.deviceType).isEqualTo(MediaRouter.RouteInfo.DEVICE_TYPE_REMOTE_SPEAKER)
         assertThat(ui.connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED)
     }
+
+    @Test
+    fun `coming back with no wifi searches again without any grace period`() {
+        assertThat(resumeSearch(BlockReason.NO_WIFI, localNetworkJustGranted = false))
+            .isEqualTo(ResumeSearch(permissionJustGranted = false))
+    }
+
+    @Test
+    fun `coming back with a denied permission that did not change searches without retries`() {
+        assertThat(resumeSearch(BlockReason.LOCAL_NETWORK_DENIED, localNetworkJustGranted = false))
+            .isEqualTo(ResumeSearch(permissionJustGranted = false))
+    }
+
+    @Test
+    fun `coming back after the permission was granted allows the grace period`() {
+        assertThat(resumeSearch(BlockReason.LOCAL_NETWORK_DENIED, localNetworkJustGranted = true))
+            .isEqualTo(ResumeSearch(permissionJustGranted = true))
+    }
+
+    @Test
+    fun `other states and no state are left alone on resume`() {
+        assertThat(resumeSearch(BlockReason.UNAVAILABLE, localNetworkJustGranted = false)).isNull()
+        assertThat(resumeSearch(BlockReason.PERMISSION_PENDING, localNetworkJustGranted = true)).isNull()
+        assertThat(resumeSearch(null, localNetworkJustGranted = true)).isNull()
+    }
 }

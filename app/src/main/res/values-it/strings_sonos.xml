@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="cast_manage_radios_hint">Gestisci le connessioni attive e cerca di nuovo</string>
-    <string name="cast_header_tap_to_connect">Tocca per connettere</string>
+    <string name="cast_header_tap_to_connect">Tocca per connetterti</string>
     <string name="cast_header_no_devices">Nessun dispositivo per ora</string>
     <string name="sonos_empty_title">Nessun dispositivo trovato</string>
     <plurals name="sonos_rooms_count">

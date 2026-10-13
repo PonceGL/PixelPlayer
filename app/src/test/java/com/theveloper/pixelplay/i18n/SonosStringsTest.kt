@@ -74,6 +74,18 @@ class SonosStringsTest {
     }
 
     @Test
+    fun `the common plural forms keep the number placeholder`() {
+        for (locale in locales) {
+            val plural = parse(File(resDir, "values-$locale/strings_sonos.xml"))["sonos_rooms_count"] ?: continue
+            for ((quantity, text) in plural.quantities) {
+                // Singular, dual and zero forms may spell the number out in words.
+                if (quantity in setOf("zero", "one", "two")) continue
+                assertWithMessage("$locale/$quantity").that(placeholdersOf(text)).containsExactly("%d")
+            }
+        }
+    }
+
+    @Test
     fun `plurals have a quantity for other and no blank text`() {
         for (locale in locales) {
             val translated = parse(File(resDir, "values-$locale/strings_sonos.xml"))

@@ -13,7 +13,7 @@
     <string name="sonos_blocked_local_network_title">Tilgang til lokalt nettverk er av</string>
     <string name="sonos_blocked_local_network_body">Gi tilgang til enheter på nettverket ditt slik at PixelPlayer kan finne Sonos-høyttalerne dine.</string>
     <string name="sonos_blocked_local_network_action">Åpne innstillinger</string>
-    <string name="sonos_blocked_pending">Bruker tillatelsen…</string>
+    <string name="sonos_blocked_pending">Tar i bruk tillatelsen…</string>
     <string name="sonos_unavailable_title">Kunne ikke søke etter høyttalere</string>
     <string name="sonos_unavailable_action">Prøv igjen</string>
     <string name="sonos_perm_local_network_title">Lokalt nettverk</string>

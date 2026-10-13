@@ -61,3 +61,16 @@ internal fun SonosDevice.toCastDeviceUi(): CastDeviceUi = CastDeviceUi(
     isSonos = true,
     roomCount = roomCount,
 )
+
+internal data class ResumeSearch(val permissionJustGranted: Boolean)
+
+/**
+ * What to do when the user comes back to the sheet from the system settings: look again only if the
+ * search was blocked by something they may just have fixed. The permission grace period is for a
+ * permission that actually changed, so a visit that fixed nothing does not show a long fake wait.
+ */
+internal fun resumeSearch(blocked: BlockReason?, localNetworkJustGranted: Boolean): ResumeSearch? = when (blocked) {
+    BlockReason.NO_WIFI -> ResumeSearch(permissionJustGranted = false)
+    BlockReason.LOCAL_NETWORK_DENIED -> ResumeSearch(permissionJustGranted = localNetworkJustGranted)
+    else -> null
+}

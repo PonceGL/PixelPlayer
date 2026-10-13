@@ -95,6 +95,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -215,7 +216,7 @@ fun CastBottomSheet(
         }
     }
     var missingPermissions by remember { mutableStateOf(missingCastPermissions(context, requiredPermissions)) }
-    var permissionGrantedInSheet by remember { mutableStateOf(false) }
+    var permissionGrantedInSheet by rememberSaveable { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -237,17 +238,26 @@ fun CastBottomSheet(
 
     // The speaker search lives exactly as long as the sheet and starts once permissions allow it.
     val permissionsGranted = missingPermissions.isEmpty()
-    LaunchedEffect(permissionsGranted) {
-        if (permissionsGranted) sonosViewModel.search(permissionJustGranted = permissionGrantedInSheet)
+    LaunchedEffect(permissionsGranted, isWifiEnabled) {
+        if (permissionsGranted) {
+            val justGranted = permissionGrantedInSheet
+            permissionGrantedInSheet = false
+            sonosViewModel.search(permissionJustGranted = justGranted)
+        }
     }
     DisposableEffect(Unit) {
         onDispose { sonosViewModel.stop() }
     }
     // Coming back from the system settings (Wi-Fi or app permissions) is the moment to look again.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        val blocked = (sonosState as? SonosSearchState.Blocked)?.reason
-        if (permissionsGranted && (blocked == BlockReason.NO_WIFI || blocked == BlockReason.LOCAL_NETWORK_DENIED)) {
-            sonosViewModel.search(permissionJustGranted = blocked == BlockReason.LOCAL_NETWORK_DENIED)
+        val before = missingPermissions
+        missingPermissions = missingCastPermissions(context, requiredPermissions)
+        val localNetworkJustGranted = Manifest.permission.ACCESS_LOCAL_NETWORK in before &&
+            Manifest.permission.ACCESS_LOCAL_NETWORK !in missingPermissions
+        if (missingPermissions.isEmpty()) {
+            resumeSearch((sonosState as? SonosSearchState.Blocked)?.reason, localNetworkJustGranted)?.let {
+                sonosViewModel.search(permissionJustGranted = it.permissionJustGranted)
+            }
         }
     }
 
@@ -304,7 +314,7 @@ fun CastBottomSheet(
             )
         }
 
-        addAll(sonosDevices.map { it.toCastDeviceUi() })
+        if (isWifiEnabled) addAll(sonosDevices.map { it.toCastDeviceUi() })
 
         if (isBluetoothEnabled) {
             bluetoothDevices.forEach { bluetoothDevice ->
