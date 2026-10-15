@@ -48,7 +48,7 @@ class SonosTrackMapperTest {
         for (id in ids) {
             val url = SonosTrackMapper.urlsFor(entry(songId = id), access, base, "1")!!.song
 
-            assertThat(SonosTrackMapper.songIdOf(url)).isEqualTo(id)
+            assertThat(SonosTrackMapper.songIdOf(url, access)).isEqualTo(id)
         }
     }
 
@@ -66,15 +66,27 @@ class SonosTrackMapperTest {
             "x-sonosapi-stream:s1234", "http://example.com/music.mp3", "http://192.168.1.20:8080/sonos/art/42?auth=x",
             "http://192.168.1.20:8080/sonos/song/", "http://192.168.1.20:8080/sonos/song", "http://192.168.1.20:8080/sonos/song/a/b",
             "http://192.168.1.20:8080/other/song/42", "file:///sdcard/a.mp3", "not a url at all",
+            "http://192.168.1.20:8080/sonos/song/42", // right shape, but no token of ours
+            "http://192.168.1.20:8080/sonos/song/42?auth=not-ours", // another phone's queue item
         )
         for (uri in others) {
-            assertThat(SonosTrackMapper.songIdOf(uri)).isNull()
+            assertThat(SonosTrackMapper.songIdOf(uri, access)).isNull()
         }
     }
 
     @Test
-    fun `an id comes back from the address a speaker hands out, with its query`() {
-        assertThat(SonosTrackMapper.songIdOf("http://10.0.0.5:9000/sonos/song/77?v=3&auth=abc")).isEqualTo("77")
+    fun `an id comes back from the address a speaker hands out, even if the phone changed address`() {
+        val token = "0123456789abcdef0123456789abcdef"
+
+        assertThat(SonosTrackMapper.songIdOf("http://10.0.0.5:9000/sonos/song/77?v=3&auth=$token", access)).isEqualTo("77")
+    }
+
+    @Test
+    fun `the printed form of the addresses never shows the token`() {
+        val urls = SonosTrackMapper.urlsFor(entry(), access, base, "1")!!
+
+        assertThat(urls.toString()).doesNotContain("0123456789abcdef0123456789abcdef")
+        assertThat(urls.song).contains("0123456789abcdef0123456789abcdef")
     }
 
     @Test
@@ -134,10 +146,14 @@ class SonosTrackMapperTest {
     }
 
     @Test
+    fun `a title made only of characters XML forbids still shows something`() {
+        assertThat(track(entry(title = "\u0000\u0001")).title).isEqualTo("Unknown")
+    }
+
+    @Test
     fun `a very long title is cut without splitting a character`() {
         val long = track(entry(title = "x".repeat(10_000))).title
-        assertThat(long.codePointCount(0, long.length)).isAtMost(256)
-        assertThat(long).endsWith("…")
+        assertThat(long).isEqualTo("x".repeat(255) + "…")
 
         val emojis = track(entry(title = "😀".repeat(300))).title
         assertThat(emojis.codePointCount(0, emojis.length)).isAtMost(256)

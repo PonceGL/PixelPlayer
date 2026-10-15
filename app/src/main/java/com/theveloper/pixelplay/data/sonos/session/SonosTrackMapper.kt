@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.sonos.session
 
 import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
+import com.theveloper.pixelplay.data.sonos.protocol.XmlText
 import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
@@ -23,7 +24,7 @@ internal object SonosTrackMapper {
     }
 
     fun toTrack(entry: QueueEntry, urls: MediaUrls): TrackMetadata = TrackMetadata(
-        title = limited(entry.title.ifBlank { UNTITLED }),
+        title = limited(entry.title.takeIf { XmlText.escape(it).isNotBlank() } ?: UNTITLED),
         artist = entry.artist?.takeIf { it.isNotBlank() }?.let(::limited),
         album = entry.album?.takeIf { it.isNotBlank() }?.let(::limited),
         albumArtUrl = urls.art,
@@ -32,9 +33,15 @@ internal object SonosTrackMapper {
         resourceUrl = urls.song,
     )
 
-    /** The id of the song that a queue item of ours points to, or null for anything else (Spotify, line-in, ...). */
-    fun songIdOf(uri: String): String? {
-        val segments = uri.toHttpUrlOrNull()?.pathSegments ?: return null
+    /**
+     * The id of the song that a queue item of ours points to, or null for anything else (Spotify, line-in, the
+     * queue item of another phone running this app, ...). Ours means made with this server's token, which also
+     * holds when the phone has a new address since the item was queued.
+     */
+    fun songIdOf(uri: String, access: SonosMediaAccess): String? {
+        val url = uri.toHttpUrlOrNull() ?: return null
+        if (!access.isOwnToken(url.queryParameter(SonosMediaAccess.TOKEN_PARAMETER))) return null
+        val segments = url.pathSegments
         if (segments.size != SONG_PATH_PREFIX.size + 1 || segments.take(SONG_PATH_PREFIX.size) != SONG_PATH_PREFIX) return null
         return segments.last().takeIf { it.isNotEmpty() }
     }

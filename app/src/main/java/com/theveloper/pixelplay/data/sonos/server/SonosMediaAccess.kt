@@ -34,7 +34,10 @@ internal class SonosMediaAccess(private val identity: () -> SonosServerIdentity)
     }
 
     /** False for ids that no address can carry. */
-    fun servable(songId: String): Boolean = songId.isNotEmpty() && songId != "." && songId != ".."
+    fun servable(songId: String): Boolean = songId.isNotBlank() && songId != "." && songId != ".."
+
+    /** True when [token] is the one this server hands out, so an address carrying it was made by this app. */
+    fun isOwnToken(token: String?): Boolean = !token.isNullOrEmpty() && tokensMatch(token, identity().token)
 
     fun songUrl(baseUrl: String, songId: String, revision: String): String = urlFor("song", baseUrl, songId, revision)
 

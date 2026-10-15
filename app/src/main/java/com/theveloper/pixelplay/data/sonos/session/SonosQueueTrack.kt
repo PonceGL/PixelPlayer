@@ -11,5 +11,7 @@ internal data class QueueEntry(
     val hasArt: Boolean,
 )
 
-/** Where a speaker fetches a song and its cover from. */
-internal data class MediaUrls(val song: String, val art: String?)
+/** Where a speaker fetches a song and its cover from. The addresses carry the access token, so they are never printed. */
+internal data class MediaUrls(val song: String, val art: String?) {
+    override fun toString(): String = "MediaUrls(art=${art != null})"
+}

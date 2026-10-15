@@ -190,4 +190,19 @@ class SonosMediaAccessTest {
             assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
         }
     }
+
+    @Test
+    fun `a blank id cannot be served either, matching what publish accepts`() {
+        assertThat(access.servable("   ")).isFalse()
+        assertThat(access.servable("")).isFalse()
+        assertThat(access.servable("42")).isTrue()
+    }
+
+    @Test
+    fun `only the token of this server counts as ours`() {
+        assertThat(access.isOwnToken(token)).isTrue()
+        assertThat(access.isOwnToken("somebody-else")).isFalse()
+        assertThat(access.isOwnToken(null)).isFalse()
+        assertThat(access.isOwnToken("")).isFalse()
+    }
 }

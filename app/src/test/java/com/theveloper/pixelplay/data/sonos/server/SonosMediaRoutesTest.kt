@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.sonos.server
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
@@ -34,6 +35,10 @@ class SonosMediaRoutesTest {
     private val artBytes = ByteArray(2_048) { (it % 251).toByte() }
     private val openedOffsets = CopyOnWriteArrayList<Long>()
     private val closedStreams = CountDownLatch(1)
+    private val oddIds = listOf(
+        "canción ñ", "x&y=z", "q?r", "h#sh", "50%", "100%25", "a/b", "back\\slash", "😀",
+        "content://media/external/audio/media/42", "...", "a;b", "x+y", "%2e%2e", "a%2Fb",
+    )
 
     private val source = object : SonosMediaSource {
         override suspend fun audio(songId: String): AudioPayload? = audioFor(songId)
@@ -53,6 +58,7 @@ class SonosMediaRoutesTest {
             "unknown" -> AudioPayload(-1, "audio/mpeg", null) { _ -> ByteArrayInputStream(songBytes) }
             "broken" -> AudioPayload(1_000, "audio/flac", null) { _ -> throw java.io.IOException("file vanished") }
             "missing-file" -> null
+            in oddIds -> AudioPayload(10, "audio/flac", null) { _ -> ByteArrayInputStream(ByteArray(10)) }
             else -> if (id.startsWith("mime:")) {
                 AudioPayload(10, id.removePrefix("mime:"), null) { _ -> ByteArrayInputStream(ByteArray(10)) }
             } else null
@@ -75,6 +81,7 @@ class SonosMediaRoutesTest {
 
     @BeforeEach
     fun start() {
+        access.publish(oddIds)
         access.publish(listOf("42", "Café (live)", "a b", "huge", "endless", "unknown", "missing-file", "broken"))
         server = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
             routing { sonosMediaRoutes(access, source, Dispatchers.IO) { logLines += it } }
@@ -352,6 +359,16 @@ class SonosMediaRoutesTest {
                 headers = lines.drop(1),
                 bodyBytes = text.length - head.length - 4,
             )
+        }
+    }
+
+    @Test
+    fun `every id the app can put in an address is served by the real server`() {
+        for (id in oddIds) {
+            get(songUrl(id)).use { response ->
+                assertWithMessage("id <$id>").that(response.code).isEqualTo(200)
+                assertWithMessage("id <$id>").that(response.body.bytes().size).isEqualTo(10)
+            }
         }
     }
 }
