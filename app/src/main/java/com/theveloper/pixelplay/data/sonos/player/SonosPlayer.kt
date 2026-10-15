@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
 import com.theveloper.pixelplay.data.sonos.session.Navigation
 import com.theveloper.pixelplay.data.sonos.session.SonosCommander
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionEngine
+import com.theveloper.pixelplay.utils.MediaItemBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -69,10 +70,15 @@ internal class SonosPlayer(
     private val playlist: List<MediaItemData> = queueItems.mapIndexed { index, item ->
         MediaItemData.Builder("$index:${item.mediaId}")
             .setMediaItem(item)
-            .setDurationUs(item.mediaMetadata.durationMs?.let { it * 1_000 } ?: C.TIME_UNSET)
+            .setDurationUs(appDurationMs(item)?.let { it * 1_000 } ?: C.TIME_UNSET)
             .setIsSeekable(true)
             .build()
     }
+
+    /** The app keeps the length of a song in an extra of its item; the typed field is the fallback. */
+    private fun appDurationMs(item: MediaItem): Long? =
+        item.mediaMetadata.extras?.getLong(MediaItemBuilder.EXTERNAL_EXTRA_DURATION)?.takeIf { it > 0L }
+            ?: item.mediaMetadata.durationMs
 
     private var previousIndex: Int? = null
     private var observing: Job? = null
