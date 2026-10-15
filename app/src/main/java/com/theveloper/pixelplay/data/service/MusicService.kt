@@ -45,6 +45,7 @@ import com.theveloper.pixelplay.data.sonos.di.SonosSessionControllerFactory
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.model.SonosUdn
+import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import com.theveloper.pixelplay.data.sonos.player.SonosPlayer
 import com.theveloper.pixelplay.data.sonos.session.HandBack
@@ -70,6 +71,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -379,6 +381,22 @@ class MusicService : MediaLibraryService() {
 
     // --- Speaker (Sonos) sessions ---
 
+    /** Counts the commands that start or end a session, so one that is overtaken knows it and leaves the rest to the newer. */
+    private var sonosAttempt = 0L
+
+    /** Whether the phone was playing when a chain of connection attempts began: that is what to restore on failure. */
+    private var sonosResumeIntent: Boolean? = null
+    private var sonosLocalPlayer: Player? = null
+
+    /** If the phone starts playing again during a speaker session, the user chose to play here: the session ends. */
+    private val sonosLocalWakeListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady && sonosPlayer != null) {
+                serviceScope.launch { endSonosSession(restoreLocal = false) }
+            }
+        }
+    }
+
     /**
      * Moves what is playing to a speaker: the queue of the local player, in the order it would play, from the
      * same song and second. The local player stays paused with its queue, so nothing is lost if the speaker
@@ -386,16 +404,37 @@ class MusicService : MediaLibraryService() {
      */
     private suspend fun connectSonos(args: Bundle): SessionResult {
         val device = sonosDeviceFrom(args) ?: return SessionResult(SessionError.ERROR_BAD_VALUE)
+        val attempt = ++sonosAttempt
+        // A fade between two local players would go on playing under the speaker: it is settled first.
+        if (sonosPlayer == null) engine.cancelNext()
         val local = engine.masterPlayer
-        // Going from one speaker to another: bring the music back first so the next one starts from where it is.
-        val resume = if (sonosPlayer != null) endSonosSession()?.wasPlaying == true else local.playWhenReady
-        if (local.mediaItemCount == 0) return SessionResult(SessionError.ERROR_BAD_VALUE)
+        // Going from one speaker to another: bring the music back first (without playing it on the phone) so the
+        // next one starts from where it is.
+        val handBack = if (sonosPlayer != null) returnFromSonos(resumeLocal = false, restorePosition = true) else null
+        val resume = sonosResumeIntent ?: (handBack?.wasPlaying ?: local.playWhenReady)
+        sonosResumeIntent = resume
+        if (local.mediaItemCount == 0) {
+            sonosResumeIntent = null
+            return SessionResult(SessionError.ERROR_BAD_VALUE)
+        }
 
-        val order = playbackOrderOf(local)
-        val items = order.map { local.getMediaItemAt(it) }
+        val windowed = engine.isUsingWindowedQueue()
+        val items: List<MediaItem>
+        val order: List<Int>
+        val currentIndex: Int
+        if (windowed) {
+            // After a fade the local player only holds a window of the queue: the whole one is what goes to the speaker.
+            items = engine.getFullQueue()
+            order = emptyList()
+            currentIndex = engine.getCurrentAbsoluteIndex().coerceIn(items.indices)
+        } else {
+            order = playbackOrderOf(local)
+            items = order.map { local.getMediaItemAt(it) }
+            currentIndex = order.indexOf(local.currentMediaItemIndex).coerceAtLeast(0)
+        }
         val queue = LocalQueue(
             entries = items.map(::sonosQueueEntryOf),
-            currentIndex = order.indexOf(local.currentMediaItemIndex).coerceAtLeast(0),
+            currentIndex = currentIndex,
             positionMs = local.currentPosition.coerceAtLeast(0L),
             playWhenReady = resume,
             repeat = when (local.repeatMode) {
@@ -406,13 +445,22 @@ class MusicService : MediaLibraryService() {
             shuffledByApp = local.shuffleModeEnabled || isManualShuffleEnabled,
         )
         local.pause()
-        return when (val result = sonosController.connect(device, queue)) {
+
+        val result = sonosController.connect(device, queue)
+        val stillWanted = attempt == sonosAttempt
+        return when (result) {
             is SonosResult.Err -> {
                 Timber.tag(TAG).w("Could not start the speaker session: %s", result.failure)
-                if (resume && sonosPlayer == null) local.play()
+                if (stillWanted) {
+                    sonosResumeIntent = null
+                    if (resume && result.failure != SonosFailure.Superseded) local.play()
+                }
                 SessionResult(SessionError.ERROR_UNKNOWN)
             }
             is SonosResult.Ok -> {
+                // A newer command overtook this one while it was finishing: it decides what happens to the session.
+                if (!stillWanted) return SessionResult(SessionError.ERROR_UNKNOWN)
+                sonosResumeIntent = null
                 val session = result.value
                 val player = SonosPlayer(
                     looper = Looper.getMainLooper(),
@@ -427,7 +475,9 @@ class MusicService : MediaLibraryService() {
                 )
                 player.attach()
                 sonosPlayer = player
-                sonosSongOrder = session.included.map { order[it] }
+                sonosSongOrder = session.included.mapNotNull { order.getOrNull(it) }.takeIf { it.size == session.included.size }.orEmpty()
+                local.addListener(sonosLocalWakeListener)
+                sonosLocalPlayer = local
                 publishMediaSessionPlayer(player, "Published the speaker session to MediaSession.")
                 SessionResult(SessionResult.RESULT_SUCCESS)
             }
@@ -435,27 +485,42 @@ class MusicService : MediaLibraryService() {
     }
 
     /**
-     * Ends the speaker session and puts the music back on the phone at the song and second the speaker was at,
-     * playing again if it was. Without a session it does nothing.
+     * Ends the speaker session, or a connection that is still starting. With [restoreLocal] the music goes back to
+     * the phone at the song and second the speaker was at, playing again if it was; without it the phone is left
+     * as it is (it is already playing something else).
      */
-    private suspend fun endSonosSession(): HandBack? {
+    private suspend fun endSonosSession(restoreLocal: Boolean): HandBack? {
+        sonosAttempt++
+        val pending = sonosResumeIntent
+        sonosResumeIntent = null
+        val handBack = returnFromSonos(resumeLocal = restoreLocal, restorePosition = restoreLocal)
+        // A connection that had paused the phone is cancelled: the phone plays again.
+        if (restoreLocal && handBack == null && pending == true && sonosPlayer == null) engine.masterPlayer.play()
+        return handBack
+    }
+
+    private suspend fun returnFromSonos(resumeLocal: Boolean, restorePosition: Boolean): HandBack? {
         val handBack = sonosController.disconnect()
         val sonos = sonosPlayer ?: return handBack
         val local = engine.masterPlayer
         val songId = handBack?.songId
-        if (songId != null) {
+        val target = if (restorePosition && handBack != null && songId != null) {
+            // The queue of the phone may have changed meanwhile: what is checked is that the song is still there.
             val shownIndex = sonosSongOrder.getOrNull(sonos.currentMediaItemIndex)
-            val target = shownIndex?.takeIf { local.getMediaItemAt(it).mediaId == songId }
+            shownIndex?.takeIf { it in 0 until local.mediaItemCount && local.getMediaItemAt(it).mediaId == songId }
                 ?: (0 until local.mediaItemCount).firstOrNull { local.getMediaItemAt(it).mediaId == songId }
-            if (target != null) {
-                local.seekTo(target, handBack.positionMs)
-                if (handBack.wasPlaying) {
-                    if (local.playbackState == Player.STATE_IDLE) local.prepare()
-                    local.play()
-                }
+        } else {
+            null
+        }
+        // The local player is the session's again, with its listeners, before it moves.
+        releaseSonosPlayer()
+        if (target != null && handBack != null) {
+            local.seekTo(target, handBack.positionMs)
+            if (resumeLocal && handBack.wasPlaying) {
+                if (local.playbackState == Player.STATE_IDLE) local.prepare()
+                local.play()
             }
         }
-        releaseSonosPlayer()
         return handBack
     }
 
@@ -464,6 +529,8 @@ class MusicService : MediaLibraryService() {
         val sonos = sonosPlayer ?: return
         sonosPlayer = null
         sonosSongOrder = emptyList()
+        sonosLocalPlayer?.removeListener(sonosLocalWakeListener)
+        sonosLocalPlayer = null
         publishMediaSessionPlayer(engine.masterPlayer, "Returned MediaSession to the local player.")
         sonos.release()
     }
@@ -805,11 +872,11 @@ class MusicService : MediaLibraryService() {
                         stopCountedPlay()
                     }
                     MusicNotificationProvider.CUSTOM_COMMAND_SONOS_CONNECT -> {
-                        return serviceScope.future { connectSonos(args) }
+                        return serviceScope.futureOnMain { connectSonos(args) }
                     }
                     MusicNotificationProvider.CUSTOM_COMMAND_SONOS_DISCONNECT -> {
-                        return serviceScope.future {
-                            endSonosSession()
+                        return serviceScope.futureOnMain {
+                            endSonosSession(restoreLocal = true)
                             SessionResult(SessionResult.RESULT_SUCCESS)
                         }
                     }
@@ -1663,6 +1730,8 @@ class MusicService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onDestroy() {
+        // Before the statistics are closed: giving the session back opens one for the local player.
+        releaseSonosPlayer()
         PlaybackActivityTracker.setPlaybackActive(false)
         listeningStatsTracker.finalizeCurrentSession(forceSynchronousPersistence = true)
         reportNavidromePlayback("stopped")
@@ -1681,7 +1750,6 @@ class MusicService : MediaLibraryService() {
         engine.removeTransitionDisplayPlayerListener(transitionDisplayPlayerListener)
         engine.removeTransitionFinishedListener(transitionFinishedListener)
         engine.setOnPlayerAboutToBeReleasedListener {}
-        releaseSonosPlayer()
         // A speaker still playing is paused and everything it used is let go, even though this service is going:
         // that takes a few seconds of network, so it runs on the application's scope.
         if (sonosControllerLazy.isInitialized()) {
@@ -2064,7 +2132,7 @@ class MusicService : MediaLibraryService() {
         if (!remoteSongId.isNullOrBlank()) {
             return remoteSongId
         }
-        val player = engine.masterPlayer
+        val player: Player = sonosPlayer ?: engine.masterPlayer
         return withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId }
     }
 
@@ -2686,9 +2754,10 @@ class MusicService : MediaLibraryService() {
             reason
         )
         isPlaybackUnloadInProgress = true
-        // The speaker's player is let go first so that what is stopped and cleared below is the local one; the
-        // speaker itself is paused and released when the service is destroyed.
+        // The speaker's player is let go first so that what is stopped and cleared below is the local one. The speaker
+        // is paused and everything it used is let go on the application's scope, because the service may stay bound.
         releaseSonosPlayer()
+        if (sonosControllerLazy.isInitialized()) appScope.launch { sonosController.disconnect() }
         followUpMediaSessionUiRefreshJob?.cancel()
         mediaSessionButtonRefreshJob?.cancel()
         widgetUpdateManager.cancel()
@@ -2758,6 +2827,9 @@ class MusicService : MediaLibraryService() {
         enabled: Boolean,
         broadcast: Boolean
     ) {
+        // The order of the queue a speaker is playing was fixed when it was sent: changing the shuffle now would
+        // show a state the speaker does not have.
+        if (sonosPlayer != null) return
         val changed = isManualShuffleEnabled != enabled
         isManualShuffleEnabled = enabled
         session.player.shuffleModeEnabled = enabled
@@ -3016,6 +3088,8 @@ class MusicService : MediaLibraryService() {
     // Counted Play Controls
     // ------------------------
     fun startCountedPlay(count: Int) {
+        // It counts plays of the local player, which is paused while a speaker plays.
+        if (sonosPlayer != null) return
         val player = engine.masterPlayer
         val currentItem = player.currentMediaItem ?: return
 
@@ -3093,6 +3167,24 @@ class MusicService : MediaLibraryService() {
     /**
      * Bridges a suspend block into a [ListenableFuture] for Media3 callback methods.
      */
+    /** For work that touches the players, which only the application thread may do. */
+    private fun <T> CoroutineScope.futureOnMain(block: suspend () -> T): ListenableFuture<T> {
+        val future = SettableFuture.create<T>()
+        launch(Dispatchers.Main.immediate) {
+            try {
+                future.set(block())
+            } catch (e: CancellationException) {
+                future.cancel(true)
+                throw e
+            } catch (e: Exception) {
+                // The edge of a session command: whatever goes wrong is the answer to the caller, not a crash.
+                Timber.tag(TAG).w("A session command failed: %s", e.javaClass.simpleName)
+                future.setException(e)
+            }
+        }
+        return future
+    }
+
     private fun <T> CoroutineScope.future(block: suspend () -> T): ListenableFuture<T> {
         val future = SettableFuture.create<T>()
         launch(Dispatchers.IO) {
