@@ -6,6 +6,7 @@ import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.model.TransportState
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
+import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.net.SonosSubscriber
 import com.theveloper.pixelplay.data.sonos.net.SonosTransport
 import com.theveloper.pixelplay.data.sonos.server.SonosEventRouter
@@ -146,6 +147,7 @@ internal class SonosSessionController(
         return operations.withLock {
             withContext(NonCancellable) {
                 val runtime = synchronized(lock) { current.also { current = null } } ?: return@withContext null
+                Timber.tag(TAG).d("disconnect")
                 val handBack = runtime.session?.let { handBackOf(runtime, it) }
                 teardown(runtime)
                 releaseShared()
@@ -170,6 +172,7 @@ internal class SonosSessionController(
             holder.set(SonosConnection.Connecting(device))
             powerLocks.acquire()
             result = race(runtime, queue)
+            Timber.tag(TAG).d("connect result: %s", if (result is SonosResult.Err) result.failure.safeName() else "ok")
             if (result is SonosResult.Ok) holder.set(SonosConnection.Active(device))
             return result
         } finally {
@@ -223,6 +226,7 @@ internal class SonosSessionController(
             SonosTrackMapper.toTrack(entry, urls)
         }
         val window = SonosCommander.queueWindow(tracks.size, start)
+        Timber.tag(TAG).d("connect: songs=%d sent=%d start=%d window=%s playWhenReady=%s", queue.entries.size, tracks.size, start, window, queue.playWhenReady)
         access.publish(window.map { queue.entries[included[it]].songId })
 
         val subscriptions = SonosEventSubscriptions(subscriber, router) { server.currentAddress() ?: base }

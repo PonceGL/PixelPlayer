@@ -14,6 +14,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import timber.log.Timber
 
 /** SOAP over HTTP to port 1400 of a speaker, always through the Wi-Fi network. */
 internal class HttpSonosTransport(
@@ -23,7 +24,23 @@ internal class HttpSonosTransport(
     private val port: Int = SONOS_PORT,
 ) : SonosTransport {
 
+    /** Every conversation leaves one line (action, outcome, time): without it a session that goes wrong cannot be followed. */
     override suspend fun call(
+        host: String,
+        service: SonosService,
+        action: String,
+        arguments: List<Pair<String, String>>,
+        timeoutMs: Long,
+    ): SonosResult<Map<String, String>> {
+        val startedNs = System.nanoTime()
+        val result = send(host, service, action, arguments, timeoutMs)
+        val tookMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNs)
+        val outcome = if (result is SonosResult.Err) result.failure.safeName() else "ok"
+        Timber.tag(LOG_TAG).d("%s %s in %d ms", action, outcome, tookMs)
+        return result
+    }
+
+    private suspend fun send(
         host: String,
         service: SonosService,
         action: String,
@@ -64,6 +81,7 @@ internal class HttpSonosTransport(
     }
 
     private companion object {
+        const val LOG_TAG = "SonosSession"
         const val SONOS_PORT = 1400
         const val MAX_RESPONSE_BYTES = 8L * 1024 * 1024
         val XML_MEDIA_TYPE = "text/xml; charset=\"utf-8\"".toMediaType()

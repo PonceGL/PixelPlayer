@@ -4,6 +4,7 @@ import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.TransportState
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
+import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.protocol.AvTransportChange
 import com.theveloper.pixelplay.data.sonos.protocol.RenderingChange
 import com.theveloper.pixelplay.data.sonos.protocol.TransportErrorKind
@@ -16,7 +17,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * A playback error of one song, as the speaker reported it or as the engine concluded from its behaviour.
@@ -88,6 +92,7 @@ internal class SonosSessionEngine(
             engineScope.launch { events.collect(::apply) }
             engineScope.launch { readLoop(engineScope) }
             engineScope.launch { pollLoop() }
+            engineScope.launch { logChanges() }
         }
         requestRead()
     }
@@ -158,6 +163,19 @@ internal class SonosSessionEngine(
                 }
             }
         }
+    }
+
+    /** What the speaker is doing, one line per change and without addresses or titles. */
+    private suspend fun logChanges() {
+        mutableState
+            .map { state ->
+                val playback = state.playback
+                "transport=${playback.transportState} track=${playback.currentTrackNumber}/${playback.numberOfTracks} " +
+                    "mode=${playback.playMode} origin=${state.lastChange} queueEnded=${state.queueEnded} " +
+                    "error=${state.lastError?.kind} readFailure=${state.readFailure?.safeName()} callback=${state.callbackReachable}"
+            }
+            .distinctUntilChanged()
+            .collect { Timber.tag(LOG_TAG).d("state: %s", it) }
     }
 
     private suspend fun pollLoop() {
@@ -316,6 +334,7 @@ internal class SonosSessionEngine(
     }
 
     private companion object {
+        const val LOG_TAG = "SonosSession"
         const val POLL_TICK_MS = 5_000L
         const val FAST_POLL_MS = 5_000L
         const val SAFETY_POLL_MS = 30_000L

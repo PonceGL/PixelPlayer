@@ -408,6 +408,7 @@ class MusicService : MediaLibraryService() {
     private val sonosLocalWakeListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (playWhenReady && sonosLocalPlayer != null) {
+                Timber.tag(TAG).w("The phone started playing during a speaker session: the session ends")
                 serviceScope.launch { endSonosSession(restoreLocal = false) }
             }
         }
