@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.sonos.session
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.SonosUdn
 import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
@@ -79,50 +80,104 @@ class SonosCommanderTest {
     ) = commander.loadAndPlay(tracks, startIndex, positionMs, mode, play, onStarted, onProgress)
 
     @Test
-    fun `loading queues up to the current song, selects it, sets the mode, seeks, plays, then queues the rest`() = test { f ->
-        val songs = tracks(3)
-        val started = mutableListOf<Int>()
-
-        val result = f.load(songs, startIndex = 1, positionMs = 95_000, mode = PlayMode.REPEAT_ALL, onStarted = { started += f.transport.calls.size })
+    fun `loading queues up to the current song, selects the mode and the song, seeks, plays, then queues the rest`() = test { f ->
+        val result = f.load(tracks(3), startIndex = 1, positionMs = 95_000, mode = PlayMode.REPEAT_ALL)
 
         assertThat(result).isEqualTo(SonosResult.Ok(LoadResult(0..2, positionApplied = true)))
         assertThat(f.transport.actions).containsExactly(
-            "RemoveAllTracksFromQueue", "AddURIToQueue", "AddURIToQueue", "SetAVTransportURI", "Seek", "SetPlayMode", "Seek", "Play",
+            "RemoveAllTracksFromQueue", "AddURIToQueue", "AddURIToQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Seek", "Play",
             "AddURIToQueue",
         ).inOrder()
-        assertThat(started).containsExactly(8) // everything up to Play was done, the rest not yet queued
         assertThat(f.transport.calls.all { it.host == host && it.service == SonosService.AV_TRANSPORT }).isTrue()
+    }
+
+    @Test
+    fun `each loading step sends the arguments the speaker expects`() = test { f ->
+        val songs = tracks(3)
+        f.load(songs, startIndex = 1, positionMs = 95_000, mode = PlayMode.REPEAT_ALL)
         val calls = f.transport.calls
-        assertThat(calls[0].arguments).containsExactly("InstanceID" to "0")
-        for ((i, n) in listOf(1 to 0, 2 to 1, 8 to 2)) {
-            assertThat(calls[i].arguments).containsExactly(
+
+        assertThat(calls.first { it.action == "RemoveAllTracksFromQueue" }.arguments).containsExactly("InstanceID" to "0")
+        val adds = calls.filter { it.action == "AddURIToQueue" }
+        assertThat(adds).hasSize(3)
+        for ((add, song) in adds.zip(songs)) {
+            assertThat(add.arguments).containsExactly(
                 "InstanceID" to "0",
-                "EnqueuedURI" to songs[n].resourceUrl,
-                "EnqueuedURIMetaData" to Didl.build(songs[n]),
+                "EnqueuedURI" to song.resourceUrl,
+                "EnqueuedURIMetaData" to Didl.build(song),
                 "DesiredFirstTrackNumberEnqueued" to "0",
                 "EnqueueAsNext" to "0",
             ).inOrder()
         }
-        assertThat(calls[3].arguments).containsExactly(
+        assertThat(calls.first { it.action == "SetAVTransportURI" }.arguments).containsExactly(
             "InstanceID" to "0", "CurrentURI" to "x-rincon-queue:RINCON_000E58000001001400#0", "CurrentURIMetaData" to "",
         ).inOrder()
-        assertThat(calls[4].arguments).containsExactly("InstanceID" to "0", "Unit" to "TRACK_NR", "Target" to "2").inOrder()
-        assertThat(calls[5].arguments).containsExactly("InstanceID" to "0", "NewPlayMode" to "REPEAT_ALL").inOrder()
-        assertThat(calls[6].arguments).containsExactly("InstanceID" to "0", "Unit" to "REL_TIME", "Target" to "0:01:35").inOrder()
-        assertThat(calls[7].arguments).containsExactly("InstanceID" to "0", "Speed" to "1").inOrder()
+        assertThat(calls.first { it.action == "SetPlayMode" }.arguments)
+            .containsExactly("InstanceID" to "0", "NewPlayMode" to "REPEAT_ALL").inOrder()
+        val seeks = calls.filter { it.action == "Seek" }
+        assertThat(seeks[0].arguments).containsExactly("InstanceID" to "0", "Unit" to "TRACK_NR", "Target" to "2").inOrder()
+        assertThat(seeks[1].arguments).containsExactly("InstanceID" to "0", "Unit" to "REL_TIME", "Target" to "0:01:35").inOrder()
+        assertThat(calls.first { it.action == "Play" }.arguments).containsExactly("InstanceID" to "0", "Speed" to "1").inOrder()
     }
 
     @Test
-    fun `starting at the first song queues one before playing, at the last song queues all and has no rest`() = test { f ->
-        f.load(tracks(3), startIndex = 0)
-        assertThat(f.transport.actions.indexOf("Play")).isEqualTo(f.transport.actions.indexOf("SetAVTransportURI") + 3)
-        assertThat(f.transport.actions.count { it == "AddURIToQueue" }).isEqualTo(3)
-        assertThat(f.transport.actions.take(3)).containsExactly("RemoveAllTracksFromQueue", "AddURIToQueue", "SetAVTransportURI").inOrder()
+    fun `the mode is set before the song is selected so the speaker cannot move to another song afterwards`() = test { f ->
+        f.load(tracks(4), startIndex = 2, mode = PlayMode.NORMAL)
 
-        val g = Fixture(this, host, udn)
-        g.load(tracks(3), startIndex = 2)
-        assertThat(g.transport.actions.takeLast(1)).containsExactly("Play")
-        assertThat(g.transport.calls.first { it.action == "Seek" }.arg("Target")).isEqualTo("3")
+        val actions = f.transport.actions
+        assertThat(actions.indexOf("SetPlayMode")).isLessThan(actions.indexOf("Seek"))
+    }
+
+    @Test
+    fun `started is told once with the result that is returned, after Play and before the rest is queued`() = test { f ->
+        val told = mutableListOf<Pair<LoadResult, Int>>()
+        f.transport.script = { call ->
+            if (call.action == "Seek" && call.arg("Unit") == "REL_TIME") upnp("Seek", UpnpErrorKind.TransitionNotAvailable) else SonosResult.Ok(emptyMap())
+        }
+
+        val result = f.load(tracks(3), startIndex = 0, positionMs = 9_000, onStarted = { told += it to f.transport.calls.size })
+
+        assertThat(told).hasSize(1)
+        assertThat(told.single().first).isEqualTo(LoadResult(0..2, positionApplied = false))
+        assertThat(SonosResult.Ok(told.single().first)).isEqualTo(result)
+        assertThat(f.transport.actions.take(told.single().second).last()).isEqualTo("Play")
+    }
+
+    @Test
+    fun `started is told even when the load does not play, and never when a step before it fails`() = test { f ->
+        var told = 0
+        f.load(tracks(2), startIndex = 0, play = false, onStarted = { told++ })
+        assertThat(told).isEqualTo(1)
+        assertThat(f.transport.actions).doesNotContain("Play")
+
+        for (failing in listOf("RemoveAllTracksFromQueue", "AddURIToQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Play")) {
+            val g = Fixture(this, host, udn)
+            g.transport.script = { if (it.action == failing) SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap()) }
+            var count = 0
+
+            g.load(tracks(3), startIndex = 1, onStarted = { count++ })
+
+            assertWithMessage(failing).that(count).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun `starting at the first song queues one before playing`() = test { f ->
+        f.load(tracks(3), startIndex = 0)
+
+        assertThat(f.transport.actions).containsExactly(
+            "RemoveAllTracksFromQueue", "AddURIToQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Play", "AddURIToQueue", "AddURIToQueue",
+        ).inOrder()
+    }
+
+    @Test
+    fun `starting at the last song queues all before playing and has no rest`() = test { f ->
+        f.load(tracks(3), startIndex = 2)
+
+        assertThat(f.transport.actions).containsExactly(
+            "RemoveAllTracksFromQueue", "AddURIToQueue", "AddURIToQueue", "AddURIToQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Play",
+        ).inOrder()
+        assertThat(f.transport.calls.first { it.action == "Seek" }.arg("Target")).isEqualTo("3")
     }
 
     @Test
@@ -143,6 +198,16 @@ class SonosCommanderTest {
     }
 
     @Test
+    fun `progress counts from the real position in the queue when the window starts later`() = test { f ->
+        val progress = mutableListOf<Int>()
+
+        f.load(tracks(1500), startIndex = 600, onProgress = { progress += it })
+
+        assertThat(progress.take(3)).containsExactly(102, 103, 104).inOrder()
+        assertThat(progress.last()).isEqualTo(1000)
+    }
+
+    @Test
     fun `a queue of 1500 is cut to 1000 around the first song`() = test { f ->
         val result = f.load(tracks(1500), startIndex = 0) as SonosResult.Ok
 
@@ -151,23 +216,35 @@ class SonosCommanderTest {
     }
 
     @Test
-    fun `a window around a song far into the queue keeps that song and tells which one is first`() = test { f ->
+    fun `a window keeps at most 100 songs before the current one so playback starts quickly`() = test { f ->
         val result = f.load(tracks(1500), startIndex = 1400) as SonosResult.Ok
 
-        assertThat(result.value.window).isEqualTo(500..1499)
-        assertThat(f.transport.calls.first { it.action == "Seek" }.arg("Target")).isEqualTo("901")
-        assertThat(f.transport.calls.first { it.action == "AddURIToQueue" }.arg("EnqueuedURI")).isEqualTo(tracks(1500)[500].resourceUrl)
+        assertThat(result.value.window).isEqualTo(1300..1499)
+        assertThat(f.transport.calls.first { it.action == "Seek" }.arg("Target")).isEqualTo("101")
+        assertThat(f.transport.calls.first { it.action == "AddURIToQueue" }.arg("EnqueuedURI")).isEqualTo(tracks(1500)[1300].resourceUrl)
+        assertThat(f.transport.actions.takeWhile { it != "SetAVTransportURI" }.count { it == "AddURIToQueue" }).isEqualTo(101)
     }
 
     @Test
-    fun `a queue of exactly 1000 is not cut and an empty one or a bad index is refused without touching the speaker`() = test { f ->
-        assertThat((f.load(tracks(1000), startIndex = 999) as SonosResult.Ok).value.window).isEqualTo(0..999)
+    fun `the window around any song keeps it, keeps the order and never exceeds 1000`() {
+        val cases = listOf(
+            Triple(10, 0, 0..9), Triple(10, 9, 0..9), Triple(250, 249, 149..249), Triple(1000, 0, 0..999), Triple(1000, 999, 899..999),
+            Triple(1001, 0, 0..999), Triple(1001, 100, 0..999), Triple(1001, 101, 1..1000), Triple(1001, 1000, 900..1000),
+            Triple(1500, 300, 200..1199), Triple(1500, 1499, 1399..1499),
+        )
+        for ((size, start, expected) in cases) {
+            assertWithMessage("size $size start $start").that(SonosCommander.queueWindow(size, start)).isEqualTo(expected)
+        }
+    }
 
-        val g = Fixture(this, host, udn)
-        assertThat(g.load(emptyList(), startIndex = 0)).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
-        assertThat(g.load(tracks(2), startIndex = 2)).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
-        assertThat(g.load(tracks(2), startIndex = -1)).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
-        assertThat(g.transport.calls).isEmpty()
+    @Test
+    fun `an empty queue or an index outside it is a programming error`() = test { f ->
+        for ((songs, index) in listOf(emptyList<TrackMetadata>() to 0, tracks(2) to 2, tracks(2) to -1)) {
+            val failure = runCatching { f.load(songs, startIndex = index) }.exceptionOrNull()
+
+            assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
+        }
+        assertThat(f.transport.calls).isEmpty()
     }
 
     @Test
@@ -199,7 +276,7 @@ class SonosCommanderTest {
     }
 
     @Test
-    fun `a failure while queueing is typed, ends the load and never plays`() = test { f ->
+    fun `a failure while queueing the first songs is typed, ends the load and never plays`() = test { f ->
         for (kind in listOf(UpnpErrorKind.ResourceNotFound, UpnpErrorKind.NotCoordinator, UpnpErrorKind.TransitionNotAvailable)) {
             val g = Fixture(this, host, udn)
             g.transport.script = { if (it.action == "AddURIToQueue") upnp("AddURIToQueue", kind) else SonosResult.Ok(emptyMap()) }
@@ -212,30 +289,51 @@ class SonosCommanderTest {
     }
 
     @Test
+    fun `a failure on the second of the first songs also ends the load there`() = test { f ->
+        f.transport.script = { call ->
+            if (call.action == "AddURIToQueue" && f.transport.calls.count { it.action == "AddURIToQueue" } == 2) upnp("AddURIToQueue", UpnpErrorKind.NotCoordinator)
+            else SonosResult.Ok(emptyMap())
+        }
+
+        val result = f.load(tracks(5), startIndex = 3)
+
+        assertThat(result).isEqualTo(upnp("AddURIToQueue", UpnpErrorKind.NotCoordinator))
+        assertThat(f.transport.actions).containsExactly("RemoveAllTracksFromQueue", "AddURIToQueue", "AddURIToQueue").inOrder()
+    }
+
+    @Test
+    fun `a failure while queueing the rest is typed, stops adding and leaves what already plays`() = test { f ->
+        val progress = mutableListOf<Int>()
+        f.transport.script = { call ->
+            if (call.action == "AddURIToQueue" && f.transport.calls.count { it.action == "AddURIToQueue" } == 4) upnp("AddURIToQueue", UpnpErrorKind.ResourceNotFound)
+            else SonosResult.Ok(emptyMap())
+        }
+
+        val result = f.load(tracks(8), startIndex = 0, onProgress = { progress += it })
+
+        assertThat(result).isEqualTo(upnp("AddURIToQueue", UpnpErrorKind.ResourceNotFound))
+        assertThat(f.transport.actions).contains("Play")
+        assertThat(f.transport.actions.count { it == "AddURIToQueue" }).isEqualTo(4)
+        assertThat(progress).containsExactly(2, 3).inOrder()
+    }
+
+    @Test
     fun `a failure in any early step ends the load there`() = test { f ->
-        for (failing in listOf("RemoveAllTracksFromQueue", "SetAVTransportURI", "SetPlayMode", "Play")) {
-            val g = Fixture(this, host, udn)
-            g.transport.script = { if (it.action == failing) SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap()) }
+        for (failing in listOf("RemoveAllTracksFromQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Play")) {
+            for (start in listOf(0, 1)) {
+                val g = Fixture(this, host, udn)
+                g.transport.script = { if (it.action == failing) SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap()) }
 
-            val result = g.load(tracks(3), startIndex = 0)
+                val result = g.load(tracks(3), startIndex = start)
 
-            assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
-            assertThat(g.transport.actions.last()).isEqualTo(failing)
+                assertWithMessage("$failing at $start").that(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+                assertWithMessage("$failing at $start").that(g.transport.actions.last()).isEqualTo(failing)
+            }
         }
     }
 
     @Test
-    fun `selecting the song by number failing ends the load`() = test { f ->
-        f.transport.script = { if (it.action == "Seek") SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap()) }
-
-        val result = f.load(tracks(3), startIndex = 1, positionMs = 5_000)
-
-        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
-        assertThat(f.transport.actions).doesNotContain("Play")
-    }
-
-    @Test
-    fun `a position that cannot be applied does not stop the song from starting`() = test { f ->
+    fun `a position that the speaker refuses does not stop the song from starting`() = test { f ->
         f.transport.script = { call ->
             if (call.action == "Seek" && call.arg("Unit") == "REL_TIME") upnp("Seek", UpnpErrorKind.TransitionNotAvailable) else SonosResult.Ok(emptyMap())
         }
@@ -244,6 +342,53 @@ class SonosCommanderTest {
 
         assertThat(result).isEqualTo(SonosResult.Ok(LoadResult(0..1, positionApplied = false)))
         assertThat(f.transport.actions).contains("Play")
+    }
+
+    @Test
+    fun `a position that cannot be sent because the network failed does fail the load`() = test { f ->
+        f.transport.script = { call ->
+            if (call.action == "Seek" && call.arg("Unit") == "REL_TIME") SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap())
+        }
+
+        val result = f.load(tracks(2), startIndex = 0, positionMs = 30_000)
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+        assertThat(f.transport.actions).doesNotContain("Play")
+    }
+
+    @Test
+    fun `a negative or zero position does not seek in time and counts as applied`() = test { f ->
+        for (position in listOf(0L, -1L)) {
+            val g = Fixture(this, host, udn)
+            val result = g.load(tracks(2), startIndex = 0, positionMs = position)
+
+            assertThat(result).isEqualTo(SonosResult.Ok(LoadResult(0..1, positionApplied = true)))
+            assertThat(g.transport.calls.filter { it.action == "Seek" }.map { it.arg("Unit") }).containsExactly("TRACK_NR")
+        }
+    }
+
+    @Test
+    fun `a newer load takes over and the older one stops adding songs and says it was superseded`() = test { f ->
+        val release = CompletableDeferred<Unit>()
+        f.transport.gate = { call, _ ->
+            if (call.action == "AddURIToQueue" && f.transport.calls.count { it.action == "AddURIToQueue" } == 3) release.await()
+        }
+        var older: SonosResult<LoadResult>? = null
+        launch { older = f.load(tracks(10), startIndex = 0) }
+        runCurrent()
+
+        val newer = launch { f.load(tracks(2), startIndex = 1) }
+        runCurrent()
+        release.complete(Unit)
+        runCurrent()
+
+        assertThat(older).isEqualTo(SonosResult.Err(SonosFailure.Superseded))
+        assertThat(newer.isCompleted).isTrue()
+        val actions = f.transport.actions
+        val newerStart = actions.withIndex().filter { it.value == "RemoveAllTracksFromQueue" }[1].index
+        assertThat(actions.drop(newerStart)).containsExactly(
+            "RemoveAllTracksFromQueue", "AddURIToQueue", "AddURIToQueue", "SetAVTransportURI", "SetPlayMode", "Seek", "Play",
+        ).inOrder()
     }
 
     @Test
@@ -258,26 +403,31 @@ class SonosCommanderTest {
     }
 
     @Test
-    fun `previous goes back after three seconds or less and restarts the song after more`() = test { f ->
-        f.commander.previousSmart(positionMs = 5_000)
+    fun `previous restarts the song after more than three seconds`() = test { f ->
+        val result = f.commander.previousSmart(positionMs = 5_000)
+
+        assertThat(result).isEqualTo(SonosResult.Ok(Navigation.MOVED))
         assertThat(f.transport.calls.single().let { it.action to it.arguments })
             .isEqualTo("Seek" to listOf("InstanceID" to "0", "Unit" to "REL_TIME", "Target" to "0:00:00"))
-
-        val g = Fixture(this, host, udn)
-        g.commander.previousSmart(positionMs = 1_000)
-        assertThat(g.transport.actions).containsExactly("Previous")
-
-        val h = Fixture(this, host, udn)
-        h.commander.previousSmart(positionMs = 3_000)
-        h.commander.previousSmart(positionMs = 3_001)
-        assertThat(h.transport.actions).containsExactly("Previous", "Seek").inOrder()
     }
 
     @Test
-    fun `previous at the start of a normal queue is not a failure`() = test { f ->
-        f.transport.script = { upnp("Previous", UpnpErrorKind.NoMoreTracks) }
+    fun `previous goes to the one before at three seconds or less`() = test { f ->
+        assertThat(f.commander.previousSmart(positionMs = 1_000)).isEqualTo(SonosResult.Ok(Navigation.MOVED))
+        assertThat(f.commander.previousSmart(positionMs = 3_000)).isEqualTo(SonosResult.Ok(Navigation.MOVED))
+        assertThat(f.commander.previousSmart(positionMs = 3_001)).isEqualTo(SonosResult.Ok(Navigation.MOVED))
 
-        assertThat(f.commander.previousSmart(positionMs = 500)).isEqualTo(SonosResult.Ok(Navigation.NO_MORE))
+        assertThat(f.transport.actions).containsExactly("Previous", "Previous", "Seek").inOrder()
+    }
+
+    @Test
+    fun `previous reports real failures on both branches`() = test { f ->
+        f.transport.script = { upnp(it.action, UpnpErrorKind.NotCoordinator) }
+        assertThat(f.commander.previousSmart(positionMs = 5_000)).isEqualTo(upnp("Seek", UpnpErrorKind.NotCoordinator))
+        assertThat(f.commander.previousSmart(positionMs = 500)).isEqualTo(upnp("Previous", UpnpErrorKind.NotCoordinator))
+
+        f.transport.script = { upnp(it.action, UpnpErrorKind.NoMoreTracks) }
+        assertThat(f.commander.previousSmart(positionMs = 5_000)).isEqualTo(upnp("Seek", UpnpErrorKind.NoMoreTracks))
     }
 
     @Test
@@ -291,16 +441,42 @@ class SonosCommanderTest {
 
     @Test
     fun `seeking to a song selects it by number and then moves in time`() = test { f ->
-        f.commander.seekToTrack(trackNumber = 4, positionMs = 12_000)
+        val result = f.commander.seekToTrack(trackNumber = 4, positionMs = 12_000)
 
+        assertThat(result).isEqualTo(SonosResult.Ok(true))
         assertThat(f.transport.calls.map { it.arguments }).containsExactly(
             listOf("InstanceID" to "0", "Unit" to "TRACK_NR", "Target" to "4"),
             listOf("InstanceID" to "0", "Unit" to "REL_TIME", "Target" to "0:00:12"),
         ).inOrder()
+    }
 
-        val g = Fixture(this, host, udn)
-        g.commander.seekToTrack(trackNumber = 0, positionMs = 0)
-        assertThat(g.transport.calls.single().arg("Target")).isEqualTo("1")
+    @Test
+    fun `seeking to a song never selects a number below one nor moves in time for zero or less`() = test { f ->
+        f.commander.seekToTrack(trackNumber = 0, positionMs = -3)
+
+        assertThat(f.transport.calls.single().arg("Target")).isEqualTo("1")
+    }
+
+    @Test
+    fun `when the song cannot be selected nothing else is sent`() = test { f ->
+        f.transport.script = { SonosResult.Err(SonosFailure.Timeout) }
+
+        val result = f.commander.seekToTrack(trackNumber = 2, positionMs = 5_000)
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+        assertThat(f.transport.actions).containsExactly("Seek")
+    }
+
+    @Test
+    fun `when the song changed but the second was refused the caller is told the position was lost`() = test { f ->
+        f.transport.script = { call ->
+            if (call.arg("Unit") == "REL_TIME") upnp("Seek", UpnpErrorKind.TransitionNotAvailable) else SonosResult.Ok(emptyMap())
+        }
+
+        assertThat(f.commander.seekToTrack(trackNumber = 2, positionMs = 5_000)).isEqualTo(SonosResult.Ok(false))
+
+        f.transport.script = { call -> if (call.arg("Unit") == "REL_TIME") SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap()) }
+        assertThat(f.commander.seekToTrack(trackNumber = 2, positionMs = 5_000)).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
     }
 
     @Test
@@ -327,7 +503,7 @@ class SonosCommanderTest {
     }
 
     @Test
-    fun `every command marks the own change window at the moment it is sent`() = test { f ->
+    fun `every command marks the own change window when it is sent and again when it is done`() = test { f ->
         f.commander.play()
         advanceTimeBy(1_000)
         f.commander.pause()
@@ -337,15 +513,54 @@ class SonosCommanderTest {
         f.commander.seekTo(0)
         f.commander.setPlayMode(PlayMode.NORMAL)
         f.commander.stop()
+        f.commander.previousSmart(10_000)
+        f.commander.seekToTrack(2, 0)
 
-        assertThat(f.recorded).containsExactly(0L, 1_000L, 1_500L, 2_000L, 2_000L, 2_000L).inOrder()
+        assertThat(f.recorded).containsExactly(0L, 0L, 1_000L, 1_000L, 1_500L, 1_500L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L, 2_000L).inOrder()
     }
 
     @Test
-    fun `loading marks the window for every step, including the songs queued later`() = test { f ->
+    fun `the window is marked before the command reaches the speaker`() = test { f ->
+        val seen = mutableListOf<Int>()
+        f.transport.gate = { _, _ -> seen += f.recorded.size }
+
+        f.commander.pause()
+
+        assertThat(seen).containsExactly(1)
+    }
+
+    @Test
+    fun `a slow command keeps the window open until it is done`() = test { f ->
+        f.transport.gate = { _, _ -> kotlinx.coroutines.delay(3_900) }
+
+        f.commander.pause()
+
+        assertThat(f.recorded).containsExactly(0L, 3_900L).inOrder()
+    }
+
+    @Test
+    fun `a command that waits for its turn is marked when it is really sent`() = test { f ->
+        val release = CompletableDeferred<Unit>()
+        f.transport.gate = { call, _ -> if (call.action == "Pause") release.await() }
+        launch { f.commander.pause() }
+        runCurrent()
+        launch { f.commander.play() }
+        runCurrent()
+        advanceTimeBy(1_000)
+
+        release.complete(Unit)
+        runCurrent()
+
+        assertThat(f.recorded).containsExactly(0L, 1_000L, 1_000L, 1_000L).inOrder()
+    }
+
+    @Test
+    fun `queueing the rest of the songs while it plays does not keep the window open`() = test { f ->
         f.load(tracks(3), startIndex = 0)
 
-        assertThat(f.recorded).hasSize(f.transport.calls.size)
+        val calls = f.transport.calls.size
+        assertThat(calls).isEqualTo(8) // Remove, Add, SetAVTransportURI, SetPlayMode, Seek, Play + 2 songs of the rest
+        assertThat(f.recorded).hasSize(2 * (calls - 2))
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.data.sonos.protocol.Didl
 import com.theveloper.pixelplay.data.sonos.protocol.SonosService
 import com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind
 import com.theveloper.pixelplay.data.sonos.protocol.UpnpTime
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -36,12 +37,19 @@ internal class SonosCommander(
 ) {
 
     private val order = Mutex()
+    private val loads = AtomicLong()
 
     /**
-     * Replaces the speaker's queue with [tracks] (at most [MAX_QUEUE] of them, around [startIndex]) and starts
-     * the song at [startIndex] at [startPositionMs]. The songs up to the current one are queued first so playback
-     * starts at once; [onStarted] is called when it has, and the rest is queued while it plays. Cancelling stops
-     * the queueing and leaves whatever is already there.
+     * Replaces the speaker's queue with [tracks] and starts the song at [startIndex] at [startPositionMs]. Only
+     * the part of the list around that song goes to the speaker (see [queueWindow]). The songs up to the current
+     * one are queued first so playback starts quickly; [onStarted] is called when it has, and the rest is queued
+     * while it plays, reporting the length of the queue after each song through [onProgress]. The caller must not
+     * give other commands before [onStarted]. A failure after [onStarted] leaves a shorter queue on the speaker;
+     * the last progress tells how long. Cancelling stops the queueing and leaves whatever is already there, and
+     * a newer load on this commander ends an older one with [SonosFailure.Superseded].
+     *
+     * The play mode should be one that keeps the order the app sent (`NORMAL` or `REPEAT_*`): the speaker
+     * reorders its queue under `SHUFFLE*` and the song numbers no longer mean the same.
      */
     suspend fun loadAndPlay(
         tracks: List<TrackMetadata>,
@@ -52,25 +60,36 @@ internal class SonosCommander(
         onStarted: (LoadResult) -> Unit,
         onProgress: (queued: Int) -> Unit,
     ): SonosResult<LoadResult> {
-        if (startIndex !in tracks.indices) return SonosResult.Err(SonosFailure.MalformedResponse)
+        require(startIndex in tracks.indices) { "startIndex $startIndex is outside a queue of ${tracks.size}" }
+        val load = loads.incrementAndGet()
         val window = queueWindow(tracks.size, startIndex)
         val current = startIndex - window.first
 
-        fail(send("RemoveAllTracksFromQueue"))?.let { return it }
-        for (index in window.first..startIndex) fail(enqueue(tracks[index]))?.let { return it }
-        fail(send("SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinatorUdn.value}#0", "CurrentURIMetaData" to ""))
+        fail(send("RemoveAllTracksFromQueue", load = load))?.let { return it }
+        for (index in window.first..startIndex) fail(enqueue(tracks[index], load, markWindow = true))?.let { return it }
+        fail(send("SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinatorUdn.value}#0", "CurrentURIMetaData" to "", load = load))
             ?.let { return it }
-        fail(send("Seek", "Unit" to "TRACK_NR", "Target" to (current + 1).toString()))?.let { return it }
-        fail(send("SetPlayMode", "NewPlayMode" to mode.upnpValue))?.let { return it }
-        // The speaker may refuse to move inside a song it has not started: starting from 0 beats not starting.
-        val positionApplied = startPositionMs <= 0 || send("Seek", *timeTarget(startPositionMs)) is SonosResult.Ok
-        if (playWhenReady) fail(send("Play", "Speed" to "1"))?.let { return it }
+        // Before the song is selected: changing the mode afterwards can move the speaker to another song.
+        fail(send("SetPlayMode", "NewPlayMode" to mode.upnpValue, load = load))?.let { return it }
+        fail(send("Seek", "Unit" to "TRACK_NR", "Target" to (current + 1).toString(), load = load))?.let { return it }
+        var positionApplied = true
+        if (startPositionMs > 0) {
+            val seek = send("Seek", *timeTarget(startPositionMs), load = load)
+            // The speaker may refuse to move inside a song it has not started: starting from 0 beats not starting.
+            // Any other failure (network, a newer load) is not a refusal and ends the load.
+            if (seek is SonosResult.Err) {
+                if (seek.failure !is SonosFailure.Upnp) return seek
+                positionApplied = false
+            }
+        }
+        if (playWhenReady) fail(send("Play", "Speed" to "1", load = load))?.let { return it }
 
         val result = LoadResult(window, positionApplied)
         onStarted(result)
         var queued = current + 1
         for (index in startIndex + 1..window.last) {
-            fail(enqueue(tracks[index]))?.let { return it }
+            // The rest does not change what is playing: the changes it causes must not hide what somebody else does.
+            fail(enqueue(tracks[index], load, markWindow = false))?.let { return it }
             onProgress(++queued)
         }
         return SonosResult.Ok(result)
@@ -90,26 +109,45 @@ internal class SonosCommander(
 
     suspend fun seekTo(positionMs: Long): SonosResult<Unit> = send("Seek", *timeTarget(positionMs)).unit()
 
-    suspend fun seekToTrack(trackNumber: Int, positionMs: Long): SonosResult<Unit> {
+    /** Ok(false) when the song changed but the speaker refused to move to [positionMs], so it plays from 0. */
+    suspend fun seekToTrack(trackNumber: Int, positionMs: Long): SonosResult<Boolean> {
         fail(send("Seek", "Unit" to "TRACK_NR", "Target" to trackNumber.coerceAtLeast(1).toString()))?.let { return it }
-        return if (positionMs > 0) seekTo(positionMs) else SonosResult.Ok(Unit)
+        if (positionMs <= 0) return SonosResult.Ok(true)
+        return when (val seek = seekTo(positionMs)) {
+            is SonosResult.Ok -> SonosResult.Ok(true)
+            is SonosResult.Err -> if (seek.failure is SonosFailure.Upnp) SonosResult.Ok(false) else seek
+        }
     }
 
     suspend fun setPlayMode(mode: PlayMode): SonosResult<Unit> = send("SetPlayMode", "NewPlayMode" to mode.upnpValue).unit()
 
-    private suspend fun enqueue(track: TrackMetadata) = send(
+    private suspend fun enqueue(track: TrackMetadata, load: Long, markWindow: Boolean) = send(
         "AddURIToQueue",
         "EnqueuedURI" to track.resourceUrl,
         "EnqueuedURIMetaData" to Didl.build(track),
         "DesiredFirstTrackNumberEnqueued" to "0",
         "EnqueueAsNext" to "0",
+        load = load,
+        markWindow = markWindow,
     )
 
-    private suspend fun send(action: String, vararg arguments: Pair<String, String>): SonosResult<Map<String, String>> =
-        order.withLock {
-            recordCommand(now())
-            transport.call(host, SonosService.AV_TRANSPORT, action, listOf("InstanceID" to "0") + arguments)
-        }
+    /**
+     * One command, alone on the line to the speaker. [load] ties a step to the load that sent it, so a step of an
+     * older load is dropped once a newer one started. The window is marked before the command goes out and again
+     * when it is done, so a slow command does not leave the changes it causes outside of it.
+     */
+    private suspend fun send(
+        action: String,
+        vararg arguments: Pair<String, String>,
+        load: Long? = null,
+        markWindow: Boolean = true,
+    ): SonosResult<Map<String, String>> = order.withLock {
+        if (load != null && load != loads.get()) return@withLock SonosResult.Err(SonosFailure.Superseded)
+        if (markWindow) recordCommand(now())
+        val result = transport.call(host, SonosService.AV_TRANSPORT, action, listOf("InstanceID" to "0") + arguments)
+        if (markWindow) recordCommand(now())
+        result
+    }
 
     private fun timeTarget(positionMs: Long) =
         arrayOf("Unit" to "REL_TIME", "Target" to (UpnpTime.format(positionMs.coerceAtLeast(0)) ?: "0:00:00"))
@@ -137,11 +175,14 @@ internal class SonosCommander(
         private const val LEAD_SONGS = 100
         private const val RESTART_THRESHOLD_MS = 3_000L
 
-        /** The [MAX_QUEUE] songs of a list of [size] that surround [startIndex], keeping the list's order. */
+        /**
+         * The part of a list of [size] songs that goes to the speaker: at most [MAX_QUEUE], in the list's order, with
+         * at most [LEAD_SONGS] before [startIndex] so playback does not wait for the whole front of a long list to be
+         * queued. Songs before the window are not on the speaker until a later part completes the queue.
+         */
         fun queueWindow(size: Int, startIndex: Int): IntRange {
-            if (size <= MAX_QUEUE) return 0 until size
-            val first = (startIndex - LEAD_SONGS).coerceIn(0, size - MAX_QUEUE)
-            return first until first + MAX_QUEUE
+            val first = (startIndex - LEAD_SONGS).coerceIn(0, size - 1)
+            return first until minOf(size, first + MAX_QUEUE)
         }
     }
 }

@@ -15,6 +15,8 @@ internal sealed interface SonosFailure {
     /** The app's network policy forbids plain HTTP: a configuration bug, not a user problem. */
     data object CleartextBlocked : SonosFailure
     data class Upnp(val action: String, val kind: UpnpErrorKind) : SonosFailure
+    /** A newer load of the same speaker took over before this one finished. */
+    data object Superseded : SonosFailure
     data object MalformedResponse : SonosFailure
     data class Network(val detail: String) : SonosFailure
 }
