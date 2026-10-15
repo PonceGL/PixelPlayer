@@ -154,4 +154,15 @@ class SonosStateReaderTest {
             assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
         }
     }
+
+    @Test
+    fun `metadata the speaker leaves behind without a song is not a song`() = runTest {
+        val staleMetadata = (fixture("GetPositionInfo") as SonosResult.Ok).value + ("TrackURI" to "")
+        val transport = FakeTransport(answers(positionInfo = SonosResult.Ok(staleMetadata)))
+
+        val result = reader(transport).read() as SonosResult.Ok
+
+        assertThat(result.value.playback.currentTrackUri).isNull()
+        assertThat(result.value.playback.currentTrack).isNull()
+    }
 }
