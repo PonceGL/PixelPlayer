@@ -8,6 +8,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
@@ -18,7 +19,9 @@ import com.theveloper.pixelplay.data.sonos.session.SonosCommander
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A speaker presented as the media3 player the media session and the whole app already talk to. It holds
@@ -28,7 +31,14 @@ import kotlinx.coroutines.launch
  * Everything here runs on [looper]'s thread, and [scope] must run on it too. The mapping from the session to
  * what the player says is in [SonosPlayerSnapshot], which is the part with tests.
  *
- * @param queueItems the app's queue as the user had it
+ * A command's future is done when the speaker has answered with a change of state (or after a short time), not
+ * when the command was sent: until then media3 shows the change the user asked for, and not the old state that
+ * would make a button jump back and forth.
+ *
+ * Shuffle belongs to the app in this part: the queue was sent in the order the user had, so the player does not
+ * offer to change it.
+ *
+ * @param queueItems the app's queue as the user had it, not empty
  * @param speakerWindow the part of [queueItems] that is on the speaker
  * @param shuffleByApp the queue was sent already in a shuffled order
  * @param onCommandFailed told when the speaker refuses or cannot be reached; the player does not show errors itself
@@ -41,19 +51,38 @@ internal class SonosPlayer(
     private val speakerWindow: IntRange,
     private val access: SonosMediaAccess,
     private val scope: CoroutineScope,
-    private var shuffleByApp: Boolean,
+    private val shuffleByApp: Boolean,
     private val onCommandFailed: (SonosFailure) -> Unit = {},
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) : SimpleBasePlayer(looper) {
 
+    init {
+        require(queueItems.isNotEmpty()) { "A speaker session needs a queue" }
+    }
+
     private val queue = PlayerQueue(queueItems.map { it.mediaId }, speakerWindow)
+
+    /** Built once: a new timeline for every change of song would resend the whole queue to every controller. */
+    private val playlist: List<MediaItemData> = queueItems.mapIndexed { index, item ->
+        MediaItemData.Builder("$index:${item.mediaId}")
+            .setMediaItem(item)
+            .setDurationUs(item.mediaMetadata.durationMs?.let { it * 1_000 } ?: C.TIME_UNSET)
+            .setIsSeekable(true)
+            .build()
+    }
+
     private var previousIndex: Int? = null
     private var observing: Job? = null
 
     /** Starts following the session: every change of it is a change of the player. */
     fun attach() {
         if (observing != null) return
-        observing = scope.launch { engine.state.collect { invalidateState() } }
+        observing = scope.launch {
+            engine.state.collect {
+                previousIndex = snapshot().currentIndex ?: previousIndex
+                invalidateState()
+            }
+        }
     }
 
     fun detach() {
@@ -62,21 +91,11 @@ internal class SonosPlayer(
     }
 
     private fun snapshot() = SonosPlayerSnapshot.from(engine.state.value, elapsedRealtimeMs(), queue, access, shuffleByApp, previousIndex)
-        .also { previousIndex = it.currentIndex ?: previousIndex }
 
     override fun getState(): State {
         val snapshot = snapshot()
-        val playlist = queueItems.mapIndexed { index, item ->
-            val current = index == snapshot.currentIndex
-            MediaItemData.Builder("$index:${item.mediaId}")
-                .setMediaItem(item)
-                .setDurationUs(if (current && snapshot.durationMs != null) snapshot.durationMs * 1_000 else C.TIME_UNSET)
-                .setIsSeekable(current && snapshot.canSeek)
-                .build()
-        }
         val builder = State.Builder()
             .setAvailableCommands(commandsFor(snapshot))
-            .setPlaylist(playlist)
             .setPlayWhenReady(snapshot.playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setPlaybackState(
                 when (snapshot.phase) {
@@ -94,28 +113,40 @@ internal class SonosPlayer(
                     RepeatMode.ALL -> Player.REPEAT_MODE_ALL
                 },
             )
-        if (snapshot.currentIndex != null) builder.setCurrentMediaItemIndex(snapshot.currentIndex)
-        if (snapshot.positionAdvancing) {
-            builder.setContentPositionMs(PositionSupplier.getExtrapolating(snapshot.positionMs, 1f))
-        } else {
-            builder.setContentPositionMs(snapshot.positionMs)
+        // media3 cannot say "no song" with a queue: when the speaker plays something else, the player shows no queue.
+        val index = snapshot.currentIndex
+        if (index != null) {
+            builder.setPlaylist(withSpeakerDuration(index, snapshot.durationMs))
+            builder.setCurrentMediaItemIndex(index)
         }
+        // The session counts the position (it stops at the end of the song and stays still while paused).
+        builder.setContentPositionMs { engine.state.value.positionAt(elapsedRealtimeMs()) }
         return builder.build()
     }
 
+    /** The app's own duration is kept; the speaker's is used for a song that had none, which changes only that item. */
+    private fun withSpeakerDuration(index: Int, speakerDurationMs: Long?): List<MediaItemData> {
+        val current = playlist[index]
+        if (speakerDurationMs == null || current.durationUs != C.TIME_UNSET) return playlist
+        return playlist.toMutableList().also { it[index] = current.buildUpon().setDurationUs(speakerDurationMs * 1_000).build() }
+    }
+
     private fun commandsFor(snapshot: SonosPlayerSnapshot): Player.Commands {
+        // Release is always there: without it the player could never be let go.
         val commands = Player.Commands.Builder()
+            .add(Player.COMMAND_RELEASE)
             .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
             .add(Player.COMMAND_GET_TIMELINE)
             .add(Player.COMMAND_GET_METADATA)
         if (!snapshot.canControl) return commands.build()
         commands
             .addAll(Player.COMMAND_PLAY_PAUSE, Player.COMMAND_PREPARE, Player.COMMAND_STOP)
-            .addAll(Player.COMMAND_SET_REPEAT_MODE, Player.COMMAND_SET_SHUFFLE_MODE)
+            .add(Player.COMMAND_SET_REPEAT_MODE)
             .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS)
         if (snapshot.canSeek) commands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
         if (snapshot.canNext) commands.addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-        if (snapshot.canPrevious) commands.addAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+        if (snapshot.canPreviousItem) commands.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
         return commands.build()
     }
 
@@ -130,6 +161,11 @@ internal class SonosPlayer(
     override fun handlePrepare(): ListenableFuture<*> = Futures.immediateVoidFuture()
 
     override fun handleStop(): ListenableFuture<*> = send { commander.stop() }
+
+    override fun handleRelease(): ListenableFuture<*> {
+        detach()
+        return Futures.immediateVoidFuture()
+    }
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> = send {
         val position = if (positionMs == C.TIME_UNSET) 0L else positionMs
@@ -148,14 +184,8 @@ internal class SonosPlayer(
             Player.REPEAT_MODE_ALL -> RepeatMode.ALL
             else -> RepeatMode.OFF
         }
-        // The shuffle of the app lives in the order of the queue; only what the speaker itself shuffles is its mode.
+        // Only what the speaker itself shuffles is its mode; the app's shuffle lives in the order of the queue.
         commander.setPlayMode(PlayMode.of(engine.state.value.playback.playMode?.shuffle ?: false, repeat))
-    }
-
-    override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> = send {
-        shuffleByApp = false
-        val repeat = engine.state.value.playback.playMode?.repeat ?: RepeatMode.OFF
-        commander.setPlayMode(PlayMode.of(shuffleModeEnabled, repeat))
     }
 
     private suspend fun seekToItem(mediaItemIndex: Int, positionMs: Long): SonosResult<*> {
@@ -166,12 +196,29 @@ internal class SonosPlayer(
 
     private fun SonosResult<Navigation>.andRead(): SonosResult<Navigation> = also { engine.requestRead() }
 
-    /** The command goes out in the background; the player answers at once and the speaker's event tells the result. */
+    /**
+     * Sends the command in the background. The future is done once the speaker has answered with a new state, or
+     * after [CONFIRMATION_TIMEOUT_MS], and always, even if the command fails or the scope ends.
+     */
     private fun send(command: suspend () -> SonosResult<*>): ListenableFuture<*> {
+        val done = SettableFuture.create<Any?>()
+        val before = engine.state.value
         scope.launch {
-            val result = command()
-            if (result is SonosResult.Err) onCommandFailed(result.failure)
+            try {
+                val result = command()
+                if (result is SonosResult.Err) {
+                    onCommandFailed(result.failure)
+                } else {
+                    withTimeoutOrNull(CONFIRMATION_TIMEOUT_MS) { engine.state.first { it != before } }
+                }
+            } finally {
+                done.set(null)
+            }
         }
-        return Futures.immediateVoidFuture()
+        return done
+    }
+
+    private companion object {
+        const val CONFIRMATION_TIMEOUT_MS = 1_500L
     }
 }

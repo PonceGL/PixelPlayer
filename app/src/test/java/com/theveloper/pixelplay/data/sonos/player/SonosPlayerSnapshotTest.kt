@@ -5,10 +5,8 @@ import com.google.common.truth.Truth.assertWithMessage
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
 import com.theveloper.pixelplay.data.sonos.model.TransportState
-import com.theveloper.pixelplay.data.sonos.protocol.TransportErrorKind
 import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
 import com.theveloper.pixelplay.data.sonos.server.SonosServerIdentity
-import com.theveloper.pixelplay.data.sonos.session.PlaybackError
 import com.theveloper.pixelplay.data.sonos.session.PositionAnchor
 import com.theveloper.pixelplay.data.sonos.session.SonosPlaybackState
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionState
@@ -35,7 +33,6 @@ class SonosPlayerSnapshotTest {
         positionMs: Long = 30_000,
         advancing: Boolean = true,
         queueEnded: Boolean = false,
-        error: PlaybackError? = null,
     ) = SonosSessionState(
         playback = SonosPlaybackState(
             transportState = transport, playMode = mode, currentTrackNumber = number, numberOfTracks = total,
@@ -43,7 +40,6 @@ class SonosPlayerSnapshotTest {
         ),
         anchor = PositionAnchor(positionMs, atElapsedMs = 1_000, isAdvancing = advancing, durationMs = durationMs),
         queueEnded = queueEnded,
-        lastError = error,
     )
 
     private fun snapshot(
@@ -108,16 +104,6 @@ class SonosPlayerSnapshotTest {
     }
 
     @Test
-    fun `a playback error is carried and the player is not left playing`() {
-        val error = PlaybackError(TransportErrorKind.UNSUPPORTED_FORMAT, "u", "Song")
-
-        val result = snapshot(state(TransportState.STOPPED, advancing = false, error = error))
-
-        assertThat(result.error).isEqualTo(error)
-        assertThat(result.playWhenReady).isFalse()
-    }
-
-    @Test
     fun `the current song is the one at the speaker's track number inside the window`() {
         val result = snapshot(state(number = 3, uri = uri("c")))
 
@@ -145,7 +131,7 @@ class SonosPlayerSnapshotTest {
     fun `when the number does not match the address the song is searched after the last known one`() {
         val ids = listOf("a", "b", "a", "c")
 
-        val result = snapshot(state(number = 9, uri = uri("a")), queue(ids), previousIndex = 0)
+        val result = snapshot(state(number = 9, uri = uri("a")), queue(ids), previousIndex = 1)
 
         assertThat(result.currentIndex).isEqualTo(2)
     }
@@ -154,7 +140,7 @@ class SonosPlayerSnapshotTest {
     fun `the search wraps around and falls back to the first match without a last known song`() {
         val ids = listOf("a", "b", "a", "c")
 
-        assertThat(snapshot(state(number = 9, uri = uri("a")), queue(ids), previousIndex = 2).currentIndex).isEqualTo(0)
+        assertThat(snapshot(state(number = 9, uri = uri("a")), queue(ids), previousIndex = 3).currentIndex).isEqualTo(0)
         assertThat(snapshot(state(number = 9, uri = uri("a")), queue(ids), previousIndex = null).currentIndex).isEqualTo(0)
     }
 
@@ -164,6 +150,45 @@ class SonosPlayerSnapshotTest {
         assertThat(snapshot(state(number = 2, uri = "http://192.168.1.20:8080/sonos/song/b?auth=someone-else")).currentIndex).isNull()
         assertThat(snapshot(state(number = 2, uri = uri("zzz"))).currentIndex).isNull()
         assertThat(snapshot(state(number = 2, uri = null)).currentIndex).isNull()
+    }
+
+    @Test
+    fun `when the speaker plays something that is not in our queue the player is idle and not on a wrong song`() {
+        for (foreign in listOf("x-sonos-spotify:spotify%3atrack%3a1", uri("zzz"), null)) {
+            val result = snapshot(state(TransportState.PLAYING, uri = foreign))
+
+            assertWithMessage("$foreign").that(result.phase).isEqualTo(SonosPlayerSnapshot.Phase.IDLE)
+            assertWithMessage("$foreign").that(result.canControl).isFalse()
+            assertWithMessage("$foreign").that(result.currentIndex).isNull()
+        }
+    }
+
+    @Test
+    fun `the end of the queue shows the first song as the current one`() {
+        val result = snapshot(state(TransportState.STOPPED, number = 1, uri = uri("a"), advancing = false, queueEnded = true))
+
+        assertThat(result.phase).isEqualTo(SonosPlayerSnapshot.Phase.ENDED)
+        assertThat(result.currentIndex).isEqualTo(0)
+    }
+
+    @Test
+    fun `the index of the same state is the same every time it is asked`() {
+        val ids = listOf("a", "b", "a", "c")
+        val ambiguous = state(number = 9, uri = uri("a"))
+
+        var index = snapshot(ambiguous, queue(ids), previousIndex = null).currentIndex
+        repeat(5) {
+            val again = snapshot(ambiguous, queue(ids), previousIndex = index).currentIndex
+            assertThat(again).isEqualTo(index)
+            index = again
+        }
+    }
+
+    @Test
+    fun `a window that goes past the end of the queue only counts what exists`() {
+        val result = snapshot(state(number = 2, uri = uri("b")), queue(songs, window = 0..50))
+
+        assertThat(result.currentIndex).isEqualTo(1)
     }
 
     @Test
@@ -205,43 +230,51 @@ class SonosPlayerSnapshotTest {
     }
 
     @Test
-    fun `in a normal queue the ends have no next or no previous`() {
+    fun `in a normal queue the ends have no next or no previous song`() {
         val first = snapshot(state(number = 1, uri = uri("a"), positionMs = 1_000))
-        assertThat(first.canPrevious).isFalse()
+        assertThat(first.canPreviousItem).isFalse()
         assertThat(first.canNext).isTrue()
 
         val middle = snapshot(state(number = 2))
-        assertThat(middle.canPrevious).isTrue()
+        assertThat(middle.canPreviousItem).isTrue()
         assertThat(middle.canNext).isTrue()
 
         val last = snapshot(state(number = 4, uri = uri("d")))
         assertThat(last.canNext).isFalse()
-        assertThat(last.canPrevious).isTrue()
+        assertThat(last.canPreviousItem).isTrue()
     }
 
     @Test
-    fun `previous at the first song restarts it after three seconds`() {
-        assertThat(snapshot(state(number = 1, uri = uri("a"), positionMs = 3_000)).canPrevious).isFalse()
-        assertThat(snapshot(state(number = 1, uri = uri("a"), positionMs = 3_001)).canPrevious).isTrue()
+    fun `previous is always there to restart the song, even at the first one`() {
+        assertThat(snapshot(state(number = 1, uri = uri("a"), positionMs = 500)).canPrevious).isTrue()
+        assertThat(snapshot(state(number = 1, uri = uri("a"), positionMs = 30_000)).canPrevious).isTrue()
+        assertThat(snapshot(state(TransportState.NO_MEDIA_PRESENT, uri = null, number = null)).canPrevious).isFalse()
     }
 
     @Test
-    fun `a queue of one song has neither`() {
+    fun `a queue of one song has no other song to go to`() {
         val result = snapshot(state(number = 1, total = 1, uri = uri("a"), positionMs = 500), queue(listOf("a")))
 
         assertThat(result.canNext).isFalse()
-        assertThat(result.canPrevious).isFalse()
+        assertThat(result.canPreviousItem).isFalse()
     }
 
     @Test
-    fun `repeating or shuffling wraps around so both buttons stay`() {
+    fun `repeating or shuffling wraps around so both stay`() {
         for (mode in listOf(PlayMode.REPEAT_ALL, PlayMode.REPEAT_ONE, PlayMode.SHUFFLE, PlayMode.SHUFFLE_NOREPEAT)) {
             val atStart = snapshot(state(mode = mode, number = 1, uri = uri("a"), positionMs = 0))
             val atEnd = snapshot(state(mode = mode, number = 4, uri = uri("d")))
 
-            assertWithMessage("$mode previous at start").that(atStart.canPrevious).isTrue()
+            assertWithMessage("$mode previous at start").that(atStart.canPreviousItem).isTrue()
             assertWithMessage("$mode next at end").that(atEnd.canNext).isTrue()
         }
+    }
+
+    @Test
+    fun `an order the app shuffled does not wrap around at the end`() {
+        val result = snapshot(state(mode = PlayMode.NORMAL, number = 4, uri = uri("d")), shuffleByApp = true)
+
+        assertThat(result.canNext).isFalse()
     }
 
     @Test
@@ -249,7 +282,7 @@ class SonosPlayerSnapshotTest {
         val result = snapshot(state(number = null, total = null, uri = uri("b"), positionMs = 0))
 
         assertThat(result.canNext).isFalse()
-        assertThat(result.canPrevious).isFalse()
+        assertThat(result.canPreviousItem).isFalse()
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.theveloper.pixelplay.data.sonos.player
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
 import com.theveloper.pixelplay.data.sonos.model.TransportState
 import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
-import com.theveloper.pixelplay.data.sonos.session.PlaybackError
 import com.theveloper.pixelplay.data.sonos.session.PositionAnchor
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionState
 import com.theveloper.pixelplay.data.sonos.session.SonosTrackMapper
@@ -27,16 +26,16 @@ internal data class SonosPlayerSnapshot(
     val shuffle: Boolean,
     val repeat: RepeatMode,
     val canControl: Boolean,
+    /** "Previous" can always at least restart the song. */
     val canPrevious: Boolean,
+    /** There is an earlier song to go back to. */
+    val canPreviousItem: Boolean,
     val canNext: Boolean,
     val canSeek: Boolean,
-    val error: PlaybackError?,
 ) {
     enum class Phase { IDLE, BUFFERING, READY, ENDED }
 
     companion object {
-        private const val RESTART_THRESHOLD_MS = 3_000L
-
         /**
          * @param shuffleByApp the queue was sent in a shuffled order the app chose, which the speaker does not know
          * @param previousIndex the song that was current before, to tell repeated songs apart when the number does not
@@ -51,34 +50,38 @@ internal data class SonosPlayerSnapshot(
         ): SonosPlayerSnapshot {
             val playback = state.playback
             val mode = playback.playMode
-            val phase = when (playback.transportState) {
-                TransportState.PLAYING, TransportState.PAUSED_PLAYBACK -> Phase.READY
-                TransportState.TRANSITIONING -> Phase.BUFFERING
-                TransportState.STOPPED -> if (state.queueEnded) Phase.ENDED else Phase.READY
-                TransportState.NO_MEDIA_PRESENT, TransportState.UNKNOWN -> Phase.IDLE
-            }
-            val playing = playback.transportState == TransportState.PLAYING
-            val position = state.positionAt(nowElapsedMs)
-            val duration = playback.currentTrackDurationMs?.takeIf { it > 0 }
             val number = playback.currentTrackNumber
             val total = playback.numberOfTracks
+            // Playing something that is not in our queue is not playing a song of the player: no song to show.
+            val index = indexOf(playback.currentTrackUri, number, queue, access, previousIndex)
+            val phase = when {
+                index == null -> Phase.IDLE
+                else -> when (playback.transportState) {
+                    TransportState.PLAYING, TransportState.PAUSED_PLAYBACK -> Phase.READY
+                    TransportState.TRANSITIONING -> Phase.BUFFERING
+                    TransportState.STOPPED -> if (state.queueEnded) Phase.ENDED else Phase.READY
+                    TransportState.NO_MEDIA_PRESENT, TransportState.UNKNOWN -> Phase.IDLE
+                }
+            }
+            val playing = playback.transportState == TransportState.PLAYING
+            val duration = playback.currentTrackDurationMs?.takeIf { it > 0 }
             val wraps = mode != null && (mode.shuffle || mode.repeat != RepeatMode.OFF)
             val controllable = phase != Phase.IDLE
 
             return SonosPlayerSnapshot(
                 phase = phase,
-                playWhenReady = playing || playback.transportState == TransportState.TRANSITIONING,
-                currentIndex = if (controllable) indexOf(playback.currentTrackUri, number, queue, access, previousIndex) else null,
-                positionMs = position,
+                playWhenReady = controllable && (playing || playback.transportState == TransportState.TRANSITIONING),
+                currentIndex = if (controllable) index else null,
+                positionMs = state.positionAt(nowElapsedMs),
                 positionAdvancing = phase == Phase.READY && playing && state.anchor.isAdvancing(),
                 durationMs = duration,
                 shuffle = (mode?.shuffle ?: false) || shuffleByApp,
                 repeat = mode?.repeat ?: RepeatMode.OFF,
                 canControl = controllable,
-                canPrevious = controllable && (wraps || (number != null && number > 1) || position > RESTART_THRESHOLD_MS),
+                canPrevious = controllable,
+                canPreviousItem = controllable && (wraps || (number != null && number > 1)),
                 canNext = controllable && (wraps || (number != null && total != null && number < total)),
                 canSeek = controllable && duration != null,
-                error = state.lastError,
             )
         }
 
@@ -96,7 +99,8 @@ internal data class SonosPlayerSnapshot(
 
             val matches = window.filter { queue.songIds[it] == songId }
             if (matches.isEmpty()) return null
-            return matches.firstOrNull { previousIndex != null && it > previousIndex } ?: matches.first()
+            // At or after the song that was current: the same state always gives the same song.
+            return matches.firstOrNull { previousIndex != null && it >= previousIndex } ?: matches.first()
         }
     }
 }
