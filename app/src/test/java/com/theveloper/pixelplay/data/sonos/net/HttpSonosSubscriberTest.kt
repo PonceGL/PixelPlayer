@@ -14,8 +14,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterEach
@@ -130,7 +130,7 @@ class HttpSonosSubscriberTest {
     }
 
     @Test
-    fun `subscribe sends exactly CALLBACK, NT and TIMEOUT to the event path`() = runBlocking {
+    fun `subscribe sends CALLBACK, NT and TIMEOUT to the event path and no SID`() = runBlocking {
         respond(200, mapOf("SID" to "uuid:x", "TIMEOUT" to "Second-120"))
 
         subscribe(callback = "http://192.168.1.20:8080/sonos/events/key")
@@ -229,6 +229,9 @@ class HttpSonosSubscriberTest {
         call.join()
 
         assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(1_000)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (baseClient.dispatcher.runningCallsCount() > 0 && System.nanoTime() < deadline) Thread.sleep(20)
+        assertThat(baseClient.dispatcher.runningCallsCount()).isEqualTo(0)
     }
 
     @Test
@@ -255,5 +258,72 @@ class HttpSonosSubscriberTest {
         subscribe()
 
         assertThat(wifiLookupThreads).containsExactly("sonos-io-test")
+    }
+
+    @Test
+    fun `a 412 on the first subscribe is a rejected request and not a forgotten SID`() = runBlocking {
+        respond(412)
+
+        val result = subscribe()
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Network("HTTP 412")))
+    }
+
+    @Test
+    fun `a SID or callback that cannot travel in a header is a malformed response and not a crash`() = runBlocking {
+        respond(200, mapOf("SID" to "uuid:x"))
+
+        val badSid = subscriber().renew("127.0.0.1", SonosService.AV_TRANSPORT, "uuid:x\r\nInjected: 1")
+        val badCallback = subscribe(callback = "http://a/b\nX: y")
+        val nonAscii = subscriber().unsubscribe("127.0.0.1", SonosService.AV_TRANSPORT, "uuid:sónos")
+
+        assertThat(badSid).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
+        assertThat(badCallback).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
+        assertThat(nonAscii).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
+        assertThat(seen).isEmpty()
+    }
+
+    @Test
+    fun `the Second prefix of the granted timeout is read in any letter case`() = runBlocking {
+        respond(200, mapOf("SID" to "uuid:x", "TIMEOUT" to "second-30"))
+
+        assertThat(subscribe()).isEqualTo(SonosResult.Ok(Subscription("uuid:x", 30)))
+    }
+
+    @Test
+    fun `a redirect is a failure and is never followed`() = runBlocking {
+        respond(307, mapOf("Location" to "http://127.0.0.1:${server.address.port}/elsewhere"))
+
+        val result = subscribe()
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Network("HTTP 307")))
+        assertThat(seen).hasSize(1)
+    }
+
+    @Test
+    fun `an unreadable TIMEOUT falls back to the timeout that was asked for`() = runBlocking {
+        respond(200, mapOf("SID" to "uuid:x", "TIMEOUT" to "infinite"))
+
+        val result = subscriber().subscribe("127.0.0.1", SonosService.AV_TRANSPORT, "http://a/b", timeoutSeconds = 60)
+
+        assertThat(result).isEqualTo(SonosResult.Ok(Subscription("uuid:x", 60)))
+    }
+
+    @Test
+    fun `unsubscribe reports a server error and a refused connection`() = runBlocking {
+        respond(503)
+        val serverError = subscriber().unsubscribe("127.0.0.1", SonosService.AV_TRANSPORT, "uuid:x")
+        val closedPort = java.net.ServerSocket(0).use { it.localPort }
+        val refused = HttpSonosSubscriber(
+            network = object : LanNetworkProvider {
+                override fun wifi(): LanNetwork = FakeLan()
+            },
+            baseClient = baseClient,
+            io = ioExecutor.asCoroutineDispatcher(),
+            port = closedPort,
+        ).unsubscribe("127.0.0.1", SonosService.AV_TRANSPORT, "uuid:x")
+
+        assertThat(serverError).isEqualTo(SonosResult.Err(SonosFailure.Network("HTTP 503")))
+        assertThat(refused).isEqualTo(SonosResult.Err(SonosFailure.ConnectionRefused))
     }
 }

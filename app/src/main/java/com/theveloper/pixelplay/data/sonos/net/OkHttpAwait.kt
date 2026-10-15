@@ -1,8 +1,8 @@
 package com.theveloper.pixelplay.data.sonos.net
 
+import java.io.IOException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.io.IOException
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
