@@ -8,6 +8,8 @@ internal sealed interface UpnpErrorKind {
 
     /** The action is not allowed in the current transport state (UPnP 701). */
     data object TransitionNotAvailable : UpnpErrorKind
+    /** HTTP 412 on a subscription request: the speaker no longer knows that SID. */
+    data object PreconditionFailed : UpnpErrorKind
     data object InvalidArguments : UpnpErrorKind
     data object UnsupportedMedia : UpnpErrorKind
     data object ResourceNotFound : UpnpErrorKind

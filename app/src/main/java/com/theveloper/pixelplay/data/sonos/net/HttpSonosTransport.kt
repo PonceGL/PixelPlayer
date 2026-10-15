@@ -6,12 +6,8 @@ import com.theveloper.pixelplay.data.sonos.protocol.SonosService
 import com.theveloper.pixelplay.data.sonos.protocol.UpnpErrors
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -66,20 +62,6 @@ internal class HttpSonosTransport(
             SoapResponse.Malformed -> SonosResult.Err(SonosFailure.MalformedResponse)
         }
     }
-
-    /** Suspends until the call ends; cancelling the coroutine cancels the call and frees its connection. */
-    private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
-        continuation.invokeOnCancellation { cancel() }
-        enqueue(object : Callback {
-            override fun onResponse(call: Call, response: Response) {
-                continuation.resume(Result.success(response)) { _, value, _ -> value.getOrNull()?.close() }
-            }
-
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) continuation.resume(Result.failure(e))
-            }
-        })
-    }.getOrThrow()
 
     private companion object {
         const val SONOS_PORT = 1400
