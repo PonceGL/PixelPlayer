@@ -40,7 +40,7 @@ internal class SonosStateReader(
                     currentTrackUri = uri,
                     currentTrackDurationMs = UpnpTime.parseMs(positionValues["TrackDuration"]),
                     currentTrack = if (uri == null) null else Didl.parse(positionValues["TrackMetaData"]),
-                    nextTrackUri = mediaValues["NextURI"]?.trim()?.takeIf { it.isNotEmpty() },
+                    // GetMediaInfo's NextURI is the transport's, not the queue's next song: that one only comes by event.
                 ),
                 positionMs = UpnpTime.parseMs(positionValues["RelTime"]),
             ),

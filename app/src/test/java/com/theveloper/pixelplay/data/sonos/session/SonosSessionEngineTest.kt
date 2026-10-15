@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.data.sonos.session
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
 import com.theveloper.pixelplay.data.sonos.model.TransportState
@@ -93,37 +94,58 @@ class SonosSessionEngineTest {
     @Test
     fun `a playing position advances with the clock and stops at the duration`() = test { f ->
         started(f, snap(positionMs = 10_000, durationMs = 20_000))
+        f.speaker = SonosResult.Ok(snap(positionMs = 20_000, durationMs = 20_000)) // what the speaker says when it is looked at
 
         advanceTimeBy(5_000)
         assertThat(f.positionNow()).isEqualTo(15_000)
-        advanceTimeBy(7_000) // 12 s after the read, which is before the next one
+        advanceTimeBy(7_000)
+        runCurrent()
         assertThat(f.positionNow()).isEqualTo(20_000)
     }
 
     @Test
-    fun `pausing freezes the position where it was`() = test { f ->
+    fun `pausing freezes the position where it was, from the event alone`() = test { f ->
         started(f, snap(positionMs = 10_000))
         advanceTimeBy(5_000)
-        f.speaker = SonosResult.Ok(snap(state = TransportState.PAUSED_PLAYBACK, positionMs = 15_000))
+        f.speaker = SonosResult.Err(SonosFailure.Timeout) // no read can mask what the event did
 
         f.av(AvTransportChange(transportState = TransportState.PAUSED_PLAYBACK))
         runCurrent()
-        advanceTimeBy(30_000)
+        advanceTimeBy(1_000)
+        assertThat(f.positionNow()).isEqualTo(15_000)
+        advanceTimeBy(60_000)
 
         assertThat(f.positionNow()).isEqualTo(15_000)
         assertThat(f.state.playback.transportState).isEqualTo(TransportState.PAUSED_PLAYBACK)
     }
 
     @Test
-    fun `playing again continues from where it stopped`() = test { f ->
+    fun `playing again continues from where it stopped, from the event alone`() = test { f ->
         started(f, snap(state = TransportState.PAUSED_PLAYBACK, positionMs = 40_000))
-        f.speaker = SonosResult.Ok(snap(state = TransportState.PLAYING, positionMs = 40_000))
+        f.speaker = SonosResult.Err(SonosFailure.Timeout)
 
         f.av(AvTransportChange(transportState = TransportState.PLAYING))
         runCurrent()
-        advanceTimeBy(3_000)
+        advanceTimeBy(1_000)
 
-        assertThat(f.positionNow()).isEqualTo(43_000)
+        assertThat(f.positionNow()).isEqualTo(41_000)
+    }
+
+    @Test
+    fun `a transition freezes the position and playing continues from there`() = test { f ->
+        started(f, snap(positionMs = 10_000))
+        advanceTimeBy(2_000)
+        f.speaker = SonosResult.Err(SonosFailure.Timeout)
+
+        f.av(AvTransportChange(transportState = TransportState.TRANSITIONING))
+        runCurrent()
+        advanceTimeBy(3_000)
+        assertThat(f.positionNow()).isEqualTo(12_000)
+
+        f.av(AvTransportChange(transportState = TransportState.PLAYING))
+        runCurrent()
+        advanceTimeBy(1_000)
+        assertThat(f.positionNow()).isEqualTo(13_000)
     }
 
     @Test
@@ -133,8 +155,6 @@ class SonosSessionEngineTest {
         f.speaker = SonosResult.Ok(snap(uri = "u2", number = 2, positionMs = 400, title = "Next Song"))
 
         f.av(AvTransportChange(currentTrackUri = "u2", currentTrackNumber = 2))
-        // Before the read answers, nothing of the old song is kept.
-        assertThat(f.state.playback.currentTrack?.title).isEqualTo("My Song")
         runCurrent()
 
         assertThat(f.reads).hasSize(2)
@@ -217,17 +237,29 @@ class SonosSessionEngineTest {
     }
 
     @Test
-    fun `reads never overlap, even when asked while one is running`() = test { f ->
+    fun `requests made while a read runs are answered by one more read`() = test { f ->
         f.readDelayMs = 300
         started(f, snap())
 
         repeat(5) {
             f.engine.requestRead()
-            advanceTimeBy(100)
+            advanceTimeBy(50)
         }
         advanceTimeBy(5_000)
 
         assertThat(f.maxInFlight).isEqualTo(1)
+        assertThat(f.reads).containsExactly(0L, 300L).inOrder()
+    }
+
+    @Test
+    fun `three gaps while a read runs cause exactly one more read`() = test { f ->
+        f.readDelayMs = 300
+        started(f, snap())
+
+        repeat(3) { f.emit(SonosEvent.NeedFullResync) }
+        advanceTimeBy(5_000)
+
+        assertThat(f.reads).hasSize(2)
     }
 
     @Test
@@ -355,41 +387,141 @@ class SonosSessionEngineTest {
         f.av(AvTransportChange(transportStatus = "ERROR_UNSUPPORTED_FORMAT", transportErrorDescription = "715,0,Bad, Song.flac,192.168.1.20:8080,http://x/y"))
         runCurrent()
 
-        assertThat(f.state.lastError).isEqualTo(PlaybackError(TransportErrorKind.UNSUPPORTED_FORMAT, "u1", "Bad, Song.flac"))
+        // The speaker may already be on the next song when it reports the failed one: only the label is trustworthy.
+        assertThat(f.state.lastError).isEqualTo(PlaybackError(TransportErrorKind.UNSUPPORTED_FORMAT, null, "Bad, Song.flac"))
     }
 
     @Test
-    fun `an error goes away when the speaker plays again`() = test { f ->
+    fun `an error goes away when the speaker plays again, even if the event does not say it is healthy`() = test { f ->
         started(f, snap(uri = "u1"))
-        f.av(AvTransportChange(transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,Song,h:1,u"))
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,Song,h:1,u"))
         runCurrent()
         assertThat(f.state.lastError).isNotNull()
 
-        f.av(AvTransportChange(transportState = TransportState.TRANSITIONING, transportStatus = "OK"))
-        f.av(AvTransportChange(transportState = TransportState.PLAYING, transportStatus = "OK"))
+        f.speaker = SonosResult.Ok(snap(state = TransportState.PLAYING))
+        f.av(AvTransportChange(transportState = TransportState.PLAYING))
         runCurrent()
 
         assertThat(f.state.lastError).isNull()
     }
 
     @Test
-    fun `the last song of a normal queue ending is the end of the queue and not an error`() = test { f ->
-        started(f, snap(number = 3, total = 3, positionMs = 190_000, durationMs = 200_000))
-        advanceTimeBy(10_000)
-        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED, number = 3, total = 3, positionMs = 0))
+    fun `an error that reports itself healthy clears without playing`() = test { f ->
+        started(f, snap(uri = "u1"))
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,Song,h:1,u"))
+        runCurrent()
+        assertThat(f.state.lastError).isNotNull()
 
-        f.av(AvTransportChange(transportState = TransportState.STOPPED))
+        f.av(AvTransportChange(transportStatus = "OK"))
+        runCurrent()
+
+        assertThat(f.state.lastError).isNull()
+    }
+
+    @Test
+    fun `the same error again, after playing in between, is reported again`() = test { f ->
+        started(f, snap(uri = "u1"))
+        val error = AvTransportChange(transportState = TransportState.STOPPED, transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,Song,h:1,u")
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+        f.av(error)
+        runCurrent()
+        f.speaker = SonosResult.Ok(snap(state = TransportState.PLAYING))
+        f.av(AvTransportChange(transportState = TransportState.PLAYING))
+        runCurrent()
+        assertThat(f.state.lastError).isNull()
+
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+        f.av(error)
+        runCurrent()
+
+        assertThat(f.state.lastError?.trackLabel).isEqualTo("Song")
+    }
+
+    @Test
+    fun `the verdict of a play never replaces an error the speaker reported`() = test { f ->
+        started(f, snap(state = TransportState.STOPPED))
+        f.engine.onPlayAccepted()
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,Song,h:1,u"))
+        runCurrent()
+
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        assertThat(f.state.lastError?.kind).isEqualTo(TransportErrorKind.CORRUPT_FILE)
+    }
+
+    @Test
+    fun `the end of a normal queue, as the speaker reports it, is the end of the queue and not an error`() = test { f ->
+        started(f, snap(number = 3, total = 3, positionMs = 190_000, durationMs = 200_000))
+        advanceTimeBy(8_000)
+        // At the end the speaker stops with the first song selected again.
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED, number = 1, total = 3, positionMs = 0))
+
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, currentTrackNumber = 1, currentTrackUri = "u1"))
         runCurrent()
 
         assertThat(f.state.queueEnded).isTrue()
         assertThat(f.state.lastError).isNull()
+        assertThat(f.state.lastChange).isEqualTo(ChangeOrigin.EXTERNAL)
     }
 
     @Test
-    fun `stopping is not the end of the queue when it is not the end of a normal queue`() = test { f ->
+    fun `with a silent callback the end of the queue is found by polling`() = test { f ->
+        started(f, snap(number = 3, total = 3, positionMs = 195_000, durationMs = 200_000))
+        f.emit(SonosEvent.CallbackUnreachable("192.168.1.50"))
+        runCurrent()
+        advanceTimeBy(4_000)
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED, number = 1, total = 3, positionMs = 0))
+
+        advanceTimeBy(1_001)
+        runCurrent()
+
+        assertThat(f.state.queueEnded).isTrue()
+        assertThat(f.state.lastChange).isEqualTo(ChangeOrigin.EXTERNAL)
+    }
+
+    @Test
+    fun `a change found only by a read is marked with who caused it`() = test { f ->
+        started(f, snap(uri = "u1"))
+        f.emit(SonosEvent.CallbackUnreachable("192.168.1.50"))
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        f.speaker = SonosResult.Ok(snap(uri = "u2", number = 2))
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertThat(f.state.lastChange).isEqualTo(ChangeOrigin.EXTERNAL)
+
+        f.speaker = SonosResult.Ok(snap(uri = "u3", number = 3))
+        advanceTimeBy(4_000)
+        f.engine.noteCommand(f.scope.currentTime)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertThat(f.state.lastChange).isEqualTo(ChangeOrigin.OWN)
+    }
+
+    @Test
+    fun `a song with no duration cannot be said to have ended`() = test { f ->
+        started(f, snap(number = 3, total = 3, positionMs = 0, durationMs = 0))
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED, number = 1, total = 3, positionMs = 0))
+
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, currentTrackNumber = 1))
+        runCurrent()
+
+        assertThat(f.state.queueEnded).isFalse()
+    }
+
+    @Test
+    fun `stopping is not the end of the queue when it is not the end of a normal queue`() = test { _ ->
         val cases = listOf(
-            "repeating" to snap(number = 3, total = 3, positionMs = 199_000, mode = PlayMode.REPEAT_ALL),
+            "repeating all" to snap(number = 3, total = 3, positionMs = 199_000, mode = PlayMode.REPEAT_ALL),
+            "repeating one" to snap(number = 3, total = 3, positionMs = 199_000, mode = PlayMode.REPEAT_ONE),
+            "shuffling" to snap(number = 3, total = 3, positionMs = 199_000, mode = PlayMode.SHUFFLE_NOREPEAT),
+            "mode unknown" to snap(number = 3, total = 3, positionMs = 199_000, mode = null),
             "not the last song" to snap(number = 2, total = 3, positionMs = 199_000),
+            "queue length unknown" to snap(number = 3, total = null, positionMs = 199_000),
             "far from the end" to snap(number = 3, total = 3, positionMs = 20_000),
         )
         for ((name, playing) in cases) {
@@ -400,9 +532,21 @@ class SonosSessionEngineTest {
             g.av(AvTransportChange(transportState = TransportState.STOPPED))
             runCurrent()
 
-            assertThat(g.state.queueEnded).isEqualTo(false)
-            assertThat(g.state.playback.transportState).isEqualTo(TransportState.STOPPED)
+            assertWithMessage(name).that(g.state.queueEnded).isFalse()
+            assertWithMessage(name).that(g.state.playback.transportState).isEqualTo(TransportState.STOPPED)
         }
+    }
+
+    @Test
+    fun `a stop that reports an error is not the end of the queue`() = test { f ->
+        started(f, snap(number = 3, total = 3, positionMs = 199_000))
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED, number = 1, total = 3, positionMs = 0))
+
+        f.av(AvTransportChange(transportState = TransportState.STOPPED, currentTrackNumber = 1, transportStatus = "ERROR_CORRUPT_FILE", transportErrorDescription = "1,2,S,h:1,u"))
+        runCurrent()
+
+        assertThat(f.state.queueEnded).isFalse()
+        assertThat(f.state.lastError).isNotNull()
     }
 
     @Test
@@ -482,15 +626,15 @@ class SonosSessionEngineTest {
     }
 
     @Test
-    fun `a failing speaker is not read in a tight loop`() = test { f ->
+    fun `a failing speaker is read once more soon, then only by the safety poll`() = test { f ->
         f.speaker = SonosResult.Err(SonosFailure.Timeout)
         f.engine.start()
         runCurrent()
 
-        advanceTimeBy(60_000)
+        advanceTimeBy(65_000)
         runCurrent()
 
-        assertThat(f.reads.size).isAtMost(4)
+        assertThat(f.reads).containsExactly(0L, 2_000L, 35_000L, 65_000L).inOrder()
     }
 
     @Test
@@ -506,5 +650,220 @@ class SonosSessionEngineTest {
 
         assertThat(f.reads).hasSize(1)
         assertThat(f.state.playback.volume).isNull()
+    }
+
+    @Test
+    fun `a volume event during a read does not throw the read away`() = test { f ->
+        f.readDelayMs = 100
+        started(f, snap(uri = "u1"))
+        advanceTimeBy(50)
+
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 9, muted = null), null))
+        runCurrent()
+        advanceTimeBy(500)
+
+        assertThat(f.reads).hasSize(1)
+        assertThat(f.state.playback.currentTrackUri).isEqualTo("u1")
+        assertThat(f.state.playback.volume).isEqualTo(9)
+    }
+
+    @Test
+    fun `a second play replaces the watch of the first and keeps its own full window`() = test { f ->
+        started(f, snap(state = TransportState.STOPPED))
+        f.engine.onPlayAccepted()
+        advanceTimeBy(4_000)
+        f.engine.onPlayAccepted()
+        f.speaker = SonosResult.Ok(snap(state = TransportState.TRANSITIONING))
+        advanceTimeBy(4_500)
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+
+        advanceTimeBy(600)
+        runCurrent()
+
+        assertThat(f.state.lastError?.kind).isEqualTo(TransportErrorKind.UNSUPPORTED_FORMAT)
+    }
+
+    @Test
+    fun `stopping the engine cancels what a play was waiting for`() = test { f ->
+        started(f, snap(state = TransportState.STOPPED))
+        f.engine.onPlayAccepted()
+        f.engine.stop()
+        f.engine.start()
+        runCurrent()
+
+        advanceTimeBy(10_000)
+        runCurrent()
+
+        assertThat(f.reads).containsExactly(0L, 0L)
+    }
+
+    @Test
+    fun `a stop given after the play ends the wait for the song to start`() = test { f ->
+        started(f, snap(state = TransportState.STOPPED))
+        f.engine.onPlayAccepted()
+        advanceTimeBy(500)
+        f.engine.noteCommand(f.scope.currentTime)
+
+        advanceTimeBy(6_000)
+        runCurrent()
+
+        assertThat(f.state.lastError).isNull()
+    }
+
+    @Test
+    fun `a read that began before the play does not show what the play did`() = test { f ->
+        f.readDelayMs = 2_500
+        f.speaker = SonosResult.Ok(snap(state = TransportState.STOPPED))
+        f.engine.start()
+        runCurrent()
+        advanceTimeBy(500)
+        f.engine.onPlayAccepted()
+        f.speaker = SonosResult.Ok(snap(state = TransportState.PLAYING))
+
+        advanceTimeBy(8_000)
+        runCurrent()
+
+        assertThat(f.state.lastError).isNull()
+        assertThat(f.state.playback.transportState).isEqualTo(TransportState.PLAYING)
+    }
+
+    @Test
+    fun `the same song twice in a row restarts the position when the number changes`() = test { f ->
+        started(f, snap(uri = "u1", number = 1, positionMs = 90_000))
+        advanceTimeBy(1_000)
+        f.speaker = SonosResult.Err(SonosFailure.Timeout)
+
+        f.av(AvTransportChange(currentTrackNumber = 2))
+        runCurrent()
+
+        assertThat(f.positionNow()).isEqualTo(0)
+    }
+
+    @Test
+    fun `a song that reaches its end without any event is read again soon`() = test { f ->
+        started(f, snap(positionMs = 10_000, durationMs = 20_000, mode = PlayMode.REPEAT_ONE))
+        f.speaker = SonosResult.Ok(snap(positionMs = 500, durationMs = 20_000, mode = PlayMode.REPEAT_ONE))
+
+        advanceTimeBy(12_000)
+        runCurrent()
+
+        assertThat(f.reads).containsExactly(0L, 10_000L).inOrder()
+        assertThat(f.positionNow()).isEqualTo(2_500)
+    }
+
+    @Test
+    fun `a duration that comes in a later event caps the position`() = test { f ->
+        started(f, snap(uri = "u1"))
+        f.speaker = SonosResult.Err(SonosFailure.Timeout)
+        f.av(AvTransportChange(currentTrackUri = "u2"))
+        f.av(AvTransportChange(currentTrackDurationMs = 30_000))
+        runCurrent()
+
+        advanceTimeBy(20_000)
+        assertThat(f.positionNow()).isEqualTo(20_000)
+        advanceTimeBy(20_000)
+        assertThat(f.positionNow()).isEqualTo(30_000)
+    }
+
+    @Test
+    fun `a song with an unknown duration keeps counting`() = test { f ->
+        started(f, snap(uri = "u1", positionMs = 0, durationMs = null))
+
+        advanceTimeBy(25_000)
+
+        assertThat(f.positionNow()).isEqualTo(25_000)
+    }
+
+    @Test
+    fun `a read without position keeps the counted one for the same song and starts at zero for another`() = test { f ->
+        started(f, snap(uri = "u1", positionMs = 10_000))
+        advanceTimeBy(5_000)
+
+        f.speaker = SonosResult.Ok(snap(uri = "u1", positionMs = null))
+        f.engine.requestRead()
+        runCurrent()
+        assertThat(f.positionNow()).isEqualTo(15_000)
+
+        f.speaker = SonosResult.Ok(snap(uri = "u2", number = 2, positionMs = null))
+        f.engine.requestRead()
+        runCurrent()
+        assertThat(f.positionNow()).isEqualTo(0)
+    }
+
+    @Test
+    fun `the position of a read counts from the middle of the read`() = test { f ->
+        f.readDelayMs = 400
+        started(f, snap(positionMs = 10_000))
+        advanceTimeBy(400)
+        runCurrent()
+
+        assertThat(f.positionNow()).isEqualTo(10_200)
+    }
+
+    @Test
+    fun `a position moved elsewhere is picked up by the safety read`() = test { f ->
+        started(f, snap(positionMs = 10_000))
+        f.speaker = SonosResult.Ok(snap(positionMs = 100_000))
+
+        advanceTimeBy(30_000)
+        runCurrent()
+
+        assertThat(f.positionNow()).isEqualTo(100_000)
+    }
+
+    @Test
+    fun `the read pace follows whether the callback works and whether it plays`() = test { f ->
+        started(f, snap())
+        f.emit(SonosEvent.CallbackUnreachable("192.168.1.50"))
+        runCurrent()
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertThat(f.reads).containsExactly(0L, 5_000L, 10_000L).inOrder()
+
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 1, muted = null), null))
+        runCurrent()
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertThat(f.reads).hasSize(3)
+
+        f.emit(SonosEvent.CallbackUnreachable("192.168.1.50"))
+        runCurrent()
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertThat(f.reads).containsExactly(0L, 5_000L, 10_000L, 35_000L, 40_000L).inOrder()
+
+        f.speaker = SonosResult.Ok(snap(state = TransportState.PAUSED_PLAYBACK))
+        f.av(AvTransportChange(transportState = TransportState.PAUSED_PLAYBACK))
+        f.emit(SonosEvent.CallbackUnreachable("192.168.1.50"))
+        runCurrent()
+        val before = f.reads.size
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertThat(f.reads.size - before).isEqualTo(0) // paused: not every 5 s even though the callback is silent
+    }
+
+    @Test
+    fun `starting twice starts one engine`() = test { f ->
+        started(f, snap())
+        f.engine.start()
+        runCurrent()
+
+        f.emit(SonosEvent.NeedFullResync)
+        runCurrent()
+
+        assertThat(f.reads).hasSize(2)
+    }
+
+    @Test
+    fun `an engine can be stopped and started again`() = test { f ->
+        started(f, snap())
+        f.engine.stop()
+
+        f.engine.start()
+        runCurrent()
+        f.emit(SonosEvent.NeedFullResync)
+        runCurrent()
+
+        assertThat(f.reads).hasSize(3)
     }
 }

@@ -18,7 +18,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** A playback error of one song, as the speaker reported it or as the engine concluded from its behaviour. */
+/**
+ * A playback error of one song, as the speaker reported it or as the engine concluded from its behaviour.
+ * [trackUri] is only known for the second kind: the speaker's own report names the file ([trackLabel]) but
+ * its current song may already be the next one.
+ */
 internal data class PlaybackError(val kind: TransportErrorKind, val trackUri: String?, val trackLabel: String?)
 
 /**
@@ -60,28 +64,38 @@ internal class SonosSessionEngine(
     private val lock = Any()
     private val readRequests = Channel<Unit>(Channel.CONFLATED)
     private val readPending = AtomicBoolean(false)
-    private var job: Job? = null
+    private var running: CoroutineScope? = null
     private var ownWindow = OwnChangeWindow()
-    private var eventsApplied = 0L
+    private var transportEventsApplied = 0L
     private var lastReadAtMs = 0L
+    private var failedReadRetried = false
     private var playWatch: PlayWatch? = null
+    private var watchJob: Job? = null
 
     private class PlayWatch(val startedAtMs: Long, var sawPlaying: Boolean = false)
 
     fun start() {
-        if (job != null) return
-        lastReadAtMs = elapsedMs()
-        job = scope.launch {
-            launch { events.collect(::apply) }
-            launch { readLoop() }
-            launch { pollLoop() }
-            requestRead()
+        synchronized(lock) {
+            if (running != null) return
+            // A request left over from a run that was cancelled would otherwise block every new one.
+            readPending.set(false)
+            lastReadAtMs = elapsedMs()
+            val engineScope = CoroutineScope(scope.coroutineContext + Job(scope.coroutineContext[Job]))
+            running = engineScope
+            engineScope.launch { events.collect(::apply) }
+            engineScope.launch { readLoop(engineScope) }
+            engineScope.launch { pollLoop() }
         }
+        requestRead()
     }
 
     fun stop() {
-        job?.cancel()
-        job = null
+        synchronized(lock) {
+            running?.coroutineContext?.get(Job)?.cancel()
+            running = null
+            watchJob = null
+            playWatch = null
+        }
     }
 
     /** Marks a command of this app, so the changes it causes are not taken for somebody else's. */
@@ -96,31 +110,48 @@ internal class SonosSessionEngine(
 
     /** The speaker accepted a Play: if it ends up stopped without ever playing, the song cannot be played. */
     fun onPlayAccepted() {
-        synchronized(lock) { playWatch = PlayWatch(elapsedMs()) }
-        scope.launch {
-            delay(FIRST_VERDICT_MS)
-            requestRead()
-            delay(LAST_VERDICT_MS - FIRST_VERDICT_MS)
-            requestRead()
-            delay(READ_GRACE_MS)
-            synchronized(lock) { playWatch = null }
+        synchronized(lock) {
+            val engineScope = running ?: return
+            val watch = PlayWatch(elapsedMs())
+            playWatch = watch
+            watchJob?.cancel()
+            watchJob = engineScope.launch {
+                delay(FIRST_VERDICT_MS)
+                requestRead()
+                delay(LAST_VERDICT_MS - FIRST_VERDICT_MS)
+                requestRead()
+                delay(READ_GRACE_MS)
+                synchronized(lock) { if (playWatch === watch) playWatch = null }
+            }
         }
     }
 
-    private suspend fun readLoop() {
+    private suspend fun readLoop(engineScope: CoroutineScope) {
         for (request in readRequests) {
             // From here on a new request means "read again": what it was about may have happened after this read began.
             readPending.set(false)
             val startedAtMs = elapsedMs()
-            val startedVersion = synchronized(lock) { eventsApplied }
+            val startedVersion = synchronized(lock) { transportEventsApplied }
             val result = readState()
             synchronized(lock) {
                 lastReadAtMs = elapsedMs()
                 when (result) {
-                    is SonosResult.Err -> mutableState.value = mutableState.value.copy(readFailure = result.failure)
-                    is SonosResult.Ok ->
+                    is SonosResult.Err -> {
+                        mutableState.value = mutableState.value.copy(readFailure = result.failure)
+                        // A failed read right after a gap would leave the state behind until the safety read: once more soon.
+                        if (!failedReadRetried) {
+                            failedReadRetried = true
+                            engineScope.launch {
+                                delay(RETRY_AFTER_FAILURE_MS)
+                                requestRead()
+                            }
+                        }
+                    }
+                    is SonosResult.Ok -> {
+                        failedReadRetried = false
                         // An event that arrived meanwhile is newer than what was read: read again.
-                        if (eventsApplied != startedVersion) requestRead() else applyRead(result.value, startedAtMs)
+                        if (transportEventsApplied != startedVersion) requestRead() else applyRead(result.value, startedAtMs)
+                    }
                 }
             }
         }
@@ -129,13 +160,14 @@ internal class SonosSessionEngine(
     private suspend fun pollLoop() {
         while (true) {
             delay(POLL_TICK_MS)
+            val now = elapsedMs()
             val current = mutableState.value
-            val interval = if (!current.callbackReachable && current.playback.transportState == TransportState.PLAYING) {
-                UNREACHABLE_POLL_MS
-            } else {
-                SAFETY_POLL_MS
-            }
-            if (elapsedMs() - synchronized(lock) { lastReadAtMs } >= interval) requestRead()
+            val playing = current.playback.transportState == TransportState.PLAYING
+            val duration = current.playback.currentTrackDurationMs?.takeIf { it > 0 }
+            // A song that reached its end without an event (repeating one song, or a lost event) is looked at again.
+            val atEnd = playing && duration != null && current.positionAt(now) >= duration
+            val interval = if ((!current.callbackReachable && playing) || atEnd) FAST_POLL_MS else SAFETY_POLL_MS
+            if (now - synchronized(lock) { lastReadAtMs } >= interval) requestRead()
         }
     }
 
@@ -150,8 +182,8 @@ internal class SonosSessionEngine(
         }
     }
 
+    /** Volume does not make an unfinished read of the transport out of date, so it is not counted. */
     private fun applyRendering(change: RenderingChange) {
-        eventsApplied++
         val current = mutableState.value
         mutableState.value = current.copy(
             playback = SonosStateReducer.reduce(current.playback, change),
@@ -160,34 +192,28 @@ internal class SonosSessionEngine(
     }
 
     private fun applyAvTransport(change: AvTransportChange) {
-        eventsApplied++
+        transportEventsApplied++
         val now = elapsedMs()
         val old = mutableState.value
         val playback = SonosStateReducer.reduce(old.playback, change)
-        val songChanged = playback.currentTrackUri != old.playback.currentTrackUri
-        val stateChanged = playback.transportState != old.playback.transportState
-        val positionNow = old.positionAt(now)
-        val playing = playback.transportState == TransportState.PLAYING
+        val transition = Transition.between(old, playback, now)
+        val errorInThisEvent = change.transportStatus != null
 
         val anchor = when {
-            songChanged -> PositionAnchor(0L, now, playing, playback.currentTrackDurationMs)
-            stateChanged -> PositionAnchor(positionNow, now, playing, playback.currentTrackDurationMs)
+            transition.songChanged -> PositionAnchor(0L, now, transition.playing, playback.currentTrackDurationMs)
+            transition.stateChanged -> PositionAnchor(transition.positionNow, now, transition.playing, playback.currentTrackDurationMs)
             old.anchor != null -> old.anchor.copy(durationMs = playback.currentTrackDurationMs ?: old.anchor.durationMs)
             else -> null
         }
-        val origin = if (songChanged || stateChanged) ownWindow.classify(now) else old.lastChange
-        val reportedError = playback.lastTransportError?.takeIf { it != old.playback.lastTransportError }
-        var lastError = reportedError?.let { PlaybackError(it.kind, playback.currentTrackUri, it.trackLabel) } ?: old.lastError
-        // An error stays until the speaker plays again or reports itself healthy; a PLAYING event that follows
-        // the error report in the same state does not clear it.
-        if ((playing && stateChanged) || (change.transportStatus != null && playback.lastTransportError == null)) lastError = null
-        val ended = when {
-            playing -> false
-            old.playback.transportState == TransportState.PLAYING && playback.transportState == TransportState.STOPPED ->
-                finishedByItself(old, playback, positionNow, origin)
-            else -> old.queueEnded
+        val origin = if (transition.changed) ownWindow.classify(now) else old.lastChange
+        // The speaker names the failed file but its CurrentTrack may already be the next song, so only the label is kept.
+        var lastError = if (errorInThisEvent) {
+            playback.lastTransportError?.let { PlaybackError(it.kind, null, it.trackLabel) }
+        } else {
+            old.lastError
         }
-        if (playing) playWatch?.sawPlaying = true
+        if (transition.playing && transition.stateChanged) lastError = null
+        if (transition.playing) playWatch?.sawPlaying = true
 
         mutableState.value = old.copy(
             playback = playback,
@@ -195,60 +221,102 @@ internal class SonosSessionEngine(
             callbackReachable = true,
             lastError = lastError,
             lastChange = origin,
-            queueEnded = ended,
+            queueEnded = endedByItself(old, playback, transition, origin, errorInThisEvent),
         )
-        evaluatePlayWatch(playback)
-        if (songChanged || stateChanged) requestRead()
+        evaluatePlayWatch(playback, observedSinceMs = now)
+        if (transition.changed) requestRead()
     }
 
     private fun applyRead(snapshot: SpeakerSnapshot, startedAtMs: Long) {
         val now = elapsedMs()
         val old = mutableState.value
-        // The read has no volume and no error text: those only come by event.
+        // The read has no volume, no error text and no queue-wide next song: those only come by event.
         val playback = snapshot.playback.copy(
             volume = old.playback.volume,
             muted = old.playback.muted,
             lastTransportError = old.playback.lastTransportError,
+            nextTrackUri = old.playback.nextTrackUri,
         )
-        val sameSong = playback.currentTrackUri == old.playback.currentTrackUri
-        val position = snapshot.positionMs ?: if (sameSong) old.positionAt(now) else 0L
-        val playing = playback.transportState == TransportState.PLAYING
-        val anchor = PositionAnchor(position, (startedAtMs + now) / 2, playing, playback.currentTrackDurationMs)
-        if (playing) playWatch?.sawPlaying = true
+        val transition = Transition.between(old, playback, now)
+        val position = snapshot.positionMs ?: if (transition.songChanged) 0L else transition.positionNow
+        val anchor = PositionAnchor(position, (startedAtMs + now) / 2, transition.playing, playback.currentTrackDurationMs)
+        // What a read finds that no event told is a change too: it may be somebody else's, or the end of the queue.
+        val origin = if (transition.changed) ownWindow.classify(now) else old.lastChange
+        if (transition.playing) playWatch?.sawPlaying = true
 
         mutableState.value = old.copy(
             playback = playback,
             anchor = anchor,
             readFailure = null,
-            lastError = if (playing) null else old.lastError,
-            queueEnded = if (playing) false else old.queueEnded,
+            lastError = if (transition.playing) null else old.lastError,
+            lastChange = origin,
+            queueEnded = endedByItself(old, playback, transition, origin, errorInThisChange = false),
         )
-        evaluatePlayWatch(playback)
+        evaluatePlayWatch(playback, observedSinceMs = startedAtMs)
     }
 
     /** A song that never played, once the speaker had time to start it, is one it cannot play. */
-    private fun evaluatePlayWatch(playback: SonosPlaybackState) {
+    private fun evaluatePlayWatch(playback: SonosPlaybackState, observedSinceMs: Long) {
         val watch = playWatch ?: return
-        if (watch.sawPlaying || playback.transportState != TransportState.STOPPED) return
+        val commandSincePlay = ownWindow.lastCommandAtMs?.let { it > watch.startedAtMs } == true
+        if (commandSincePlay || mutableState.value.lastError != null) {
+            playWatch = null
+            return
+        }
+        // A read that began before the Play shows the speaker as it was, not what the Play did.
+        if (watch.sawPlaying || playback.transportState != TransportState.STOPPED || observedSinceMs < watch.startedAtMs) return
         if (elapsedMs() - watch.startedAtMs < FIRST_VERDICT_MS) return
         val error = PlaybackError(TransportErrorKind.UNSUPPORTED_FORMAT, playback.currentTrackUri, playback.currentTrack?.title)
         mutableState.value = mutableState.value.copy(lastError = error)
         playWatch = null
     }
 
-    private fun finishedByItself(old: SonosSessionState, playback: SonosPlaybackState, positionNow: Long, origin: ChangeOrigin?): Boolean {
-        val duration = playback.currentTrackDurationMs ?: old.playback.currentTrackDurationMs ?: return false
+    /**
+     * The end of a normal queue, which the speaker reports as STOPPED with the first song selected again, so
+     * what ended is judged from the state before the change.
+     */
+    private fun endedByItself(
+        old: SonosSessionState,
+        playback: SonosPlaybackState,
+        transition: Transition,
+        origin: ChangeOrigin?,
+        errorInThisChange: Boolean,
+    ): Boolean {
+        if (transition.playing) return false
+        val endedNow = old.playback.transportState == TransportState.PLAYING && playback.transportState == TransportState.STOPPED
+        if (!endedNow) return old.queueEnded
+        val duration = old.playback.currentTrackDurationMs?.takeIf { it > 0 } ?: return false
+        val last = old.playback.currentTrackNumber
         return origin == ChangeOrigin.EXTERNAL &&
-            playback.lastTransportError == null &&
-            playback.playMode == PlayMode.NORMAL &&
-            playback.currentTrackNumber != null && playback.currentTrackNumber == playback.numberOfTracks &&
-            positionNow >= duration - END_TOLERANCE_MS
+            !errorInThisChange &&
+            old.playback.playMode == PlayMode.NORMAL &&
+            last != null && last == old.playback.numberOfTracks &&
+            transition.positionNow >= duration - END_TOLERANCE_MS
+    }
+
+    private class Transition(val songChanged: Boolean, val stateChanged: Boolean, val playing: Boolean, val positionNow: Long) {
+        val changed get() = songChanged || stateChanged
+
+        companion object {
+            fun between(old: SonosSessionState, playback: SonosPlaybackState, now: Long): Transition {
+                // The same song twice in a row in the queue has the same address but not the same number.
+                val songChanged = playback.currentTrackUri != old.playback.currentTrackUri ||
+                    (playback.currentTrackNumber != null && playback.currentTrackNumber != old.playback.currentTrackNumber)
+                return Transition(
+                    songChanged = songChanged,
+                    stateChanged = playback.transportState != old.playback.transportState,
+                    playing = playback.transportState == TransportState.PLAYING,
+                    positionNow = old.positionAt(now),
+                )
+            }
+        }
     }
 
     private companion object {
         const val POLL_TICK_MS = 5_000L
-        const val UNREACHABLE_POLL_MS = 5_000L
+        const val FAST_POLL_MS = 5_000L
         const val SAFETY_POLL_MS = 30_000L
+        const val RETRY_AFTER_FAILURE_MS = 2_000L
         const val FIRST_VERDICT_MS = 1_500L
         const val LAST_VERDICT_MS = 5_000L
         const val READ_GRACE_MS = 2_000L

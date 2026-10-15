@@ -91,7 +91,8 @@ class SonosStateReaderTest {
         assertThat(result.value.playback.playMode).isEqualTo(PlayMode.SHUFFLE)
         assertThat(result.value.playback.currentTrackNumber).isEqualTo(3)
         assertThat(result.value.playback.currentTrackDurationMs).isEqualTo(205_000)
-        assertThat(result.value.playback.nextTrackUri).isEqualTo("http://x/sonos/song/10?auth=t")
+        // The transport's next address is not the queue's next song: that one comes only by event.
+        assertThat(result.value.playback.nextTrackUri).isNull()
         assertThat(result.value.positionMs).isEqualTo(65_000)
     }
 
@@ -164,5 +165,48 @@ class SonosStateReaderTest {
 
         assertThat(result.value.playback.currentTrackUri).isNull()
         assertThat(result.value.playback.currentTrack).isNull()
+    }
+
+    @Test
+    fun `optional values that are missing, not implemented or padded with spaces are read as they mean`() = runTest {
+        val transport = FakeTransport(answers(
+            transportInfo = ok("CurrentTransportState" to " PLAYING "),
+            positionInfo = ok("Track" to " 3 ", "TrackURI" to " u ", "TrackDuration" to "NOT_IMPLEMENTED", "TrackMetaData" to "NOT_IMPLEMENTED"),
+            settings = ok("PlayMode" to "NORMAL"),
+            mediaInfo = ok("NrTracks" to " 12 ", "NextURI" to "   "),
+        ))
+
+        val result = reader(transport).read() as SonosResult.Ok
+
+        assertThat(result.value.playback.transportState).isEqualTo(TransportState.PLAYING)
+        assertThat(result.value.playback.currentTrackNumber).isEqualTo(3)
+        assertThat(result.value.playback.numberOfTracks).isEqualTo(12)
+        assertThat(result.value.playback.currentTrackUri).isEqualTo("u")
+        assertThat(result.value.playback.currentTrackDurationMs).isNull()
+        assertThat(result.value.playback.currentTrack).isNull()
+        assertThat(result.value.positionMs).isNull()
+    }
+
+    @Test
+    fun `each of the four answers missing its own value is malformed`() = runTest {
+        for (action in listOf("GetTransportInfo", "GetPositionInfo", "GetTransportSettings", "GetMediaInfo")) {
+            val broken = answers().also { it[action] = ok() }
+
+            assertThat(reader(FakeTransport(broken)).read()).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
+        }
+    }
+
+    @Test
+    fun `the four questions are asked at the same time`() = runTest {
+        val slow = object : SonosTransport {
+            override suspend fun call(host: String, service: SonosService, action: String, arguments: List<Pair<String, String>>, timeoutMs: Long): SonosResult<Map<String, String>> {
+                kotlinx.coroutines.delay(1_000)
+                return answers().getValue(action)
+            }
+        }
+
+        SonosStateReader(slow, "192.168.1.50").read()
+
+        assertThat(testScheduler.currentTime).isEqualTo(1_000)
     }
 }
