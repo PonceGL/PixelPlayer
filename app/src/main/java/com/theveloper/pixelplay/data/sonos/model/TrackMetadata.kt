@@ -9,4 +9,7 @@ internal data class TrackMetadata(
     val durationMs: Long?,
     val mimeType: String,
     val resourceUrl: String,
-)
+) {
+    // The addresses carry the access token of the media server.
+    override fun toString(): String = "TrackMetadata(title=$title)"
+}

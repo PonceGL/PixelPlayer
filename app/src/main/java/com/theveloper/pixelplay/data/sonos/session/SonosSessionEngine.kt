@@ -23,7 +23,10 @@ import kotlinx.coroutines.launch
  * [trackUri] is only known for the second kind: the speaker's own report names the file ([trackLabel]) but
  * its current song may already be the next one.
  */
-internal data class PlaybackError(val kind: TransportErrorKind, val trackUri: String?, val trackLabel: String?)
+internal data class PlaybackError(val kind: TransportErrorKind, val trackUri: String?, val trackLabel: String?) {
+    // The address of a song carries the access token of the media server.
+    override fun toString(): String = "PlaybackError(kind=$kind)"
+}
 
 /**
  * Everything the app knows about the session with a speaker.

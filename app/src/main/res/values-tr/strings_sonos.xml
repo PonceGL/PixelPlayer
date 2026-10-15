@@ -25,4 +25,6 @@
     <string name="sonos_error_group">Bu oda bir grubun parçası. Tekrar denemek için dokunun.</string>
     <string name="sonos_error_generic">Bu hoparlörde çalınamadı. Tekrar denemek için dokunun.</string>
     <string name="sonos_error_permission">PixelPlayer için yerel ağ erişimi kapalı. Uygulama ayarlarından izin verin ve tekrar denemek için dokunun.</string>
+    <string name="sonos_toast_command_failed">Hoparlör yanıt vermedi</string>
+    <string name="sonos_toast_queue_incomplete">Bazı şarkılar hoparlöre gönderilemedi</string>
 </resources>

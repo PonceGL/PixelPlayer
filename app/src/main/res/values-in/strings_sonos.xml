@@ -24,4 +24,6 @@
     <string name="sonos_error_group">Ruangan ini bagian dari grup. Ketuk untuk mencoba lagi.</string>
     <string name="sonos_error_generic">Tidak dapat memutar di speaker ini. Ketuk untuk mencoba lagi.</string>
     <string name="sonos_error_permission">Akses jaringan lokal untuk PixelPlayer dimatikan. Izinkan di pengaturan aplikasi, lalu ketuk untuk mencoba lagi.</string>
+    <string name="sonos_toast_command_failed">Speaker tidak merespons</string>
+    <string name="sonos_toast_queue_incomplete">Beberapa lagu tidak dapat dikirim ke speaker</string>
 </resources>

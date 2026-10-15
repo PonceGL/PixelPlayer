@@ -25,4 +25,6 @@
     <string name="sonos_error_group">Dette rommet er en del av en gruppe. Trykk for å prøve igjen.</string>
     <string name="sonos_error_generic">Kunne ikke spille av på denne høyttaleren. Trykk for å prøve igjen.</string>
     <string name="sonos_error_permission">Tilgang til lokalnettet er slått av for PixelPlayer. Tillat det i appinnstillingene, og trykk for å prøve igjen.</string>
+    <string name="sonos_toast_command_failed">Høyttaleren svarte ikke</string>
+    <string name="sonos_toast_queue_incomplete">Noen sanger kunne ikke sendes til høyttaleren</string>
 </resources>

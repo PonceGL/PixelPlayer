@@ -103,9 +103,11 @@ class SonosSessionControllerTest {
         val subscribed = CopyOnWriteArrayList<SonosService>()
         val unsubscribed = CopyOnWriteArrayList<SonosService>()
         val callbackKeys = CopyOnWriteArrayList<String>()
+        val callbackUrls = CopyOnWriteArrayList<String>()
         override suspend fun subscribe(host: String, service: SonosService, callbackUrl: String, timeoutSeconds: Int): SonosResult<Subscription> {
             subscribed += service
             callbackKeys += callbackUrl.substringAfterLast('/')
+            callbackUrls += callbackUrl
             return SonosResult.Ok(Subscription("sid-${service.name}", 120))
         }
         override suspend fun renew(host: String, service: SonosService, sid: String, timeoutSeconds: Int) = SonosResult.Ok(Subscription(sid, 120))
@@ -123,6 +125,8 @@ class SonosSessionControllerTest {
             return answer(speakerHost)
         }
         override fun release() { log += "release" }
+        var current: String? = "http://192.168.1.20:8080"
+        override fun currentAddress(): String? = current
     }
 
     private class FakeLocks : SonosPowerLocks {
@@ -375,7 +379,7 @@ class SonosSessionControllerTest {
 
         val handBack = f.controller.disconnect()
 
-        assertThat(handBack).isEqualTo(HandBack(songId = "s2", positionMs = 105_000, wasPlaying = true))
+        assertThat(handBack).isEqualTo(HandBack(songId = "s2", positionMs = 105_000, wasPlaying = true, repeat = RepeatMode.OFF))
         assertThat(f.speaker.transport).isEqualTo("PAUSED_PLAYBACK")
         assertThat(f.speaker.actions.drop(callsBefore)).doesNotContain("RemoveAllTracksFromQueue")
         assertThat(f.speaker.queue).hasSize(5)
@@ -783,5 +787,26 @@ class SonosSessionControllerTest {
         runCurrent()
 
         assertThat(f.connections.drop(1).map { it::class }).containsExactly(SonosConnection.Connecting::class, SonosConnection.Failed::class).inOrder()
+    }
+
+    @Test
+    fun `when the phone changes address the subscriptions follow it`() = test { f ->
+        f.controller.connect(device, queue())
+        f.server.current = "http://10.9.9.9:9090"
+
+        advanceTimeBy(60_500)
+        runCurrent()
+
+        assertThat(f.subscriber.callbackUrls.last()).startsWith("http://10.9.9.9:9090/sonos/events/")
+    }
+
+    @Test
+    fun `the repeat the speaker has when it is given back is handed back too`() = test { f ->
+        f.controller.connect(device, queue())
+        f.speaker.mode = PlayMode.REPEAT_ONE.upnpValue
+
+        val handBack = f.controller.disconnect()
+
+        assertThat(handBack?.repeat).isEqualTo(RepeatMode.ONE)
     }
 }

@@ -18,4 +18,8 @@ internal data class SonosPlaybackState(
     val volume: Int? = null,
     val muted: Boolean? = null,
     val lastTransportError: TransportError? = null,
-)
+) {
+    // The addresses of the songs carry the access token of the media server.
+    override fun toString(): String =
+        "SonosPlaybackState(transportState=$transportState, playMode=$playMode, track=$currentTrackNumber/$numberOfTracks)"
+}

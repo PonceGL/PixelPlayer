@@ -25,4 +25,6 @@
     <string name="sonos_error_group">This room is part of a group. Tap to try again.</string>
     <string name="sonos_error_generic">Couldn\'t play on this speaker. Tap to try again.</string>
     <string name="sonos_error_permission">Local network access is off for PixelPlayer. Allow it in the app settings, then tap to try again.</string>
+    <string name="sonos_toast_command_failed">The speaker didn\'t respond</string>
+    <string name="sonos_toast_queue_incomplete">Some songs couldn\'t be sent to the speaker</string>
 </resources>

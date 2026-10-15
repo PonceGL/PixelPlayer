@@ -129,7 +129,8 @@ internal class SonosEventSubscriptions(
                 notifications.onReceive { it }
                 ended.onAwait { null }
             } ?: break
-            if (notification.sid != null && notification.sid != subscription.sid) continue
+            // A speaker always names the subscription; one that does not is not the speaker.
+            if (notification.sid != subscription.sid) continue
             heard.set(true)
             val seq = notification.seq
             var check: SequenceCheck = SequenceCheck.InOrder

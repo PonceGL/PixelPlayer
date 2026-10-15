@@ -683,4 +683,15 @@ class SonosEventSubscriptionsTest {
         assertThat(f.of<SonosEvent.AvTransport>().size).isLessThan(300)
         assertThat(f.of<SonosEvent.NeedFullResync>()).isNotEmpty()
     }
+
+    @Test
+    fun `a notification without the SID header is not trusted`() = test { f ->
+        f.start()
+        runCurrent()
+
+        f.notify(av, 0, avBody, sid = null)
+        runCurrent()
+
+        assertThat(f.of<SonosEvent.AvTransport>()).isEmpty()
+    }
 }

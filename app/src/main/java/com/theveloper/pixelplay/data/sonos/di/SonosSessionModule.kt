@@ -57,8 +57,8 @@ internal class SonosSessionControllerFactory @Inject constructor(
     val mediaAccess: SonosMediaAccess,
     private val server: SonosMediaServer,
     private val powerLocks: SonosPowerLocks,
-    private val holder: SonosSessionHolder,
+    val sessionHolder: SonosSessionHolder,
 ) {
     fun create(scope: CoroutineScope): SonosSessionController =
-        SonosSessionController(transport, subscriber, router, mediaAccess, server, powerLocks, holder, SystemClock::elapsedRealtime, scope)
+        SonosSessionController(transport, subscriber, router, mediaAccess, server, powerLocks, sessionHolder, SystemClock::elapsedRealtime, scope)
 }

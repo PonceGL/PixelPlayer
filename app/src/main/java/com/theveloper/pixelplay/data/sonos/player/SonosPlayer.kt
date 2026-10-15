@@ -5,7 +5,9 @@ import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.annotation.OptIn
 import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.util.UnstableApi
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
@@ -43,6 +45,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param shuffleByApp the queue was sent already in a shuffled order
  * @param onCommandFailed told when the speaker refuses or cannot be reached; the player does not show errors itself
  */
+@OptIn(UnstableApi::class)
 internal class SonosPlayer(
     looper: Looper,
     private val commander: SonosCommander,

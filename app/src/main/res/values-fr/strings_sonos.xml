@@ -26,4 +26,6 @@
     <string name="sonos_error_group">Cette pièce fait partie d\'un groupe. Touchez pour réessayer.</string>
     <string name="sonos_error_generic">Impossible de lire sur cette enceinte. Touchez pour réessayer.</string>
     <string name="sonos_error_permission">L\'accès au réseau local est désactivé pour PixelPlayer. Autorisez-le dans les réglages de l\'app, puis touchez pour réessayer.</string>
+    <string name="sonos_toast_command_failed">L\'enceinte n\'a pas répondu</string>
+    <string name="sonos_toast_queue_incomplete">Certains titres n\'ont pas pu être envoyés à l\'enceinte</string>
 </resources>

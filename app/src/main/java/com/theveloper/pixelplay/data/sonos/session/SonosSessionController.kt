@@ -38,6 +38,9 @@ internal interface SonosMediaServer {
     suspend fun acquire(speakerHost: String): SonosResult<String>
 
     fun release()
+
+    /** The address the server has right now, which changes when the phone changes network. */
+    fun currentAddress(): String?
 }
 
 /** Keeps the Wi-Fi and the CPU awake while a speaker pulls music from the phone. Both calls are safe to repeat. */
@@ -74,7 +77,7 @@ internal class ActiveSession(
 )
 
 /** Where to put the music back on the phone. */
-internal data class HandBack(val songId: String?, val positionMs: Long, val wasPlaying: Boolean)
+internal data class HandBack(val songId: String?, val positionMs: Long, val wasPlaying: Boolean, val repeat: RepeatMode?)
 
 /**
  * Starts, runs and ends the session with a speaker. One session at a time, and one operation at a time:
@@ -185,7 +188,8 @@ internal class SonosSessionController(
 
     /** The setup runs apart so that a newer operation can end it without waiting for its timeout. */
     private suspend fun race(runtime: Runtime, queue: LocalQueue): SonosResult<ActiveSession> = coroutineScope {
-        val setup = async {
+        // Building the addresses of a long queue is work for the controller's own threads, not the caller's.
+        val setup = async(scope.coroutineContext.minusKey(Job)) {
             withTimeoutOrNull(START_TIMEOUT_MS) { setup(runtime, queue) } ?: SonosResult.Err(SonosFailure.Timeout)
         }
         select {
@@ -221,7 +225,7 @@ internal class SonosSessionController(
         val window = SonosCommander.queueWindow(tracks.size, start)
         access.publish(window.map { queue.entries[included[it]].songId })
 
-        val subscriptions = SonosEventSubscriptions(subscriber, router) { base }
+        val subscriptions = SonosEventSubscriptions(subscriber, router) { server.currentAddress() ?: base }
         val engine = SonosSessionEngine(subscriptions.start(device.host), runtime.reader::read, elapsedMs, runtime.runScope)
         engine.start()
         val commander = SonosCommander(transport, device.host, device.id, elapsedMs, engine::noteCommand)
@@ -267,7 +271,7 @@ internal class SonosSessionController(
         val playing = songId != null &&
             (playback.transportState == TransportState.PLAYING || playback.transportState == TransportState.TRANSITIONING)
         if (playing) withTimeoutOrNull(PAUSE_TIMEOUT_MS) { session.commander.pause() }
-        return HandBack(songId, position, wasPlaying = playing)
+        return HandBack(songId, position, wasPlaying = playing, repeat = playback.playMode?.repeat)
     }
 
     /**

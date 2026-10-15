@@ -43,6 +43,8 @@ internal class ServiceSonosMediaServer @Inject constructor(
 
     override fun release() = lease.release(ServerOwner.SONOS)
 
+    override fun currentAddress(): String? = MediaFileHttpServerService.serverAddress
+
     /** The system may refuse to start the service; that is a failure to report, not an exception to throw. */
     private fun start(speakerHost: String): Boolean = try {
         lease.acquire(ServerOwner.SONOS, speakerHost)

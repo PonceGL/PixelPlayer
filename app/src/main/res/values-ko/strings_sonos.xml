@@ -24,4 +24,6 @@
     <string name="sonos_error_group">이 방은 그룹에 속해 있습니다. 탭하여 다시 시도하세요.</string>
     <string name="sonos_error_generic">이 스피커에서 재생할 수 없습니다. 탭하여 다시 시도하세요.</string>
     <string name="sonos_error_permission">PixelPlayer의 로컬 네트워크 접근이 꺼져 있습니다. 앱 설정에서 허용한 후 탭하여 다시 시도하세요.</string>
+    <string name="sonos_toast_command_failed">스피커가 응답하지 않았습니다</string>
+    <string name="sonos_toast_queue_incomplete">일부 곡을 스피커로 보낼 수 없었습니다</string>
 </resources>
