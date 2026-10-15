@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.PowerManager
 import com.theveloper.pixelplay.data.sonos.session.SonosPowerLocks
+import timber.log.Timber
 
 /**
  * A speaker pulls its music from the phone, so while a session lasts neither the Wi-Fi radio nor the CPU may
@@ -18,18 +19,23 @@ internal class AndroidSonosPowerLocks(context: Context) : SonosPowerLocks {
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** Without the permission the session still works, but the phone may sleep; it is not a reason to refuse it. */
     override fun acquire() = synchronized(lock) {
-        if (wifiLock?.isHeld != true) {
-            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, TAG).apply {
-                setReferenceCounted(false)
-                acquire()
+        try {
+            if (wifiLock?.isHeld != true) {
+                wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, TAG).apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
             }
-        }
-        if (wakeLock?.isHeld != true) {
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG).apply {
-                setReferenceCounted(false)
-                acquire(MAX_HOLD_MS)
+            if (wakeLock?.isHeld != true) {
+                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG).apply {
+                    setReferenceCounted(false)
+                    acquire(MAX_HOLD_MS)
+                }
             }
+        } catch (_: SecurityException) {
+            Timber.tag(TAG).w("The system refused the power locks of a speaker session")
         }
     }
 
