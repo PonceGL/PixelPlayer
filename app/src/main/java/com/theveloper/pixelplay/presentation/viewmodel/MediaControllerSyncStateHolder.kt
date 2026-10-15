@@ -1,5 +1,8 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import com.theveloper.pixelplay.data.sonos.player.endedByItself
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.os.Trace
@@ -84,7 +87,7 @@ class ControllerSyncCallbacks(
  */
 @OptIn(UnstableApi::class)
 @ViewModelScoped
-class MediaControllerSyncStateHolder @Inject constructor(
+class MediaControllerSyncStateHolder @Inject internal constructor(
     private val musicRepository: MusicRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val dualPlayerEngine: DualPlayerEngine,
@@ -97,6 +100,7 @@ class MediaControllerSyncStateHolder @Inject constructor(
     private val lyricsStateHolder: LyricsStateHolder,
     private val sleepTimerStateHolder: SleepTimerStateHolder,
     private val playbackDispatchStateHolder: PlaybackDispatchStateHolder,
+    private val sonosSession: SonosSessionHolder,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -660,7 +664,7 @@ class MediaControllerSyncStateHolder @Inject constructor(
                 transitionSchedulerJob?.cancel()
                 lyricsStateHolder.cancelLoading()
                 transitionSchedulerJob = cb.scope.launch {
-                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    if (endedByItself(reason, speakerSession = sonosSession.state.value is SonosConnection.Active)) {
                         val activeEotSongId = EotStateHolder.eotTargetSongId.value
                         val previousSongId = playerCtrl.run { if (previousMediaItemIndex != C.INDEX_UNSET) getMediaItemAt(previousMediaItemIndex).mediaId else null }
 

@@ -280,6 +280,7 @@ class PlayerViewModelTest {
             mockLyricsStateHolder,
             mockSleepTimerStateHolder,
             playbackDispatchStateHolder,
+            com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder(),
             mockContext
         )
         playerViewModel = PlayerViewModel(

@@ -48,6 +48,8 @@ import com.theveloper.pixelplay.data.sonos.model.SonosUdn
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import com.theveloper.pixelplay.data.sonos.player.SonosPlayer
+import com.theveloper.pixelplay.data.sonos.player.endedByItself
+import com.theveloper.pixelplay.data.sonos.session.meansSpeakerLost
 import com.theveloper.pixelplay.data.sonos.net.isLanHost
 import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.session.ActiveSession
@@ -79,7 +81,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -322,6 +327,8 @@ class MusicService : MediaLibraryService() {
         private const val WIDGET_ART_FAILURE_RETRY_MS = 30_000L
         private const val HEADSET_RECONNECT_RESUME_WINDOW_MS = 15_000L
         private const val SONOS_TOAST_GAP_MS = 5_000L
+        /** An unreadable speaker is given this long (the engine retries meanwhile) before the session is let go. */
+        private const val SONOS_LOSS_GRACE_MS = 10_000L
 
         fun markPendingMediaButtonForegroundStart() {
             pendingMediaButtonForegroundStarts.incrementAndGet()
@@ -513,6 +520,7 @@ class MusicService : MediaLibraryService() {
                 sonosSongOrder = session.included.mapNotNull { order.getOrNull(it) }.takeIf { it.size == session.included.size }.orEmpty()
                 publishMediaSessionPlayer(player, "Published the speaker session to MediaSession.")
                 watchSonosLoad(session)
+                watchSonosReachability(session)
                 SessionResult(SessionResult.RESULT_SUCCESS)
             }
         }
@@ -573,6 +581,8 @@ class MusicService : MediaLibraryService() {
     private fun releaseSonosPlayer() {
         val sonos = sonosPlayer ?: return
         sonosPlayer = null
+        sonosReachabilityJob?.cancel()
+        sonosReachabilityJob = null
         sonosSongOrder = emptyList()
         disarmSonosWakeListener()
         publishMediaSessionPlayer(engine.masterPlayer, "Returned MediaSession to the local player.")
@@ -595,12 +605,55 @@ class MusicService : MediaLibraryService() {
     /** A speaker that does not answer is something the user has to know, but not once per button press. */
     private fun onSonosCommandFailed(failure: SonosFailure) {
         Timber.tag(TAG).w("A speaker command failed: %s", failure.safeName())
+        if (failure.meansSpeakerLost()) {
+            onSonosSpeakerLost()
+            return
+        }
         val message = when (failure) {
             SonosFailure.Superseded -> return
             SonosFailure.NotOnSpeaker -> R.string.sonos_toast_queue_incomplete
             else -> R.string.sonos_toast_command_failed
         }
         showSonosToast(message)
+    }
+
+    private var sonosLossHandling = false
+    private var sonosReachabilityJob: Job? = null
+
+    /**
+     * The speaker cannot be reached: nothing the user presses would work, so the session ends and the music goes
+     * back to the phone at the song and second it was at, paused. The user presses play when they want it here.
+     */
+    private fun onSonosSpeakerLost() {
+        if (sonosPlayer == null || sonosLossHandling) return
+        sonosLossHandling = true
+        serviceScope.launch {
+            try {
+                Timber.tag(TAG).w("The speaker was lost: the music goes back to the phone, paused")
+                sonosAttempt++
+                sonosResumeIntent = null
+                returnFromSonos(resumeLocal = false, restorePosition = true)
+                android.widget.Toast.makeText(this@MusicService, getString(R.string.sonos_toast_speaker_lost), android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                sonosLossHandling = false
+            }
+        }
+    }
+
+    /** A speaker that stays unreadable for a while is lost even if nobody presses anything. */
+    private fun watchSonosReachability(session: ActiveSession) {
+        sonosReachabilityJob?.cancel()
+        sonosReachabilityJob = serviceScope.launch {
+            session.engine.state
+                .map { state -> state.readFailure?.takeIf { it.meansSpeakerLost() } }
+                .distinctUntilChanged()
+                .collectLatest { failure ->
+                    if (failure != null) {
+                        delay(SONOS_LOSS_GRACE_MS)
+                        onSonosSpeakerLost()
+                    }
+                }
+        }
     }
 
     private fun showSonosToast(messageRes: Int) {
@@ -1721,9 +1774,7 @@ class MusicService : MediaLibraryService() {
                 // on by itself without the exact position media3 needs to call it automatic, so its change of queue
                 // counts as the end of the song too.
                 val timerPlayer = mediaSession?.player ?: engine.masterPlayer
-                val endedByItself = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                    (sonosPlayer != null && reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
-                if (endedByItself) {
+                if (endedByItself(reason, speakerSession = sonosPlayer != null)) {
                     val previousSongId = timerPlayer.run {
                         if (previousMediaItemIndex != C.INDEX_UNSET) {
                             runCatching { getMediaItemAt(previousMediaItemIndex).mediaId }.getOrNull()
