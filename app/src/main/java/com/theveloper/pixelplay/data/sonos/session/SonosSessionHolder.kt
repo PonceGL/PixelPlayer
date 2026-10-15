@@ -7,6 +7,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** What the user needs to see about a speaker session: nothing, being connected, connected, or why it failed. */
 internal sealed interface SonosConnection {
@@ -24,5 +25,10 @@ internal class SonosSessionHolder @Inject constructor() {
 
     fun set(connection: SonosConnection) {
         mutableState.value = connection
+    }
+
+    /** A failure the user has already seen goes away; a connection that is on or starting is left alone. */
+    fun clearFailure() {
+        mutableState.update { if (it is SonosConnection.Failed) SonosConnection.Idle else it }
     }
 }

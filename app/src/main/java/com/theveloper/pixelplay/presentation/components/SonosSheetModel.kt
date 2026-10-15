@@ -2,6 +2,9 @@ package com.theveloper.pixelplay.presentation.components
 
 import androidx.mediarouter.media.MediaRouter
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
+import com.theveloper.pixelplay.data.sonos.net.SonosFailure
+import com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.presentation.viewmodel.BlockReason
 import com.theveloper.pixelplay.presentation.viewmodel.SonosSearchState
 
@@ -48,19 +51,60 @@ internal fun devicesPresentation(
     return DevicesPresentation(isSearching, header, body, blocked)
 }
 
-internal fun SonosDevice.toCastDeviceUi(): CastDeviceUi = CastDeviceUi(
-    id = "sonos_${id.value}",
-    name = name,
-    deviceType = MediaRouter.RouteInfo.DEVICE_TYPE_REMOTE_SPEAKER,
-    playbackType = MediaRouter.RouteInfo.PLAYBACK_TYPE_REMOTE,
-    connectionState = MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED,
-    volumeHandling = MediaRouter.RouteInfo.PLAYBACK_VOLUME_FIXED,
-    volume = 0,
-    volumeMax = 0,
-    isSelected = false,
-    isSonos = true,
-    roomCount = roomCount,
-)
+/** The reason a connection failed, grouped by what the user can do about it. */
+internal enum class SonosErrorKind { NETWORK, UNREACHABLE, SERVER, GROUP, GENERIC }
+
+internal fun sonosErrorKind(failure: SonosFailure): SonosErrorKind = when (failure) {
+    SonosFailure.NoWifi,
+    SonosFailure.LocalNetworkDenied,
+    SonosFailure.NetworkUnreachable,
+    is SonosFailure.Network -> SonosErrorKind.NETWORK
+    SonosFailure.Timeout,
+    SonosFailure.ConnectionRefused -> SonosErrorKind.UNREACHABLE
+    SonosFailure.ServerUnavailable -> SonosErrorKind.SERVER
+    is SonosFailure.Upnp -> if (failure.kind == UpnpErrorKind.NotCoordinator) SonosErrorKind.GROUP else SonosErrorKind.GENERIC
+    SonosFailure.CleartextBlocked,
+    SonosFailure.MalformedResponse,
+    SonosFailure.NotOnSpeaker,
+    SonosFailure.Superseded -> SonosErrorKind.GENERIC
+}
+
+/** The speaker a session is with or is being made with, for the header of the controls. */
+internal data class SonosActiveDevice(val device: SonosDevice, val isConnecting: Boolean)
+
+internal fun SonosConnection.activeDevice(): SonosActiveDevice? = when (this) {
+    is SonosConnection.Connecting -> SonosActiveDevice(device, isConnecting = true)
+    is SonosConnection.Active -> SonosActiveDevice(device, isConnecting = false)
+    SonosConnection.Idle, is SonosConnection.Failed -> null
+}
+
+internal fun SonosDevice.toCastDeviceUi(connection: SonosConnection = SonosConnection.Idle): CastDeviceUi {
+    val mine = when (connection) {
+        is SonosConnection.Connecting -> connection.device.id == id
+        is SonosConnection.Active -> connection.device.id == id
+        SonosConnection.Idle, is SonosConnection.Failed -> false
+    }
+    val state = when {
+        mine && connection is SonosConnection.Connecting -> MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING
+        mine -> MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED
+        else -> MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED
+    }
+    val failure = (connection as? SonosConnection.Failed)?.takeIf { it.device.id == id }?.reason
+    return CastDeviceUi(
+        id = "sonos_${this.id.value}",
+        name = name,
+        deviceType = MediaRouter.RouteInfo.DEVICE_TYPE_REMOTE_SPEAKER,
+        playbackType = MediaRouter.RouteInfo.PLAYBACK_TYPE_REMOTE,
+        connectionState = state,
+        volumeHandling = MediaRouter.RouteInfo.PLAYBACK_VOLUME_FIXED,
+        volume = 0,
+        volumeMax = 0,
+        isSelected = mine,
+        isSonos = true,
+        roomCount = roomCount,
+        errorKind = failure?.let(::sonosErrorKind),
+    )
+}
 
 internal data class ResumeSearch(val permissionJustGranted: Boolean)
 

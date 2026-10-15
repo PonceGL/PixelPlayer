@@ -19,4 +19,10 @@
     <string name="sonos_unavailable_action">Riprova</string>
     <string name="sonos_perm_local_network_title">Rete locale</string>
     <string name="sonos_perm_local_network_desc">Consente a PixelPlayer di trovare e controllare gli altoparlanti Sonos sulla tua rete Wi-Fi.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Impossibile raggiungere lo speaker. Controlla che siano sulla stessa rete Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">Lo speaker non risponde. Assicurati che sia acceso e tocca per riprovare.</string>
+    <string name="sonos_error_server">Impossibile condividere la tua musica con lo speaker. Tocca per riprovare.</string>
+    <string name="sonos_error_group">Questa stanza fa parte di un gruppo. Tocca per riprovare.</string>
+    <string name="sonos_error_generic">Impossibile riprodurre su questo speaker. Tocca per riprovare.</string>
 </resources>

@@ -2642,6 +2642,45 @@ class PlayerViewModel @Inject constructor(
         castRouteStateHolder.disconnect(resetConnecting = resetConnecting)
     }
 
+    /**
+     * Plays what is playing on a Sonos speaker. A Cast session is ended first (its music comes back to the phone),
+     * because the speaker takes the queue of the phone.
+     */
+    fun connectSonos(udn: String, host: String, name: String, roomCount: Int) {
+        viewModelScope.launch {
+            if (isRemotePlaybackActive.value) {
+                disconnect()
+                withTimeoutOrNull(SONOS_AFTER_CAST_WAIT_MS) {
+                    isRemotePlaybackActive.first { !it }
+                    while ((mediaController?.mediaItemCount ?: 0) == 0) delay(SONOS_AFTER_CAST_POLL_MS)
+                }
+            }
+            val args = Bundle().apply {
+                putString(MusicNotificationProvider.EXTRA_SONOS_UDN, udn)
+                putString(MusicNotificationProvider.EXTRA_SONOS_HOST, host)
+                putString(MusicNotificationProvider.EXTRA_SONOS_NAME, name)
+                putInt(MusicNotificationProvider.EXTRA_SONOS_ROOMS, roomCount)
+            }
+            mediaController?.sendCustomCommand(
+                SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SONOS_CONNECT, Bundle.EMPTY),
+                args,
+            )
+        }
+    }
+
+    /** Brings the music back to the phone. [onDone] runs when the speaker session has ended. */
+    fun disconnectSonos(onDone: () -> Unit = {}) {
+        val future = mediaController?.sendCustomCommand(
+            SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SONOS_DISCONNECT, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )
+        if (future == null) {
+            onDone()
+        } else {
+            future.addListener({ onDone() }, ContextCompat.getMainExecutor(context))
+        }
+    }
+
     fun setRouteVolume(volume: Int) {
         castRouteStateHolder.setRouteVolume(volume)
     }
@@ -3115,3 +3154,7 @@ internal fun parsePersistedLyrics(rawLyrics: String?): Lyrics? {
         !it.synced.isNullOrEmpty() || !it.plain.isNullOrEmpty()
     }
 }
+
+// After a Cast session ends, how long to wait for the music to be back on the phone before handing it to a speaker.
+private const val SONOS_AFTER_CAST_WAIT_MS = 10_000L
+private const val SONOS_AFTER_CAST_POLL_MS = 100L

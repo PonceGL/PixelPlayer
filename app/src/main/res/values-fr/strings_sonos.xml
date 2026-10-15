@@ -19,4 +19,10 @@
     <string name="sonos_unavailable_action">Réessayer</string>
     <string name="sonos_perm_local_network_title">Réseau local</string>
     <string name="sonos_perm_local_network_desc">Permet à PixelPlayer de trouver et de contrôler les enceintes Sonos de votre réseau Wi-Fi.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Impossible de joindre l\'enceinte. Vérifiez que les deux sont sur le même Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">L\'enceinte ne répond pas. Vérifiez qu\'elle est allumée, puis touchez pour réessayer.</string>
+    <string name="sonos_error_server">Impossible de partager votre musique avec l\'enceinte. Touchez pour réessayer.</string>
+    <string name="sonos_error_group">Cette pièce fait partie d\'un groupe. Touchez pour réessayer.</string>
+    <string name="sonos_error_generic">Impossible de lire sur cette enceinte. Touchez pour réessayer.</string>
 </resources>

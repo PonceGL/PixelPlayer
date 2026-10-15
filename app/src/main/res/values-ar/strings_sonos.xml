@@ -22,4 +22,10 @@
     <string name="sonos_unavailable_action">أعد المحاولة</string>
     <string name="sonos_perm_local_network_title">الشبكة المحلية</string>
     <string name="sonos_perm_local_network_desc">يتيح لـ PixelPlayer العثور على مكبرات صوت Sonos في شبكة Wi‑Fi والتحكم بها.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">تعذّر الوصول إلى السماعة. تأكد من أن كليهما على شبكة Wi‑Fi نفسها.</string>
+    <string name="sonos_error_unreachable">السماعة لا تستجيب. تأكد من أنها قيد التشغيل ثم المس للمحاولة مرة أخرى.</string>
+    <string name="sonos_error_server">تعذّرت مشاركة موسيقاك مع السماعة. المس للمحاولة مرة أخرى.</string>
+    <string name="sonos_error_group">هذه الغرفة جزء من مجموعة. المس للمحاولة مرة أخرى.</string>
+    <string name="sonos_error_generic">تعذّر التشغيل على هذه السماعة. المس للمحاولة مرة أخرى.</string>
 </resources>

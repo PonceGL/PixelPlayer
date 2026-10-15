@@ -19,4 +19,10 @@
     <string name="sonos_unavailable_action">Reintentar</string>
     <string name="sonos_perm_local_network_title">Red local</string>
     <string name="sonos_perm_local_network_desc">Permite que PixelPlayer encuentre y se comunique con los altavoces Sonos de tu red Wi‑Fi.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">No se pudo llegar al altavoz. Comprueba que ambos están en la misma red Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">El altavoz no responde. Asegúrate de que está encendido y toca para reintentar.</string>
+    <string name="sonos_error_server">No se pudo compartir tu música con el altavoz. Toca para reintentar.</string>
+    <string name="sonos_error_group">Esta habitación forma parte de un grupo. Toca para reintentar.</string>
+    <string name="sonos_error_generic">No se pudo reproducir en este altavoz. Toca para reintentar.</string>
 </resources>

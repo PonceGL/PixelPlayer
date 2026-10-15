@@ -17,4 +17,10 @@
     <string name="sonos_unavailable_action">重试</string>
     <string name="sonos_perm_local_network_title">本地网络</string>
     <string name="sonos_perm_local_network_desc">让 PixelPlayer 能够在您的 Wi-Fi 网络中发现并控制 Sonos 扬声器。</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">无法连接到扬声器。请确认两者在同一 Wi‑Fi 网络中。</string>
+    <string name="sonos_error_unreachable">扬声器没有响应。请确认已开机，然后点按重试。</string>
+    <string name="sonos_error_server">无法与扬声器共享您的音乐。点按重试。</string>
+    <string name="sonos_error_group">此房间属于一个分组。点按重试。</string>
+    <string name="sonos_error_generic">无法在此扬声器上播放。点按重试。</string>
 </resources>
