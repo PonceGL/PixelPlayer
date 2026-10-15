@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Cast-Medienserver</string>
     <string name="cast_server_notification_title">Casting läuft</string>
-    <string name="cast_server_notification_text">Medien werden an Cast-Gerät gesendet</string>
+    <string name="cast_server_notification_text">Musik wird an ein Gerät im Netzwerk gesendet</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">Spulen ist für dieses Audioformat über Cast vorübergehend nicht verfügbar, da dies die Cast-Sitzung abstürzen lassen kann.</string>
 

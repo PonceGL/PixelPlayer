@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Cast media server</string>
     <string name="cast_server_notification_title">Mentransmisikan ke perangkat</string>
-    <string name="cast_server_notification_text">Menyajikan media ke perangkat Cast</string>
+    <string name="cast_server_notification_text">Menyajikan musik ke perangkat di jaringan Anda</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">Pencarian tidak tersedia sementara untuk format audio ini di Cast karena dapat merusak sesi Cast.</string>
 

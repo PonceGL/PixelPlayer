@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Cast medieserver</string>
     <string name="cast_server_notification_title">Caster til enhet</string>
-    <string name="cast_server_notification_text">Serverer media til Cast-enhet</string>
+    <string name="cast_server_notification_text">Serverer musikk til en enhet på nettverket ditt</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">Sporing er midlertidig utilgjengelig for dette lydformatet på Cast fordi det kan krasje Cast-sesjonen.</string>
 

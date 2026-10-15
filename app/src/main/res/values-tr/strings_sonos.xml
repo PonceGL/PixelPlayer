@@ -27,4 +27,6 @@
     <string name="sonos_error_permission">PixelPlayer için yerel ağ erişimi kapalı. Uygulama ayarlarından izin verin ve tekrar denemek için dokunun.</string>
     <string name="sonos_toast_command_failed">Hoparlör yanıt vermedi</string>
     <string name="sonos_toast_queue_incomplete">Bazı şarkılar hoparlöre gönderilemedi</string>
+    <string name="sonos_toast_shuffle_unavailable">Hoparlörde çalarken karışık çalma kullanılamaz</string>
+    <string name="sonos_toast_speaker_lost">Hoparlör yanıt vermiyor. Oynatma telefona döndü, duraklatıldı.</string>
 </resources>

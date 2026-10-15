@@ -28,4 +28,6 @@
     <string name="sonos_error_permission">L\'accesso alla rete locale è disattivato per PixelPlayer. Consentilo nelle impostazioni dell\'app e tocca per riprovare.</string>
     <string name="sonos_toast_command_failed">Lo speaker non ha risposto</string>
     <string name="sonos_toast_queue_incomplete">Non è stato possibile inviare alcuni brani allo speaker</string>
+    <string name="sonos_toast_shuffle_unavailable">La riproduzione casuale non è disponibile mentre suona su uno speaker</string>
+    <string name="sonos_toast_speaker_lost">Lo speaker non risponde più. La riproduzione è tornata sul telefono, in pausa.</string>
 </resources>

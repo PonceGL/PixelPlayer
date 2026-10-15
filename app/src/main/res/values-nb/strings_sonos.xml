@@ -27,4 +27,6 @@
     <string name="sonos_error_permission">Tilgang til lokalnettet er slått av for PixelPlayer. Tillat det i appinnstillingene, og trykk for å prøve igjen.</string>
     <string name="sonos_toast_command_failed">Høyttaleren svarte ikke</string>
     <string name="sonos_toast_queue_incomplete">Noen sanger kunne ikke sendes til høyttaleren</string>
+    <string name="sonos_toast_shuffle_unavailable">Tilfeldig rekkefølge er ikke tilgjengelig mens musikken spilles på en høyttaler</string>
+    <string name="sonos_toast_speaker_lost">Høyttaleren svarer ikke. Avspillingen er tilbake på telefonen, satt på pause.</string>
 </resources>

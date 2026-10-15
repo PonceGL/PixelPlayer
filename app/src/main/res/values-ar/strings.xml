@@ -155,7 +155,7 @@
 
     <string name="cast_server_channel_name">خادم وسائط البث (Cast)</string>
     <string name="cast_server_notification_title">جاري البث إلى الجهاز</string>
-    <string name="cast_server_notification_text">تزويد جهاز البث بالوسائط</string>
+    <string name="cast_server_notification_text">تزويد جهاز على شبكتك بالموسيقى</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">التقديم والتأخير غير متاح مؤقتاً لصيغة الصوت هذه أثناء البث لأنها قد تتسبب في تعطل جلسة البث.</string>
 

@@ -28,4 +28,6 @@
     <string name="sonos_error_permission">El acceso a la red local está desactivado para PixelPlayer. Actívalo en los ajustes de la app y toca para reintentar.</string>
     <string name="sonos_toast_command_failed">El altavoz no respondió</string>
     <string name="sonos_toast_queue_incomplete">No se pudieron enviar algunas canciones al altavoz</string>
+    <string name="sonos_toast_shuffle_unavailable">El modo aleatorio no está disponible mientras suena en un altavoz</string>
+    <string name="sonos_toast_speaker_lost">El altavoz dejó de responder. La reproducción volvió al teléfono, en pausa.</string>
 </resources>

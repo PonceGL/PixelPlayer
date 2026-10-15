@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Сервер трансляции</string>
     <string name="cast_server_notification_title">Трансляция на устройство</string>
-    <string name="cast_server_notification_text">Передача медиа на устройство Cast</string>
+    <string name="cast_server_notification_text">Передача музыки на устройство в вашей сети</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">Перемотка временно недоступна для этого аудиоформата при трансляции, так как может привести к сбою сеанса Cast.</string>
 

@@ -770,6 +770,9 @@ class PlayerViewModel @Inject constructor(
             coroutineScope = viewModelScope,
             onCastSeekBlocked = {
                 sendToast(context.getString(R.string.cast_seek_unavailable_for_format))
+            },
+            onSonosShuffleBlocked = {
+                sendToast(context.getString(R.string.sonos_toast_shuffle_unavailable))
             }
         )
         themeStateHolder.initialize(viewModelScope)

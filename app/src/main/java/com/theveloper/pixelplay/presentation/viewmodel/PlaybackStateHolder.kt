@@ -30,16 +30,19 @@ import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
 import com.google.android.gms.cast.MediaStatus
 import timber.log.Timber
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import com.theveloper.pixelplay.utils.QueueUtils
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import kotlin.math.abs
 
 @Singleton
-class PlaybackStateHolder @Inject constructor(
+class PlaybackStateHolder @Inject internal constructor(
     private val dualPlayerEngine: DualPlayerEngine,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val castStateHolder: CastStateHolder,
     private val queueStateHolder: QueueStateHolder,
+    private val sonosSession: SonosSessionHolder,
     @param:ApplicationContext private val appContext: Context
 ) {
     companion object {
@@ -74,6 +77,7 @@ class PlaybackStateHolder @Inject constructor(
 
     private var scope: CoroutineScope? = null
     private var onCastSeekBlocked: (() -> Unit)? = null
+    private var onSonosShuffleBlocked: (() -> Unit)? = null
     
     // MediaController
     var mediaController: MediaController? = null
@@ -151,10 +155,12 @@ class PlaybackStateHolder @Inject constructor(
 
     fun initialize(
         coroutineScope: CoroutineScope,
-        onCastSeekBlocked: (() -> Unit)? = null
+        onCastSeekBlocked: (() -> Unit)? = null,
+        onSonosShuffleBlocked: (() -> Unit)? = null
     ) {
         this.scope = coroutineScope
         this.onCastSeekBlocked = onCastSeekBlocked
+        this.onSonosShuffleBlocked = onSonosShuffleBlocked
         scope?.launch {
             val snapshot = runCatching {
                 userPreferencesRepository.getPlaybackQueueSnapshotOnce()
@@ -924,6 +930,12 @@ class PlaybackStateHolder @Inject constructor(
         currentQueueSourceName: String,
         updateQueueCallback: (List<Song>) -> Unit
     ) {
+        // The queue of a speaker was fixed when it was sent. Reordering the phone's queue under it would show an order
+        // the speaker does not have, and moving the phone's player would wake it and end the session.
+        if (sonosSession.state.value is SonosConnection.Active || sonosSession.state.value is SonosConnection.Connecting) {
+            onSonosShuffleBlocked?.invoke()
+            return
+        }
         val nowMs = SystemClock.elapsedRealtime()
         if (shuffleToggleJob?.isActive == true) return
         if ((nowMs - lastShuffleToggleFinishedAtMs) < SHUFFLE_TOGGLE_COOLDOWN_MS) return
@@ -1127,6 +1139,7 @@ class PlaybackStateHolder @Inject constructor(
         shuffleToggleJob = null
         scope = null
         onCastSeekBlocked = null
+        onSonosShuffleBlocked = null
     }
 
 }

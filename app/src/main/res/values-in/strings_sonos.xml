@@ -26,4 +26,6 @@
     <string name="sonos_error_permission">Akses jaringan lokal untuk PixelPlayer dimatikan. Izinkan di pengaturan aplikasi, lalu ketuk untuk mencoba lagi.</string>
     <string name="sonos_toast_command_failed">Speaker tidak merespons</string>
     <string name="sonos_toast_queue_incomplete">Beberapa lagu tidak dapat dikirim ke speaker</string>
+    <string name="sonos_toast_shuffle_unavailable">Acak tidak tersedia saat memutar di speaker</string>
+    <string name="sonos_toast_speaker_lost">Speaker tidak merespons. Pemutaran kembali ke ponsel, dijeda.</string>
 </resources>
