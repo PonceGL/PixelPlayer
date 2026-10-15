@@ -17,6 +17,8 @@ internal sealed interface SonosFailure {
     data class Upnp(val action: String, val kind: UpnpErrorKind) : SonosFailure
     /** A newer load of the same speaker took over before this one finished. */
     data object Superseded : SonosFailure
+    /** The song asked for is in the app's queue but was not sent to the speaker. */
+    data object NotOnSpeaker : SonosFailure
     data object MalformedResponse : SonosFailure
     data class Network(val detail: String) : SonosFailure
 }
