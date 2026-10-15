@@ -15,6 +15,9 @@ internal sealed interface SonosFailure {
     /** The app's network policy forbids plain HTTP: a configuration bug, not a user problem. */
     data object CleartextBlocked : SonosFailure
     data class Upnp(val action: String, val kind: UpnpErrorKind) : SonosFailure
+    /** The phone could not serve media to the speaker (no network address or the server did not start). */
+    data object ServerUnavailable : SonosFailure
+
     /** A newer load of the same speaker took over before this one finished. */
     data object Superseded : SonosFailure
     /** The song asked for is in the app's queue but was not sent to the speaker. */
