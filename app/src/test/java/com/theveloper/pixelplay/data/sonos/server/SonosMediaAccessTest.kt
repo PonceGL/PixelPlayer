@@ -181,4 +181,13 @@ class SonosMediaAccessTest {
         assertThat(redactToken("GET /sonos/song/42 200")).isEqualTo("GET /sonos/song/42 200")
         assertThat(redactToken("author=me")).isEqualTo("author=me")
     }
+
+    @Test
+    fun `an id that would collapse into the path is refused when building an address`() {
+        for (id in listOf(".", "..")) {
+            val failure = runCatching { access.songUrl("http://192.168.1.20:8080", id, "1") }.exceptionOrNull()
+
+            assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
 }

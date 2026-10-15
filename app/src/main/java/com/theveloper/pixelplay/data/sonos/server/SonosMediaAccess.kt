@@ -33,12 +33,17 @@ internal class SonosMediaAccess(private val identity: () -> SonosServerIdentity)
         return if (songId != null && songId in published) AccessDecision.Allowed else AccessDecision.NotPublished
     }
 
+    /** False for ids that no address can carry. */
+    fun servable(songId: String): Boolean = songId.isNotEmpty() && songId != "." && songId != ".."
+
     fun songUrl(baseUrl: String, songId: String, revision: String): String = urlFor("song", baseUrl, songId, revision)
 
     fun artUrl(baseUrl: String, songId: String, revision: String): String = urlFor("art", baseUrl, songId, revision)
 
     private fun urlFor(kind: String, baseUrl: String, songId: String, revision: String): String {
         val base = requireNotNull(baseUrl.toHttpUrlOrNull()) { "Invalid media server address" }
+        // "." and ".." would be resolved by the URL instead of reaching the route as an id.
+        require(servable(songId)) { "A song id that cannot travel in an address" }
         return base.newBuilder()
             .encodedPath("/")
             .addPathSegment("sonos")
