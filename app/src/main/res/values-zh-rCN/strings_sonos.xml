@@ -23,4 +23,5 @@
     <string name="sonos_error_server">无法与扬声器共享您的音乐。点按重试。</string>
     <string name="sonos_error_group">此房间属于一个分组。点按重试。</string>
     <string name="sonos_error_generic">无法在此扬声器上播放。点按重试。</string>
+    <string name="sonos_error_permission">PixelPlayer 的本地网络访问已关闭。请在应用设置中允许，然后点按重试。</string>
 </resources>

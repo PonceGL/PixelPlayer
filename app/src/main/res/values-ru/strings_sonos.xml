@@ -26,4 +26,5 @@
     <string name="sonos_error_server">Не удалось передать музыку на колонку. Нажмите, чтобы повторить.</string>
     <string name="sonos_error_group">Эта комната входит в группу. Нажмите, чтобы повторить.</string>
     <string name="sonos_error_generic">Не удалось воспроизвести на этой колонке. Нажмите, чтобы повторить.</string>
+    <string name="sonos_error_permission">Доступ к локальной сети для PixelPlayer отключён. Разрешите его в настройках приложения и нажмите, чтобы повторить.</string>
 </resources>

@@ -28,4 +28,5 @@
     <string name="sonos_error_server">تعذّرت مشاركة موسيقاك مع السماعة. المس للمحاولة مرة أخرى.</string>
     <string name="sonos_error_group">هذه الغرفة جزء من مجموعة. المس للمحاولة مرة أخرى.</string>
     <string name="sonos_error_generic">تعذّر التشغيل على هذه السماعة. المس للمحاولة مرة أخرى.</string>
+    <string name="sonos_error_permission">الوصول إلى الشبكة المحلية متوقف لتطبيق PixelPlayer. اسمح به من إعدادات التطبيق ثم المس للمحاولة مرة أخرى.</string>
 </resources>

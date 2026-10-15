@@ -24,4 +24,5 @@
     <string name="sonos_error_server">Deine Musik konnte nicht mit dem Lautsprecher geteilt werden. Tippe zum Wiederholen.</string>
     <string name="sonos_error_group">Dieser Raum gehört zu einer Gruppe. Tippe zum Wiederholen.</string>
     <string name="sonos_error_generic">Wiedergabe auf diesem Lautsprecher nicht möglich. Tippe zum Wiederholen.</string>
+    <string name="sonos_error_permission">Der Zugriff auf das lokale Netzwerk ist für PixelPlayer ausgeschaltet. Erlaube ihn in den App-Einstellungen und tippe zum Wiederholen.</string>
 </resources>

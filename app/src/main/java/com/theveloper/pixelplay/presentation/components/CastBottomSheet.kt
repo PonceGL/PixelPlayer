@@ -335,7 +335,7 @@ fun CastBottomSheet(
                         volumeHandling = MediaRouter.RouteInfo.PLAYBACK_VOLUME_VARIABLE,
                         volume = if (isConnected) (trackVolume * 100).toInt() else 0,
                         volumeMax = 100,
-                        isSelected = isConnected && !isRemoteSession,
+                        isSelected = isConnected && !isRemoteSession && sonosConnection.activeDevice() == null,
                         batteryPercent = bluetoothDevice.batteryPercent,
                         isBluetooth = true
                     )
@@ -1864,6 +1864,7 @@ private fun CastDeviceRow(
                         text = stringResource(
                             when (kind) {
                                 SonosErrorKind.NETWORK -> R.string.sonos_error_network
+                                SonosErrorKind.PERMISSION -> R.string.sonos_error_permission
                                 SonosErrorKind.UNREACHABLE -> R.string.sonos_error_unreachable
                                 SonosErrorKind.SERVER -> R.string.sonos_error_server
                                 SonosErrorKind.GROUP -> R.string.sonos_error_group

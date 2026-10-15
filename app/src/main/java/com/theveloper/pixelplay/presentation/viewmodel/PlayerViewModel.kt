@@ -2648,11 +2648,14 @@ class PlayerViewModel @Inject constructor(
      */
     fun connectSonos(udn: String, host: String, name: String, roomCount: Int) {
         viewModelScope.launch {
-            if (isRemotePlaybackActive.value) {
+            if (isRemotePlaybackActive.value || isCastConnecting.value) {
+                val hadSession = castStateHolder.castSession.value != null
+                val returnsBefore = castTransferStateHolder.transferBacks.value
                 disconnect()
-                withTimeoutOrNull(SONOS_AFTER_CAST_WAIT_MS) {
-                    isRemotePlaybackActive.first { !it }
-                    while ((mediaController?.mediaItemCount ?: 0) == 0) delay(SONOS_AFTER_CAST_POLL_MS)
+                // The speaker takes the queue of the phone, so the music has to be back on it first. If it does not
+                // come back, nothing is sent: a speaker started now would get a queue that is not the one playing.
+                if (hadSession && !awaitCastReturn(castTransferStateHolder.transferBacks, returnsBefore, SONOS_AFTER_CAST_WAIT_MS)) {
+                    return@launch
                 }
             }
             val args = Bundle().apply {
@@ -3157,4 +3160,3 @@ internal fun parsePersistedLyrics(rawLyrics: String?): Lyrics? {
 
 // After a Cast session ends, how long to wait for the music to be back on the phone before handing it to a speaker.
 private const val SONOS_AFTER_CAST_WAIT_MS = 10_000L
-private const val SONOS_AFTER_CAST_POLL_MS = 100L

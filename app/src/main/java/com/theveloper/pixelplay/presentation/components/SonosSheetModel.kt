@@ -52,13 +52,13 @@ internal fun devicesPresentation(
 }
 
 /** The reason a connection failed, grouped by what the user can do about it. */
-internal enum class SonosErrorKind { NETWORK, UNREACHABLE, SERVER, GROUP, GENERIC }
+internal enum class SonosErrorKind { NETWORK, PERMISSION, UNREACHABLE, SERVER, GROUP, GENERIC }
 
 internal fun sonosErrorKind(failure: SonosFailure): SonosErrorKind = when (failure) {
     SonosFailure.NoWifi,
-    SonosFailure.LocalNetworkDenied,
     SonosFailure.NetworkUnreachable,
     is SonosFailure.Network -> SonosErrorKind.NETWORK
+    SonosFailure.LocalNetworkDenied -> SonosErrorKind.PERMISSION
     SonosFailure.Timeout,
     SonosFailure.ConnectionRefused -> SonosErrorKind.UNREACHABLE
     SonosFailure.ServerUnavailable -> SonosErrorKind.SERVER

@@ -25,4 +25,5 @@
     <string name="sonos_error_server">Impossibile condividere la tua musica con lo speaker. Tocca per riprovare.</string>
     <string name="sonos_error_group">Questa stanza fa parte di un gruppo. Tocca per riprovare.</string>
     <string name="sonos_error_generic">Impossibile riprodurre su questo speaker. Tocca per riprovare.</string>
+    <string name="sonos_error_permission">L\'accesso alla rete locale è disattivato per PixelPlayer. Consentilo nelle impostazioni dell\'app e tocca per riprovare.</string>
 </resources>

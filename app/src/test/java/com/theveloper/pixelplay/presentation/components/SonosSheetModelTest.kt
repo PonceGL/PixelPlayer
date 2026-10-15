@@ -197,7 +197,7 @@ class SonosSheetModelTest {
     fun `every failure has a message the user can act on`() {
         val expected = mapOf(
             SonosFailure.NoWifi to SonosErrorKind.NETWORK,
-            SonosFailure.LocalNetworkDenied to SonosErrorKind.NETWORK,
+            SonosFailure.LocalNetworkDenied to SonosErrorKind.PERMISSION,
             SonosFailure.NetworkUnreachable to SonosErrorKind.NETWORK,
             SonosFailure.Network("x") to SonosErrorKind.NETWORK,
             SonosFailure.Timeout to SonosErrorKind.UNREACHABLE,

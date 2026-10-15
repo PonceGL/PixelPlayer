@@ -24,4 +24,5 @@
     <string name="sonos_error_server">Couldn\'t share your music with the speaker. Tap to try again.</string>
     <string name="sonos_error_group">This room is part of a group. Tap to try again.</string>
     <string name="sonos_error_generic">Couldn\'t play on this speaker. Tap to try again.</string>
+    <string name="sonos_error_permission">Local network access is off for PixelPlayer. Allow it in the app settings, then tap to try again.</string>
 </resources>
