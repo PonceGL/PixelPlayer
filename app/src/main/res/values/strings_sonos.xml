@@ -18,4 +18,16 @@
     <string name="sonos_unavailable_action">Try again</string>
     <string name="sonos_perm_local_network_title">Local network</string>
     <string name="sonos_perm_local_network_desc">Lets PixelPlayer find and talk to Sonos speakers on your Wi‑Fi.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Couldn\'t reach the speaker. Check that both are on the same Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">The speaker isn\'t answering. Make sure it is on, then tap to try again.</string>
+    <string name="sonos_error_server">Couldn\'t share your music with the speaker. Tap to try again.</string>
+    <string name="sonos_error_group">This room is part of a group. Tap to try again.</string>
+    <string name="sonos_error_generic">Couldn\'t play on this speaker. Tap to try again.</string>
+    <string name="sonos_error_permission">Local network access is off for PixelPlayer. Allow it in the app settings, then tap to try again.</string>
+    <string name="sonos_toast_command_failed">The speaker didn\'t respond</string>
+    <string name="sonos_toast_queue_incomplete">Some songs couldn\'t be sent to the speaker</string>
+    <string name="sonos_toast_shuffle_unavailable">Shuffle isn\'t available while playing on a speaker</string>
+    <string name="sonos_toast_speaker_lost">The speaker stopped responding. Playback is back on your phone, paused.</string>
+    <string name="sonos_toast_taken_over">Another device took the speaker. Your music is back on the phone, paused.</string>
 </resources>

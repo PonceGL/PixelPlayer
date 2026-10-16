@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">投屏媒体服务器</string>
     <string name="cast_server_notification_title">正在投屏至设备</string>
-    <string name="cast_server_notification_text">正在向投屏设备提供媒体</string>
+    <string name="cast_server_notification_text">正在向网络中的设备提供音乐</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">投屏时暂不支持对此音频格式进行进度调节，这可能会导致投屏会话崩溃。</string>
 

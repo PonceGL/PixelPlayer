@@ -17,4 +17,16 @@
     <string name="sonos_unavailable_action">Coba lagi</string>
     <string name="sonos_perm_local_network_title">Jaringan lokal</string>
     <string name="sonos_perm_local_network_desc">Memungkinkan PixelPlayer menemukan dan mengontrol speaker Sonos di jaringan Wi‑Fi Anda.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Tidak dapat menjangkau speaker. Pastikan keduanya berada di Wi‑Fi yang sama.</string>
+    <string name="sonos_error_unreachable">Speaker tidak merespons. Pastikan speaker menyala, lalu ketuk untuk mencoba lagi.</string>
+    <string name="sonos_error_server">Tidak dapat membagikan musik Anda ke speaker. Ketuk untuk mencoba lagi.</string>
+    <string name="sonos_error_group">Ruangan ini bagian dari grup. Ketuk untuk mencoba lagi.</string>
+    <string name="sonos_error_generic">Tidak dapat memutar di speaker ini. Ketuk untuk mencoba lagi.</string>
+    <string name="sonos_error_permission">Akses jaringan lokal untuk PixelPlayer dimatikan. Izinkan di pengaturan aplikasi, lalu ketuk untuk mencoba lagi.</string>
+    <string name="sonos_toast_command_failed">Speaker tidak merespons</string>
+    <string name="sonos_toast_queue_incomplete">Beberapa lagu tidak dapat dikirim ke speaker</string>
+    <string name="sonos_toast_shuffle_unavailable">Acak tidak tersedia saat memutar di speaker</string>
+    <string name="sonos_toast_speaker_lost">Speaker tidak merespons. Pemutaran kembali ke ponsel, dijeda.</string>
+    <string name="sonos_toast_taken_over">Perangkat lain mengambil alih speaker. Musik kembali ke ponsel, dijeda.</string>
 </resources>

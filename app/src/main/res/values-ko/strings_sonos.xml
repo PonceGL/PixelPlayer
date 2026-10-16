@@ -17,4 +17,16 @@
     <string name="sonos_unavailable_action">다시 시도</string>
     <string name="sonos_perm_local_network_title">로컬 네트워크</string>
     <string name="sonos_perm_local_network_desc">PixelPlayer가 Wi-Fi 네트워크의 Sonos 스피커를 찾고 제어할 수 있게 합니다.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">스피커에 연결할 수 없습니다. 두 기기가 같은 Wi‑Fi에 있는지 확인하세요.</string>
+    <string name="sonos_error_unreachable">스피커가 응답하지 않습니다. 전원이 켜져 있는지 확인한 후 탭하여 다시 시도하세요.</string>
+    <string name="sonos_error_server">스피커와 음악을 공유할 수 없습니다. 탭하여 다시 시도하세요.</string>
+    <string name="sonos_error_group">이 방은 그룹에 속해 있습니다. 탭하여 다시 시도하세요.</string>
+    <string name="sonos_error_generic">이 스피커에서 재생할 수 없습니다. 탭하여 다시 시도하세요.</string>
+    <string name="sonos_error_permission">PixelPlayer의 로컬 네트워크 접근이 꺼져 있습니다. 앱 설정에서 허용한 후 탭하여 다시 시도하세요.</string>
+    <string name="sonos_toast_command_failed">스피커가 응답하지 않았습니다</string>
+    <string name="sonos_toast_queue_incomplete">일부 곡을 스피커로 보낼 수 없었습니다</string>
+    <string name="sonos_toast_shuffle_unavailable">스피커에서 재생하는 동안에는 셔플을 사용할 수 없습니다</string>
+    <string name="sonos_toast_speaker_lost">스피커가 응답하지 않습니다. 재생이 휴대전화로 돌아왔으며 일시중지되었습니다.</string>
+    <string name="sonos_toast_taken_over">다른 기기가 스피커를 사용합니다. 음악이 휴대전화로 돌아왔으며 일시중지되었습니다.</string>
 </resources>

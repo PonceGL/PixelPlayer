@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import com.theveloper.pixelplay.data.sonos.session.DiscoveryUpdate
 import com.theveloper.pixelplay.data.sonos.session.SpeakerDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,7 +21,11 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 internal class SonosDevicesViewModel @Inject constructor(
     private val discovery: SpeakerDiscovery,
+    private val session: SonosSessionHolder,
 ) : ViewModel() {
+
+    /** The connection with a speaker, as the sheet shows it. */
+    val connection: StateFlow<SonosConnection> = session.state
 
     private val _state = MutableStateFlow<SonosSearchState>(SonosSearchState.Idle)
     val state: StateFlow<SonosSearchState> = _state.asStateFlow()
@@ -32,6 +38,8 @@ internal class SonosDevicesViewModel @Inject constructor(
      * retried a few times instead of being reported as a refusal.
      */
     fun search(permissionJustGranted: Boolean = false) {
+        // Looking again is the user's way of leaving a failure behind.
+        session.clearFailure()
         searchJob?.cancel()
         searchJob = viewModelScope.launch { runSearch(permissionJustGranted) }
     }

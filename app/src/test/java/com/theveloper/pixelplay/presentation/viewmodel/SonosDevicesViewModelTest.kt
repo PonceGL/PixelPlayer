@@ -1,6 +1,8 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
 import com.google.common.truth.Truth.assertThat
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.MainCoroutineExtension
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.model.SonosUdn
@@ -62,7 +64,9 @@ class SonosDevicesViewModelTest {
         }
     }
 
-    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery)
+    private val holder = SonosSessionHolder()
+
+    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery, holder)
 
     @Test
     fun `it starts idle`() = runTest {
@@ -223,5 +227,32 @@ class SonosDevicesViewModelTest {
         advanceUntilIdle()
 
         assertThat(vm.state.value).isEqualTo(SonosSearchState.Finished(listOf(salon)))
+    }
+
+    private val kitchen = SonosDevice(SonosUdn("RINCON_K"), "Cocina", "10.0.0.6", roomCount = 1)
+
+    @Test
+    fun `it shows the connection the session reports`() = runTest {
+        val vm = viewModel(ScriptedDiscovery(listOf(script())))
+
+        holder.set(SonosConnection.Connecting(kitchen))
+        assertThat(vm.connection.value).isEqualTo(SonosConnection.Connecting(kitchen))
+
+        holder.set(SonosConnection.Active(kitchen))
+        assertThat(vm.connection.value).isEqualTo(SonosConnection.Active(kitchen))
+    }
+
+    @Test
+    fun `searching again leaves a failure behind but never a connection`() = runTest {
+        val vm = viewModel(ScriptedDiscovery(listOf(script(), script())))
+        holder.set(SonosConnection.Failed(kitchen, SonosFailure.Timeout))
+
+        vm.search()
+        assertThat(vm.connection.value).isEqualTo(SonosConnection.Idle)
+
+        holder.set(SonosConnection.Active(kitchen))
+        vm.search()
+        assertThat(vm.connection.value).isEqualTo(SonosConnection.Active(kitchen))
+        vm.stop()
     }
 }

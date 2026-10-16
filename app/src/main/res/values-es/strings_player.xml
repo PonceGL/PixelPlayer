@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Servidor de medios Cast</string>
     <string name="cast_server_notification_title">Transmitiendo a dispositivo</string>
-    <string name="cast_server_notification_text">Sirviendo medios al dispositivo Cast</string>
+    <string name="cast_server_notification_text">Sirviendo música a un dispositivo de tu red</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">La búsqueda no está disponible temporalmente para este formato de audio en Cast porque puede bloquear la sesión de Cast.</string>
 

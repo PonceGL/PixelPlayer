@@ -181,4 +181,28 @@ class SonosMediaAccessTest {
         assertThat(redactToken("GET /sonos/song/42 200")).isEqualTo("GET /sonos/song/42 200")
         assertThat(redactToken("author=me")).isEqualTo("author=me")
     }
+
+    @Test
+    fun `an id that would collapse into the path is refused when building an address`() {
+        for (id in listOf(".", "..")) {
+            val failure = runCatching { access.songUrl("http://192.168.1.20:8080", id, "1") }.exceptionOrNull()
+
+            assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `a blank id cannot be served either, matching what publish accepts`() {
+        assertThat(access.servable("   ")).isFalse()
+        assertThat(access.servable("")).isFalse()
+        assertThat(access.servable("42")).isTrue()
+    }
+
+    @Test
+    fun `only the token of this server counts as ours`() {
+        assertThat(access.isOwnToken(token)).isTrue()
+        assertThat(access.isOwnToken("somebody-else")).isFalse()
+        assertThat(access.isOwnToken(null)).isFalse()
+        assertThat(access.isOwnToken("")).isFalse()
+    }
 }

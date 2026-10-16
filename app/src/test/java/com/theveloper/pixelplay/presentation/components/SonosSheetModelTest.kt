@@ -5,6 +5,9 @@ import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.model.SonosUdn
+import com.theveloper.pixelplay.data.sonos.net.SonosFailure
+import com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.presentation.viewmodel.BlockReason
 import com.theveloper.pixelplay.presentation.viewmodel.SonosSearchState
 import org.junit.jupiter.api.Test
@@ -138,5 +141,77 @@ class SonosSheetModelTest {
         assertThat(resumeSearch(BlockReason.UNAVAILABLE, localNetworkJustGranted = false)).isNull()
         assertThat(resumeSearch(BlockReason.PERMISSION_PENDING, localNetworkJustGranted = true)).isNull()
         assertThat(resumeSearch(null, localNetworkJustGranted = true)).isNull()
+    }
+
+    private val cocina = SonosDevice(SonosUdn("RINCON_B"), "Cocina", "10.0.0.6", roomCount = 2)
+
+    @Test
+    fun `a speaker nobody is connecting to shows as available`() {
+        val row = salon.toCastDeviceUi(SonosConnection.Idle)
+
+        assertThat(row.connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED)
+        assertThat(row.isSelected).isFalse()
+        assertThat(row.errorKind).isNull()
+    }
+
+    @Test
+    fun `the speaker being connected shows connecting and selected, the others stay available`() {
+        val connection = SonosConnection.Connecting(salon)
+
+        assertThat(salon.toCastDeviceUi(connection).connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING)
+        assertThat(salon.toCastDeviceUi(connection).isSelected).isTrue()
+        assertThat(cocina.toCastDeviceUi(connection).connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED)
+        assertThat(cocina.toCastDeviceUi(connection).isSelected).isFalse()
+    }
+
+    @Test
+    fun `the connected speaker shows connected and selected`() {
+        val connection = SonosConnection.Active(cocina)
+
+        assertThat(cocina.toCastDeviceUi(connection).connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED)
+        assertThat(cocina.toCastDeviceUi(connection).isSelected).isTrue()
+        assertThat(salon.toCastDeviceUi(connection).isSelected).isFalse()
+    }
+
+    @Test
+    fun `a speaker that failed shows why, is not selected and can be tried again`() {
+        val connection = SonosConnection.Failed(salon, SonosFailure.Timeout)
+
+        val row = salon.toCastDeviceUi(connection)
+
+        assertThat(row.errorKind).isEqualTo(SonosErrorKind.UNREACHABLE)
+        assertThat(row.isSelected).isFalse()
+        assertThat(row.connectionState).isEqualTo(MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED)
+        assertThat(cocina.toCastDeviceUi(connection).errorKind).isNull()
+    }
+
+    @Test
+    fun `the active device is the one connecting or connected, and nothing otherwise`() {
+        assertThat(SonosConnection.Idle.activeDevice()).isNull()
+        assertThat(SonosConnection.Failed(salon, SonosFailure.Timeout).activeDevice()).isNull()
+        assertThat(SonosConnection.Connecting(salon).activeDevice()).isEqualTo(SonosActiveDevice(salon, isConnecting = true))
+        assertThat(SonosConnection.Active(cocina).activeDevice()).isEqualTo(SonosActiveDevice(cocina, isConnecting = false))
+    }
+
+    @Test
+    fun `every failure has a message the user can act on`() {
+        val expected = mapOf(
+            SonosFailure.NoWifi to SonosErrorKind.NETWORK,
+            SonosFailure.LocalNetworkDenied to SonosErrorKind.PERMISSION,
+            SonosFailure.NetworkUnreachable to SonosErrorKind.NETWORK,
+            SonosFailure.Network("x") to SonosErrorKind.NETWORK,
+            SonosFailure.Timeout to SonosErrorKind.UNREACHABLE,
+            SonosFailure.ConnectionRefused to SonosErrorKind.UNREACHABLE,
+            SonosFailure.ServerUnavailable to SonosErrorKind.SERVER,
+            SonosFailure.Upnp("Play", UpnpErrorKind.NotCoordinator) to SonosErrorKind.GROUP,
+            SonosFailure.Upnp("AddURIToQueue", UpnpErrorKind.ResourceNotFound) to SonosErrorKind.GENERIC,
+            SonosFailure.MalformedResponse to SonosErrorKind.GENERIC,
+            SonosFailure.NotOnSpeaker to SonosErrorKind.GENERIC,
+            SonosFailure.Superseded to SonosErrorKind.GENERIC,
+            SonosFailure.CleartextBlocked to SonosErrorKind.GENERIC,
+        )
+        for ((failure, kind) in expected) {
+            assertWithMessage("$failure").that(sonosErrorKind(failure)).isEqualTo(kind)
+        }
     }
 }

@@ -61,7 +61,7 @@
     <!-- Casting & Remote Playback -->
     <string name="cast_server_channel_name">Cast 미디어 서버</string>
     <string name="cast_server_notification_title">기기로 전송 중</string>
-    <string name="cast_server_notification_text">Cast 기기에 미디어를 제공 중입니다</string>
+    <string name="cast_server_notification_text">네트워크의 기기에 음악을 제공 중입니다</string>
     <string name="cast_server_foreground_error">%1$s: %2$s</string>
     <string name="cast_seek_unavailable_for_format">Cast에서는 캐스트 세션이 중단될 수 있으므로 이 오디오 형식에 대한 탐색(Seek)을 일시적으로 사용할 수 없습니다.</string>
 

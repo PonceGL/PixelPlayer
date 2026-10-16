@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -1059,7 +1063,22 @@ class CastTransferStateHolder @Inject constructor(
         skipTransferBackOnNextSessionEnd = true
     }
     
+    /**
+     * Counts the times a Cast session has finished giving the music back to the phone, however it ended: something
+     * that hands the music over to another output has to wait for it.
+     */
+    private val transferBackCount = MutableStateFlow(0)
+    val transferBacks: StateFlow<Int> = transferBackCount.asStateFlow()
+
     suspend fun stopServerAndTransferBack() {
+        try {
+            transferBackFromSession()
+        } finally {
+            transferBackCount.update { it + 1 }
+        }
+    }
+
+    private suspend fun transferBackFromSession() {
         sessionSuspendedRecoveryJob?.cancel()
         alignToTargetJob?.cancel()
         remoteProgressObserverJob?.cancel()

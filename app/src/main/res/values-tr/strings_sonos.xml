@@ -18,4 +18,16 @@
     <string name="sonos_unavailable_action">Tekrar dene</string>
     <string name="sonos_perm_local_network_title">Yerel ağ</string>
     <string name="sonos_perm_local_network_desc">PixelPlayer\'ın Wi‑Fi ağınızdaki Sonos hoparlörlerini bulup kontrol etmesini sağlar.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Hoparlöre ulaşılamadı. İkisinin de aynı Wi‑Fi\'da olduğunu kontrol edin.</string>
+    <string name="sonos_error_unreachable">Hoparlör yanıt vermiyor. Açık olduğundan emin olun ve tekrar denemek için dokunun.</string>
+    <string name="sonos_error_server">Müziğiniz hoparlörle paylaşılamadı. Tekrar denemek için dokunun.</string>
+    <string name="sonos_error_group">Bu oda bir grubun parçası. Tekrar denemek için dokunun.</string>
+    <string name="sonos_error_generic">Bu hoparlörde çalınamadı. Tekrar denemek için dokunun.</string>
+    <string name="sonos_error_permission">PixelPlayer için yerel ağ erişimi kapalı. Uygulama ayarlarından izin verin ve tekrar denemek için dokunun.</string>
+    <string name="sonos_toast_command_failed">Hoparlör yanıt vermedi</string>
+    <string name="sonos_toast_queue_incomplete">Bazı şarkılar hoparlöre gönderilemedi</string>
+    <string name="sonos_toast_shuffle_unavailable">Hoparlörde çalarken karışık çalma kullanılamaz</string>
+    <string name="sonos_toast_speaker_lost">Hoparlör yanıt vermiyor. Oynatma telefona döndü, duraklatıldı.</string>
+    <string name="sonos_toast_taken_over">Başka bir cihaz hoparlörü devraldı. Müziğin telefona döndü, duraklatıldı.</string>
 </resources>

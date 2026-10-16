@@ -18,4 +18,16 @@
     <string name="sonos_unavailable_action">Prøv igjen</string>
     <string name="sonos_perm_local_network_title">Lokalt nettverk</string>
     <string name="sonos_perm_local_network_desc">Lar PixelPlayer finne og styre Sonos-høyttalere på Wi-Fi-nettverket ditt.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Kunne ikke nå høyttaleren. Sjekk at begge er på samme Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">Høyttaleren svarer ikke. Sjekk at den er slått på, og trykk for å prøve igjen.</string>
+    <string name="sonos_error_server">Kunne ikke dele musikken din med høyttaleren. Trykk for å prøve igjen.</string>
+    <string name="sonos_error_group">Dette rommet er en del av en gruppe. Trykk for å prøve igjen.</string>
+    <string name="sonos_error_generic">Kunne ikke spille av på denne høyttaleren. Trykk for å prøve igjen.</string>
+    <string name="sonos_error_permission">Tilgang til lokalnettet er slått av for PixelPlayer. Tillat det i appinnstillingene, og trykk for å prøve igjen.</string>
+    <string name="sonos_toast_command_failed">Høyttaleren svarte ikke</string>
+    <string name="sonos_toast_queue_incomplete">Noen sanger kunne ikke sendes til høyttaleren</string>
+    <string name="sonos_toast_shuffle_unavailable">Tilfeldig rekkefølge er ikke tilgjengelig mens musikken spilles på en høyttaler</string>
+    <string name="sonos_toast_speaker_lost">Høyttaleren svarer ikke. Avspillingen er tilbake på telefonen, satt på pause.</string>
+    <string name="sonos_toast_taken_over">En annen enhet tok over høyttaleren. Musikken er tilbake på telefonen, satt på pause.</string>
 </resources>

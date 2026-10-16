@@ -18,4 +18,16 @@
     <string name="sonos_unavailable_action">Erneut versuchen</string>
     <string name="sonos_perm_local_network_title">Lokales Netzwerk</string>
     <string name="sonos_perm_local_network_desc">Damit PixelPlayer Sonos-Lautsprecher in deinem WLAN finden und steuern kann.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">Der Lautsprecher ist nicht erreichbar. Prüfe, ob beide im selben WLAN sind.</string>
+    <string name="sonos_error_unreachable">Der Lautsprecher antwortet nicht. Stelle sicher, dass er eingeschaltet ist, und tippe zum Wiederholen.</string>
+    <string name="sonos_error_server">Deine Musik konnte nicht mit dem Lautsprecher geteilt werden. Tippe zum Wiederholen.</string>
+    <string name="sonos_error_group">Dieser Raum gehört zu einer Gruppe. Tippe zum Wiederholen.</string>
+    <string name="sonos_error_generic">Wiedergabe auf diesem Lautsprecher nicht möglich. Tippe zum Wiederholen.</string>
+    <string name="sonos_error_permission">Der Zugriff auf das lokale Netzwerk ist für PixelPlayer ausgeschaltet. Erlaube ihn in den App-Einstellungen und tippe zum Wiederholen.</string>
+    <string name="sonos_toast_command_failed">Der Lautsprecher hat nicht reagiert</string>
+    <string name="sonos_toast_queue_incomplete">Einige Titel konnten nicht an den Lautsprecher gesendet werden</string>
+    <string name="sonos_toast_shuffle_unavailable">Zufallswiedergabe ist bei der Wiedergabe auf einem Lautsprecher nicht verfügbar</string>
+    <string name="sonos_toast_speaker_lost">Der Lautsprecher antwortet nicht mehr. Die Wiedergabe ist wieder auf dem Telefon, pausiert.</string>
+    <string name="sonos_toast_taken_over">Ein anderes Gerät hat den Lautsprecher übernommen. Deine Musik ist wieder auf dem Telefon, pausiert.</string>
 </resources>

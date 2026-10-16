@@ -19,4 +19,16 @@
     <string name="sonos_unavailable_action">Reintentar</string>
     <string name="sonos_perm_local_network_title">Red local</string>
     <string name="sonos_perm_local_network_desc">Permite que PixelPlayer encuentre y se comunique con los altavoces Sonos de tu red Wi‑Fi.</string>
+    <string name="sonos_subtitle_session">Sonos</string>
+    <string name="sonos_error_network">No se pudo llegar al altavoz. Comprueba que ambos están en la misma red Wi‑Fi.</string>
+    <string name="sonos_error_unreachable">El altavoz no responde. Asegúrate de que está encendido y toca para reintentar.</string>
+    <string name="sonos_error_server">No se pudo compartir tu música con el altavoz. Toca para reintentar.</string>
+    <string name="sonos_error_group">Esta habitación forma parte de un grupo. Toca para reintentar.</string>
+    <string name="sonos_error_generic">No se pudo reproducir en este altavoz. Toca para reintentar.</string>
+    <string name="sonos_error_permission">El acceso a la red local está desactivado para PixelPlayer. Actívalo en los ajustes de la app y toca para reintentar.</string>
+    <string name="sonos_toast_command_failed">El altavoz no respondió</string>
+    <string name="sonos_toast_queue_incomplete">No se pudieron enviar algunas canciones al altavoz</string>
+    <string name="sonos_toast_shuffle_unavailable">El modo aleatorio no está disponible mientras suena en un altavoz</string>
+    <string name="sonos_toast_speaker_lost">El altavoz dejó de responder. La reproducción volvió al teléfono, en pausa.</string>
+    <string name="sonos_toast_taken_over">Otro dispositivo tomó el altavoz. Tu música volvió al teléfono, en pausa.</string>
 </resources>

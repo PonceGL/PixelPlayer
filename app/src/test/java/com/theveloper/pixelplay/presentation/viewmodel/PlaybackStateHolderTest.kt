@@ -7,6 +7,10 @@ import com.theveloper.pixelplay.data.model.PlaybackQueueItemSnapshot
 import com.theveloper.pixelplay.data.model.PlaybackQueueSnapshot
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.sonos.model.SonosDevice
+import com.theveloper.pixelplay.data.sonos.model.SonosUdn
+import com.theveloper.pixelplay.data.sonos.session.SonosConnection
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import io.mockk.every
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -28,6 +32,8 @@ class PlaybackStateHolderTest {
     private val castStateHolder: CastStateHolder = mockk(relaxed = true)
     private val queueStateHolder: QueueStateHolder = mockk(relaxed = true)
     private val appContext: Context = mockk(relaxed = true)
+    private val sonosSession = SonosSessionHolder()
+    private val speaker = SonosDevice(SonosUdn("RINCON_1"), "Salón", "192.168.1.50", 1)
     private val powerManager: PowerManager = mockk(relaxed = true)
 
     private fun createHolder() = PlaybackStateHolder(
@@ -35,6 +41,7 @@ class PlaybackStateHolderTest {
         userPreferencesRepository = userPreferencesRepository,
         castStateHolder = castStateHolder,
         queueStateHolder = queueStateHolder,
+        sonosSession = sonosSession,
         appContext = appContext
     )
 
@@ -170,5 +177,41 @@ class PlaybackStateHolderTest {
         holder.syncCurrentPositionFromPlayer("duplicate-song", 0L)
 
         assertEquals(0L, holder.currentPosition.value)
+    }
+
+    private fun shuffleBlockedWith(connection: SonosConnection): Pair<Int, Boolean> {
+        var blocked = 0
+        var touchedLocalQueue = false
+        io.mockk.every { dualPlayerEngine.masterPlayer } answers { touchedLocalQueue = true; mockk(relaxed = true) }
+        sonosSession.set(connection)
+        val holder = createHolder()
+        kotlinx.coroutines.test.runTest {
+            holder.initialize(this, onSonosShuffleBlocked = { blocked++ })
+            holder.toggleShuffle(emptyList(), null, "") { }
+            advanceUntilIdle()
+        }
+        return blocked to touchedLocalQueue
+    }
+
+    @Test
+    fun `shuffle is refused while a speaker plays and the phone queue is left alone`() {
+        val (blocked, touched) = shuffleBlockedWith(SonosConnection.Active(speaker))
+
+        assertEquals(1, blocked)
+        assertEquals(false, touched)
+    }
+
+    @Test
+    fun `shuffle is refused while a speaker is still being connected`() {
+        val (blocked, _) = shuffleBlockedWith(SonosConnection.Connecting(speaker))
+
+        assertEquals(1, blocked)
+    }
+
+    @Test
+    fun `shuffle is not refused when no speaker is involved`() {
+        val (blocked, _) = shuffleBlockedWith(SonosConnection.Idle)
+
+        assertEquals(0, blocked)
     }
 }

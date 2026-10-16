@@ -197,6 +197,7 @@ fun CastBottomSheet(
     val isPlaying = playerViewModel.stablePlayerState.collectAsStateWithLifecycle().value.isPlaying
     val sonosViewModel: SonosDevicesViewModel = hiltViewModel()
     val sonosState by sonosViewModel.state.collectAsStateWithLifecycle()
+    val sonosConnection by sonosViewModel.connection.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val requiredPermissions = remember {
@@ -315,7 +316,7 @@ fun CastBottomSheet(
             )
         }
 
-        if (isWifiEnabled) addAll(sonosDevices.map { it.toCastDeviceUi() })
+        if (isWifiEnabled) addAll(sonosDevices.map { it.toCastDeviceUi(sonosConnection) })
 
         if (isBluetoothEnabled) {
             bluetoothDevices.forEach { bluetoothDevice ->
@@ -334,7 +335,7 @@ fun CastBottomSheet(
                         volumeHandling = MediaRouter.RouteInfo.PLAYBACK_VOLUME_VARIABLE,
                         volume = if (isConnected) (trackVolume * 100).toInt() else 0,
                         volumeMax = 100,
-                        isSelected = isConnected && !isRemoteSession,
+                        isSelected = isConnected && !isRemoteSession && sonosConnection.activeDevice() == null,
                         batteryPercent = bluetoothDevice.batteryPercent,
                         isBluetooth = true
                     )
@@ -343,7 +344,26 @@ fun CastBottomSheet(
         }
     }
 
-    val activeDevice = if (isRemoteSession) {
+    val sonosActive = sonosConnection.activeDevice()
+    val activeDevice = if (sonosActive != null) {
+        ActiveDeviceUi(
+            id = "sonos_${sonosActive.device.id.value}",
+            title = sonosActive.device.name,
+            subtitle = stringResource(R.string.sonos_subtitle_session),
+            isRemote = true,
+            icon = Icons.Rounded.Speaker,
+            isConnecting = sonosActive.isConnecting,
+            volume = 0f,
+            volumeRange = 0f..1f,
+            connectionLabel = when {
+                sonosActive.isConnecting -> stringResource(R.string.cast_connecting)
+                isPlaying -> stringResource(R.string.cast_playing)
+                else -> stringResource(R.string.cast_paused)
+            },
+            // The speaker's own volume arrives with its volume control; the phone's must not be shown as if it were.
+            hasVolume = false,
+        )
+    } else if (isRemoteSession) {
         val remoteRoute = checkNotNull(activeRoute)
         ActiveDeviceUi(
             id = remoteRoute.id,
@@ -429,17 +449,26 @@ fun CastBottomSheet(
                         state = uiState,
                         onSelectDevice = { id ->
                             when {
-                                id.startsWith("sonos_") -> Unit
+                                id.startsWith("sonos_") -> sonosDevices
+                                    .firstOrNull { "sonos_${it.id.value}" == id }
+                                    ?.let { playerViewModel.connectSonos(it.id.value, it.host, it.name, it.roomCount) }
                                 id.startsWith("bluetooth_") -> {
                                     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
                                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)
                                 }
-                                else -> routes.firstOrNull { it.id == id }?.let { playerViewModel.selectRoute(it) }
+                                else -> routes.firstOrNull { it.id == id }?.let { route ->
+                                    // A speaker session has to end before Cast takes the music.
+                                    if (sonosActive != null) {
+                                        playerViewModel.disconnectSonos { playerViewModel.selectRoute(route) }
+                                    } else {
+                                        playerViewModel.selectRoute(route)
+                                    }
+                                }
                             }
                         },
                         onDisconnect = {
-                            playerViewModel.disconnect()
+                            if (sonosActive != null) playerViewModel.disconnectSonos() else playerViewModel.disconnect()
                             onDismiss()
                         },
                         onVolumeChange = { value ->
@@ -472,7 +501,7 @@ fun CastBottomSheet(
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             context.startActivity(intent)
                         },
-                        startWithControls = isRemoteSession
+                        startWithControls = isRemoteSession || sonosActive != null
                     )
                 }
             }
@@ -493,7 +522,8 @@ internal data class CastDeviceUi(
     val batteryPercent: Int? = null,
     val isBluetooth: Boolean = false,
     val isSonos: Boolean = false,
-    val roomCount: Int = 1
+    val roomCount: Int = 1,
+    val errorKind: SonosErrorKind? = null,
 )
 
 private data class ActiveDeviceUi(
@@ -505,7 +535,8 @@ private data class ActiveDeviceUi(
     val isConnecting: Boolean,
     val volume: Float,
     val volumeRange: ClosedFloatingPointRange<Float>,
-    val connectionLabel: String
+    val connectionLabel: String,
+    val hasVolume: Boolean = true,
 )
 
 private data class CastSheetUiState(
@@ -1513,7 +1544,7 @@ private fun ActiveDeviceHero(
             }
 
             // Sección de Volumen (Sin cambios)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (device.hasVolume) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1743,8 +1774,6 @@ private fun CastDeviceRow(
             .fillMaxWidth()
             .clip(CircleShape) // Mantenemos el clip circular para el ripple
             .clickable(
-                // Playing on a speaker is not available from this list yet.
-                enabled = !device.isSonos,
                 onClick = when {
                     device.isBluetooth -> onSelect
                     device.isSelected &&
@@ -1828,6 +1857,24 @@ private fun CastDeviceRow(
                     icon = statusIcon,
                     contentColor = onContainer
                 )
+
+                device.errorKind?.let { kind ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(
+                            when (kind) {
+                                SonosErrorKind.NETWORK -> R.string.sonos_error_network
+                                SonosErrorKind.PERMISSION -> R.string.sonos_error_permission
+                                SonosErrorKind.UNREACHABLE -> R.string.sonos_error_unreachable
+                                SonosErrorKind.SERVER -> R.string.sonos_error_server
+                                SonosErrorKind.GROUP -> R.string.sonos_error_group
+                                SonosErrorKind.GENERIC -> R.string.sonos_error_generic
+                            },
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
 
                 if (device.isSonos && device.roomCount > 1) {
                     Spacer(modifier = Modifier.height(4.dp))
