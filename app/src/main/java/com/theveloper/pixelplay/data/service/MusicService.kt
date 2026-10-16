@@ -542,15 +542,26 @@ class MusicService : MediaLibraryService() {
         return handBack
     }
 
-    private suspend fun returnFromSonos(resumeLocal: Boolean, restorePosition: Boolean): HandBack? {
-        val handBack = sonosController.disconnect()
+    private suspend fun returnFromSonos(
+        resumeLocal: Boolean,
+        restorePosition: Boolean,
+        speakerLost: Boolean = false,
+    ): HandBack? {
         val sonos = sonosPlayer
+        val order = sonosSongOrder
         val local = engine.masterPlayer
+        // A speaker that does not answer would keep the controls on it while the session closes (each command waits
+        // for its timeout), so the phone takes the session back first.
+        if (speakerLost) {
+            disarmSonosWakeListener()
+            releaseSonosPlayer()
+        }
+        val handBack = sonosController.disconnect()
         val songId = handBack?.songId
         val target = if (restorePosition && handBack != null && songId != null) {
             // The queue of the phone may have changed meanwhile: what is checked is that the song is still there. The
             // speaker's player may not have been published yet (the session ended just as it was being made).
-            val shownIndex = sonos?.let { sonosSongOrder.getOrNull(it.currentMediaItemIndex) }
+            val shownIndex = sonos?.let { order.getOrNull(it.currentMediaItemIndex) }
             shownIndex?.takeIf { it in 0 until local.mediaItemCount && local.getMediaItemAt(it).mediaId == songId }
                 ?: (0 until local.mediaItemCount).firstOrNull { local.getMediaItemAt(it).mediaId == songId }
         } else {
@@ -633,8 +644,8 @@ class MusicService : MediaLibraryService() {
                 Timber.tag(TAG).w("The speaker was lost: the music goes back to the phone, paused")
                 sonosAttempt++
                 sonosResumeIntent = null
-                returnFromSonos(resumeLocal = false, restorePosition = true)
                 android.widget.Toast.makeText(this@MusicService, getString(R.string.sonos_toast_speaker_lost), android.widget.Toast.LENGTH_LONG).show()
+                returnFromSonos(resumeLocal = false, restorePosition = true, speakerLost = true)
             } finally {
                 sonosLossHandling = false
             }
