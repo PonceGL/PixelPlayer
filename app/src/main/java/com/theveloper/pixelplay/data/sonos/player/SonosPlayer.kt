@@ -22,7 +22,10 @@ import com.theveloper.pixelplay.data.sonos.session.SonosSessionEngine
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -81,6 +84,16 @@ internal class SonosPlayer(
             ?: item.mediaMetadata.durationMs
 
     private var previousIndex: Int? = null
+    private val ownPlace = LastOwnPlace()
+
+    /** Whether the speaker plays something that is not the app's music (somebody else took it). */
+    val speakerElsewhere: Flow<Boolean> = engine.state.map { snapshot().speakerElsewhere }.distinctUntilChanged()
+
+    /** The song and second where the app's music was, for the phone to go back to. */
+    internal fun lastOwnPlace(): OwnPlace? = ownPlace.place()
+
+    /** The id of the song at [index] of the app's queue. */
+    fun songIdAt(index: Int): String? = queueItems.getOrNull(index)?.mediaId
     private var observing: Job? = null
 
     /** Starts following the session: every change of it is a change of the player. */
@@ -88,7 +101,11 @@ internal class SonosPlayer(
         if (observing != null) return
         observing = scope.launch {
             engine.state.collect {
-                previousIndex = snapshot().currentIndex ?: previousIndex
+                val snapshot = snapshot()
+                previousIndex = snapshot.currentIndex ?: previousIndex
+                val now = elapsedRealtimeMs()
+                snapshot.currentIndex?.let { ownPlace.seen(it, snapshot.positionMs, snapshot.positionAdvancing, now, snapshot.repeat) }
+                    ?: ownPlace.left(now)
                 invalidateState()
             }
         }

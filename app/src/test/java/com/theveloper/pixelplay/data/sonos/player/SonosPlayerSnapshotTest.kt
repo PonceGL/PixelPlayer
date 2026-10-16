@@ -311,3 +311,36 @@ class SonosPlayerSnapshotTest {
         assertThat(snapshot(state(TransportState.NO_MEDIA_PRESENT, uri = null, number = null)).canSeek).isFalse()
     }
 }
+
+class SonosPlayerSnapshotElsewhereTest {
+
+    private val token = "0123456789abcdef0123456789abcdef"
+    private val access = SonosMediaAccess { SonosServerIdentity(token, 8080) }
+    private val queue = PlayerQueue(listOf("a", "b", "c"), 0..2)
+
+    private fun elsewhere(transport: TransportState, uri: String?): Boolean {
+        val state = SonosSessionState(
+            playback = SonosPlaybackState(transportState = transport, currentTrackNumber = 1, numberOfTracks = 1, currentTrackUri = uri),
+        )
+        return SonosPlayerSnapshot.from(state, 1_000, queue, access, shuffleByApp = false, previousIndex = null).speakerElsewhere
+    }
+
+    @Test
+    fun `a speaker playing an address that is not ours is somewhere else`() {
+        assertThat(elsewhere(TransportState.PLAYING, "x-sonosapi-stream:s1234?sid=254")).isTrue()
+        assertThat(elsewhere(TransportState.TRANSITIONING, "http://192.168.1.50:1400/other.mp3")).isTrue()
+    }
+
+    @Test
+    fun `a song of ours is never somewhere else`() {
+        assertThat(elsewhere(TransportState.PLAYING, "http://192.168.1.20:8080/sonos/song/b?v=1&auth=$token")).isFalse()
+    }
+
+    @Test
+    fun `a speaker that is not playing, or that says nothing yet, is not somewhere else`() {
+        assertThat(elsewhere(TransportState.PAUSED_PLAYBACK, "x-sonosapi-stream:s1234?sid=254")).isFalse()
+        assertThat(elsewhere(TransportState.STOPPED, "x-sonosapi-stream:s1234?sid=254")).isFalse()
+        assertThat(elsewhere(TransportState.UNKNOWN, null)).isFalse()
+        assertThat(elsewhere(TransportState.PLAYING, null)).isFalse()
+    }
+}

@@ -30,4 +30,5 @@
     <string name="sonos_toast_queue_incomplete">Non è stato possibile inviare alcuni brani allo speaker</string>
     <string name="sonos_toast_shuffle_unavailable">La riproduzione casuale non è disponibile mentre suona su uno speaker</string>
     <string name="sonos_toast_speaker_lost">Lo speaker non risponde più. La riproduzione è tornata sul telefono, in pausa.</string>
+    <string name="sonos_toast_taken_over">Un altro dispositivo ha preso lo speaker. La tua musica è tornata sul telefono, in pausa.</string>
 </resources>

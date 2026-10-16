@@ -329,6 +329,7 @@ class MusicService : MediaLibraryService() {
         private const val SONOS_TOAST_GAP_MS = 5_000L
         /** An unreadable speaker is given this long (the engine retries meanwhile) before the session is let go. */
         private const val SONOS_LOSS_GRACE_MS = 10_000L
+        private const val SONOS_TAKEOVER_GRACE_MS = 3_000L
 
         fun markPendingMediaButtonForegroundStart() {
             pendingMediaButtonForegroundStarts.incrementAndGet()
@@ -522,6 +523,7 @@ class MusicService : MediaLibraryService() {
                 publishMediaSessionPlayer(player, "Published the speaker session to MediaSession.")
                 watchSonosLoad(session)
                 watchSonosReachability(session)
+                watchSonosTakeover(player)
                 SessionResult(SessionResult.RESULT_SUCCESS)
             }
         }
@@ -546,6 +548,7 @@ class MusicService : MediaLibraryService() {
         resumeLocal: Boolean,
         restorePosition: Boolean,
         speakerLost: Boolean = false,
+        ownPlace: HandBack? = null,
     ): HandBack? {
         val sonos = sonosPlayer
         val order = sonosSongOrder
@@ -556,7 +559,8 @@ class MusicService : MediaLibraryService() {
             disarmSonosWakeListener()
             releaseSonosPlayer()
         }
-        val handBack = sonosController.disconnect()
+        // What the speaker reports may be somebody else's music: then the last place of ours is where to go back.
+        val handBack = sonosController.disconnect()?.let { if (it.songId == null && ownPlace != null) ownPlace else it }
         val songId = handBack?.songId
         val target = if (restorePosition && handBack != null && songId != null) {
             // The queue of the phone may have changed meanwhile: what is checked is that the song is still there. The
@@ -595,6 +599,8 @@ class MusicService : MediaLibraryService() {
         sonosPlayer = null
         sonosReachabilityJob?.cancel()
         sonosReachabilityJob = null
+        sonosTakeoverJob?.cancel()
+        sonosTakeoverJob = null
         sonosSongOrder = emptyList()
         disarmSonosWakeListener()
         publishMediaSessionPlayer(engine.masterPlayer, "Returned MediaSession to the local player.")
@@ -631,6 +637,7 @@ class MusicService : MediaLibraryService() {
 
     private var sonosLossHandling = false
     private var sonosReachabilityJob: Job? = null
+    private var sonosTakeoverJob: Job? = null
 
     /**
      * The speaker cannot be reached: nothing the user presses would work, so the session ends and the music goes
@@ -648,6 +655,46 @@ class MusicService : MediaLibraryService() {
                 returnFromSonos(resumeLocal = false, restorePosition = true, speakerLost = true)
             } finally {
                 sonosLossHandling = false
+            }
+        }
+    }
+
+    /**
+     * Somebody else (the Sonos app, another phone) took the speaker: it is theirs now, so the session ends without
+     * touching what they play, and the music of the app goes back to the phone, paused, where it was.
+     */
+    private fun onSonosTakenOver(player: SonosPlayer) {
+        if (sonosPlayer !== player || sonosLossHandling) return
+        sonosLossHandling = true
+        serviceScope.launch {
+            try {
+                Timber.tag(TAG).w("The speaker was taken by another source: the music goes back to the phone, paused")
+                val place = player.lastOwnPlace()
+                val songId = place?.let { player.songIdAt(it.index) }
+                val ownPlace = if (place != null && songId != null) {
+                    HandBack(songId, place.positionMs, wasPlaying = false, repeat = place.repeat)
+                } else {
+                    null
+                }
+                sonosAttempt++
+                sonosResumeIntent = null
+                android.widget.Toast.makeText(this@MusicService, getString(R.string.sonos_toast_taken_over), android.widget.Toast.LENGTH_LONG).show()
+                returnFromSonos(resumeLocal = false, restorePosition = true, speakerLost = true, ownPlace = ownPlace)
+            } finally {
+                sonosLossHandling = false
+            }
+        }
+    }
+
+    /** Another source that keeps the speaker for a few seconds is a takeover; a blink while commands settle is not. */
+    private fun watchSonosTakeover(player: SonosPlayer) {
+        sonosTakeoverJob?.cancel()
+        sonosTakeoverJob = serviceScope.launch {
+            player.speakerElsewhere.collectLatest { elsewhere ->
+                if (elsewhere) {
+                    delay(SONOS_TAKEOVER_GRACE_MS)
+                    onSonosTakenOver(player)
+                }
             }
         }
     }

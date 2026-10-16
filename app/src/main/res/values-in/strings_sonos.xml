@@ -28,4 +28,5 @@
     <string name="sonos_toast_queue_incomplete">Beberapa lagu tidak dapat dikirim ke speaker</string>
     <string name="sonos_toast_shuffle_unavailable">Acak tidak tersedia saat memutar di speaker</string>
     <string name="sonos_toast_speaker_lost">Speaker tidak merespons. Pemutaran kembali ke ponsel, dijeda.</string>
+    <string name="sonos_toast_taken_over">Perangkat lain mengambil alih speaker. Musik kembali ke ponsel, dijeda.</string>
 </resources>

@@ -30,4 +30,5 @@
     <string name="sonos_toast_queue_incomplete">No se pudieron enviar algunas canciones al altavoz</string>
     <string name="sonos_toast_shuffle_unavailable">El modo aleatorio no está disponible mientras suena en un altavoz</string>
     <string name="sonos_toast_speaker_lost">El altavoz dejó de responder. La reproducción volvió al teléfono, en pausa.</string>
+    <string name="sonos_toast_taken_over">Otro dispositivo tomó el altavoz. Tu música volvió al teléfono, en pausa.</string>
 </resources>

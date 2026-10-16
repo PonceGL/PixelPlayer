@@ -29,4 +29,5 @@
     <string name="sonos_toast_queue_incomplete">Einige Titel konnten nicht an den Lautsprecher gesendet werden</string>
     <string name="sonos_toast_shuffle_unavailable">Zufallswiedergabe ist bei der Wiedergabe auf einem Lautsprecher nicht verfügbar</string>
     <string name="sonos_toast_speaker_lost">Der Lautsprecher antwortet nicht mehr. Die Wiedergabe ist wieder auf dem Telefon, pausiert.</string>
+    <string name="sonos_toast_taken_over">Ein anderes Gerät hat den Lautsprecher übernommen. Deine Musik ist wieder auf dem Telefon, pausiert.</string>
 </resources>

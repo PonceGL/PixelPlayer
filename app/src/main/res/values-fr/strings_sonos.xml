@@ -30,4 +30,5 @@
     <string name="sonos_toast_queue_incomplete">Certains titres n\'ont pas pu être envoyés à l\'enceinte</string>
     <string name="sonos_toast_shuffle_unavailable">Le mode aléatoire n\'est pas disponible pendant la lecture sur une enceinte</string>
     <string name="sonos_toast_speaker_lost">L\'enceinte ne répond plus. La lecture est revenue sur le téléphone, en pause.</string>
+    <string name="sonos_toast_taken_over">Un autre appareil a pris l\'enceinte. Votre musique est revenue sur le téléphone, en pause.</string>
 </resources>

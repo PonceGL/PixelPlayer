@@ -29,4 +29,5 @@
     <string name="sonos_toast_queue_incomplete">Some songs couldn\'t be sent to the speaker</string>
     <string name="sonos_toast_shuffle_unavailable">Shuffle isn\'t available while playing on a speaker</string>
     <string name="sonos_toast_speaker_lost">The speaker stopped responding. Playback is back on your phone, paused.</string>
+    <string name="sonos_toast_taken_over">Another device took the speaker. Your music is back on the phone, paused.</string>
 </resources>

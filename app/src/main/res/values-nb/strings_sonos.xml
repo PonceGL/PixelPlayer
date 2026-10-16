@@ -29,4 +29,5 @@
     <string name="sonos_toast_queue_incomplete">Noen sanger kunne ikke sendes til høyttaleren</string>
     <string name="sonos_toast_shuffle_unavailable">Tilfeldig rekkefølge er ikke tilgjengelig mens musikken spilles på en høyttaler</string>
     <string name="sonos_toast_speaker_lost">Høyttaleren svarer ikke. Avspillingen er tilbake på telefonen, satt på pause.</string>
+    <string name="sonos_toast_taken_over">En annen enhet tok over høyttaleren. Musikken er tilbake på telefonen, satt på pause.</string>
 </resources>

@@ -33,4 +33,5 @@
     <string name="sonos_toast_queue_incomplete">تعذّر إرسال بعض الأغاني إلى السماعة</string>
     <string name="sonos_toast_shuffle_unavailable">التشغيل العشوائي غير متاح أثناء التشغيل على السماعة</string>
     <string name="sonos_toast_speaker_lost">لا تستجيب السماعة. عادت المقطوعة إلى الهاتف في وضع الإيقاف المؤقت.</string>
+    <string name="sonos_toast_taken_over">استخدم جهاز آخر السماعة. عادت الموسيقى إلى الهاتف في وضع الإيقاف المؤقت.</string>
 </resources>

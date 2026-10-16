@@ -32,6 +32,8 @@ internal data class SonosPlayerSnapshot(
     val canPreviousItem: Boolean,
     val canNext: Boolean,
     val canSeek: Boolean,
+    /** The speaker plays something that is not the app's music: somebody else took it. */
+    val speakerElsewhere: Boolean,
 ) {
     enum class Phase { IDLE, BUFFERING, READY, ENDED }
 
@@ -82,6 +84,9 @@ internal data class SonosPlayerSnapshot(
                 canPreviousItem = controllable && (wraps || (number != null && number > 1)),
                 canNext = controllable && (wraps || (number != null && total != null && number < total)),
                 canSeek = controllable && duration != null,
+                speakerElsewhere = playback.currentTrackUri != null &&
+                    SonosTrackMapper.songIdOf(playback.currentTrackUri, access) == null &&
+                    (playback.transportState == TransportState.PLAYING || playback.transportState == TransportState.TRANSITIONING),
             )
         }
 

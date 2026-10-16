@@ -28,4 +28,5 @@
     <string name="sonos_toast_queue_incomplete">部分歌曲无法发送到扬声器</string>
     <string name="sonos_toast_shuffle_unavailable">在扬声器上播放时无法使用随机播放</string>
     <string name="sonos_toast_speaker_lost">扬声器无响应。播放已回到手机，处于暂停状态。</string>
+    <string name="sonos_toast_taken_over">其他设备接管了扬声器。音乐已回到手机，处于暂停状态。</string>
 </resources>
