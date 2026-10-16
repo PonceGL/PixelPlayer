@@ -24,4 +24,6 @@ object MusicNotificationProvider {
     const val EXTRA_SONOS_HOST = "com.theveloper.pixelplay.extra.SONOS_HOST"
     const val EXTRA_SONOS_NAME = "com.theveloper.pixelplay.extra.SONOS_NAME"
     const val EXTRA_SONOS_ROOMS = "com.theveloper.pixelplay.extra.SONOS_ROOMS"
+    /** The queue in the local player was just made for the speaker: it plays from its start, not from where the old session was. */
+    const val EXTRA_SONOS_FRESH_QUEUE = "com.theveloper.pixelplay.extra.SONOS_FRESH_QUEUE"
 }

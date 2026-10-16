@@ -53,6 +53,7 @@ import com.theveloper.pixelplay.data.sonos.session.meansSpeakerLost
 import com.theveloper.pixelplay.data.sonos.net.isLanHost
 import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.session.ActiveSession
+import com.theveloper.pixelplay.data.sonos.session.SonosConnectPlan
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.data.sonos.session.ThrottleGate
 import com.theveloper.pixelplay.data.sonos.session.HandBack
@@ -428,8 +429,14 @@ class MusicService : MediaLibraryService() {
         val local = engine.masterPlayer
         // Going from one speaker to another: bring the music back first (without playing it on the phone) so the
         // next one starts from where it is.
-        val handBack = if (sonosPlayer != null) returnFromSonos(resumeLocal = false, restorePosition = true) else null
-        val resume = sonosResumeIntent ?: (handBack?.wasPlaying ?: local.playWhenReady)
+        val freshQueue = args.getBoolean(MusicNotificationProvider.EXTRA_SONOS_FRESH_QUEUE, false)
+        val hadSession = sonosPlayer != null
+        val handBack = if (hadSession) {
+            returnFromSonos(resumeLocal = false, restorePosition = SonosConnectPlan.restoresPosition(freshQueue, hadSession))
+        } else {
+            null
+        }
+        val resume = SonosConnectPlan.plays(freshQueue, sonosResumeIntent, handBack?.wasPlaying, local.playWhenReady)
         sonosResumeIntent = resume
         if (local.mediaItemCount == 0) {
             sonosResumeIntent = null
