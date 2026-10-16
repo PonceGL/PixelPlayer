@@ -263,6 +263,7 @@ class PlayerViewModelTest {
             mockCastTransferStateHolder,
             mockConnectivityStateHolder,
             mockThemeStateHolder,
+            com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder(),
             mockContext
         )
         // Real controller-sync holder wired to the same mocks, so existing tests

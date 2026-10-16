@@ -9,13 +9,19 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.service.cast.CastRemotePlaybackState
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.service.MusicNotificationProvider
 import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
+import com.theveloper.pixelplay.data.sonos.model.SonosDevice
+import com.theveloper.pixelplay.data.sonos.session.PlayTarget
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
+import com.theveloper.pixelplay.data.sonos.session.playTargetOf
 import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.utils.AppShortcutManager
 import com.theveloper.pixelplay.utils.MediaItemBuilder
@@ -80,7 +86,7 @@ private data class PreparedPlaybackQueueSegments(
  */
 @OptIn(UnstableApi::class)
 @ViewModelScoped
-class PlaybackDispatchStateHolder @Inject constructor(
+class PlaybackDispatchStateHolder @Inject internal constructor(
     private val musicRepository: MusicRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val dualPlayerEngine: DualPlayerEngine,
@@ -94,6 +100,7 @@ class PlaybackDispatchStateHolder @Inject constructor(
     private val castTransferStateHolder: CastTransferStateHolder,
     private val connectivityStateHolder: ConnectivityStateHolder,
     private val themeStateHolder: ThemeStateHolder,
+    private val sonosSession: SonosSessionHolder,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -817,6 +824,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
         }
 
         val castSession = castStateHolder.castSession.value
+        val castActive = castSession != null && castSession.remoteMediaClient != null
+        val speaker = speakerFor(castActive)
         if (castSession != null && castSession.remoteMediaClient != null) {
             clearPreparingSongIfMatching()
             val remoteLoaded = castTransferStateHolder.playRemoteQueue(
@@ -845,6 +854,8 @@ class PlaybackDispatchStateHolder @Inject constructor(
                     totalDuration = effectiveStartSong.duration.coerceAtLeast(0L)
                 )
             }
+        } else if (speaker != null && playOnSpeaker(songsToPlay, effectiveStartSong, queueName, playlistId, speaker)) {
+            clearPreparingSongIfMatching()
         } else {
             beginPreparingSong(effectiveStartSong)
             cb.updateUiState {
@@ -904,6 +915,59 @@ class PlaybackDispatchStateHolder @Inject constructor(
                 playSongsAction()
             }
         }
+    }
+
+    /** The speaker a new play goes to, if a session is on or starting (Cast, which has its own branch, is [castActive]). */
+    private fun speakerFor(castActive: Boolean): SonosDevice? =
+        (playTargetOf(sonosSession.state.value, castActive) as? PlayTarget.Speaker)?.device
+
+    /**
+     * A new play while a speaker session is on: the whole queue is put in the phone's player, paused, and the
+     * session connects again with it, so the speaker plays it from the chosen song without the phone ever sounding.
+     * Returns false when there is no way to ask the service, and the phone plays as it always did.
+     */
+    private suspend fun playOnSpeaker(
+        songsToPlay: List<Song>,
+        startSong: Song,
+        queueName: String,
+        playlistId: String?,
+        device: SonosDevice,
+    ): Boolean {
+        val controller = cb.getController()?.takeIf { it.isConnected } ?: return false
+        pendingQueueSegmentsJob?.cancel()
+        val startItem = buildResolvedPlaybackMediaItem(startSong)
+        val segments = preparePlaybackQueueSegments(songsToPlay, startSong.id, playlistId)
+        val startIndex = songsToPlay.indexOfFirst { it.id == startSong.id }.coerceAtLeast(0)
+        cb.updateUiState {
+            it.copy(currentPlaybackQueue = songsToPlay.toPlaybackQueue(), currentQueueSourceName = queueName)
+        }
+        playbackStateHolder.updateStablePlayerState {
+            it.copy(
+                currentSong = startSong,
+                currentMediaItemIndex = startIndex,
+                isPlaying = true,
+                playWhenReady = true,
+                totalDuration = startSong.duration.coerceAtLeast(0L)
+            )
+        }
+        cb.showSheet()
+        withContext(Dispatchers.Main.immediate) {
+            dualPlayerEngine.cancelNext()
+            val local = dualPlayerEngine.masterPlayer
+            // Paused, so that nothing sounds on the phone and the session does not take it as the user choosing to play here.
+            local.pause()
+            local.setMediaItem(startItem, 0L)
+            attachPreparedQueueSegmentsIfCurrent(local, startSong.id, segments)
+        }
+        val args = Bundle().apply {
+            putString(MusicNotificationProvider.EXTRA_SONOS_UDN, device.id.value)
+            putString(MusicNotificationProvider.EXTRA_SONOS_HOST, device.host)
+            putString(MusicNotificationProvider.EXTRA_SONOS_NAME, device.name)
+            putInt(MusicNotificationProvider.EXTRA_SONOS_ROOMS, device.roomCount)
+            putBoolean(MusicNotificationProvider.EXTRA_SONOS_FRESH_QUEUE, true)
+        }
+        controller.sendCustomCommand(SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_SONOS_CONNECT, Bundle.EMPTY), args)
+        return true
     }
 
     suspend fun buildResolvedPlaybackMediaItem(song: Song): MediaItem {
