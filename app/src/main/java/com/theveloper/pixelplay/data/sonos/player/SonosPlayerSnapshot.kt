@@ -56,6 +56,29 @@ internal data class SonosPlayerSnapshot(
             val total = playback.numberOfTracks
             // Playing something that is not in our queue is not playing a song of the player: no song to show.
             val index = indexOf(playback.currentTrackUri, number, queue, access, previousIndex)
+            val elsewhere = playback.currentTrackUri != null &&
+                SonosTrackMapper.songIdOf(playback.currentTrackUri, access) == null &&
+                (playback.transportState == TransportState.PLAYING || playback.transportState == TransportState.TRANSITIONING)
+            // Somebody else took the speaker: until the session ends the last song stays shown, paused and out of reach,
+            // instead of the player closing and opening again.
+            if (elsewhere && previousIndex != null) {
+                return SonosPlayerSnapshot(
+                    phase = Phase.READY,
+                    playWhenReady = false,
+                    currentIndex = previousIndex,
+                    positionMs = state.positionAt(nowElapsedMs),
+                    positionAdvancing = false,
+                    durationMs = null,
+                    shuffle = shuffleByApp,
+                    repeat = RepeatMode.OFF,
+                    canControl = false,
+                    canPrevious = false,
+                    canPreviousItem = false,
+                    canNext = false,
+                    canSeek = false,
+                    speakerElsewhere = true,
+                )
+            }
             val phase = when {
                 index == null -> Phase.IDLE
                 else -> when (playback.transportState) {
@@ -84,9 +107,7 @@ internal data class SonosPlayerSnapshot(
                 canPreviousItem = controllable && (wraps || (number != null && number > 1)),
                 canNext = controllable && (wraps || (number != null && total != null && number < total)),
                 canSeek = controllable && duration != null,
-                speakerElsewhere = playback.currentTrackUri != null &&
-                    SonosTrackMapper.songIdOf(playback.currentTrackUri, access) == null &&
-                    (playback.transportState == TransportState.PLAYING || playback.transportState == TransportState.TRANSITIONING),
+                speakerElsewhere = elsewhere,
             )
         }
 
