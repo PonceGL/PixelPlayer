@@ -232,7 +232,7 @@ internal class SonosSessionController(
         val subscriptions = SonosEventSubscriptions(subscriber, router) { server.currentAddress() ?: base }
         val engine = SonosSessionEngine(subscriptions.start(device.host), runtime.reader::read, elapsedMs, runtime.runScope)
         engine.start()
-        val commander = SonosCommander(transport, device.host, device.id, elapsedMs, engine::noteCommand)
+        val commander = SonosCommander(transport, device.host, device.id, elapsedMs, engine::noteCommand, engine::noteQueueEdit)
 
         val loadFailure = MutableStateFlow<SonosFailure?>(null)
         runtime.loading = runtime.runScope.launch {
