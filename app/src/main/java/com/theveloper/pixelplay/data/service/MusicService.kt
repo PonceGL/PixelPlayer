@@ -526,6 +526,8 @@ class MusicService : MediaLibraryService() {
                     queueItems = session.included.map { items[it] },
                     speakerWindow = session.window,
                     access = sonosSessionFactory.mediaAccess,
+                    loaded = session.loaded,
+                    trackOf = { item -> session.trackFor(sonosQueueEntryOf(item)) },
                     scope = serviceScope,
                     shuffleByApp = queue.shuffledByApp,
                     onCommandFailed = ::onSonosCommandFailed,

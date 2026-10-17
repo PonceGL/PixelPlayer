@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.sonos.session
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
+import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
 import com.theveloper.pixelplay.data.sonos.model.TransportState
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
@@ -75,6 +76,10 @@ internal class ActiveSession(
     val included: List<Int>,
     val window: IntRange,
     val loadFailure: StateFlow<SonosFailure?>,
+    /** What the speaker needs to know about a song of the app, with an address it can get it from now; null for a song that cannot be served. */
+    val trackFor: (QueueEntry) -> TrackMetadata?,
+    /** True once the whole queue is on the speaker: until then it is still being filled and cannot be edited. */
+    val loaded: StateFlow<Boolean>,
 )
 
 /** Where to put the music back on the phone. */
@@ -235,6 +240,7 @@ internal class SonosSessionController(
         val commander = SonosCommander(transport, device.host, device.id, elapsedMs, engine::noteCommand, engine::noteQueueEdit)
 
         val loadFailure = MutableStateFlow<SonosFailure?>(null)
+        val loaded = MutableStateFlow(false)
         runtime.loading = runtime.runScope.launch {
             val result = commander.loadAndPlay(
                 tracks = tracks,
@@ -249,6 +255,7 @@ internal class SonosSessionController(
                 onProgress = {},
             )
             if (result is SonosResult.Err && !runtime.outcome.complete(result.failure)) loadFailure.value = result.failure
+            if (result is SonosResult.Ok) loaded.value = true
         }
         // The session ending on its own (its scope was cancelled) must not leave the caller waiting for the timeout.
         val failure = select<SonosFailure?> {
@@ -257,7 +264,11 @@ internal class SonosSessionController(
         }
         failure?.let { return SonosResult.Err(it) }
 
-        val session = ActiveSession(device, commander, engine, included, window, loadFailure.asStateFlow())
+        val trackFor: (QueueEntry) -> TrackMetadata? = { entry ->
+            // The address of the phone can change while the session lasts: songs added later use the one it has then.
+            SonosTrackMapper.urlsFor(entry, access, server.currentAddress() ?: base, revision)?.let { SonosTrackMapper.toTrack(entry, it) }
+        }
+        val session = ActiveSession(device, commander, engine, included, window, loadFailure.asStateFlow(), trackFor, loaded.asStateFlow())
         runtime.session = session
         return SonosResult.Ok(session)
     }

@@ -13,16 +13,22 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.theveloper.pixelplay.data.sonos.model.PlayMode
 import com.theveloper.pixelplay.data.sonos.model.RepeatMode
+import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
+import com.theveloper.pixelplay.data.sonos.model.TransportState
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import com.theveloper.pixelplay.data.sonos.server.SonosMediaAccess
 import com.theveloper.pixelplay.data.sonos.session.Navigation
+import com.theveloper.pixelplay.data.sonos.session.QueueListEdits
 import com.theveloper.pixelplay.data.sonos.session.SonosCommander
+import com.theveloper.pixelplay.data.sonos.session.SonosQueueEditor
+import com.theveloper.pixelplay.data.sonos.session.SonosTrackMapper
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionEngine
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -54,9 +60,11 @@ internal class SonosPlayer(
     looper: Looper,
     private val commander: SonosCommander,
     private val engine: SonosSessionEngine,
-    private val queueItems: List<MediaItem>,
-    private val speakerWindow: IntRange,
+    queueItems: List<MediaItem>,
+    speakerWindow: IntRange,
     private val access: SonosMediaAccess,
+    private val loaded: StateFlow<Boolean>,
+    private val trackOf: (MediaItem) -> TrackMetadata?,
     private val scope: CoroutineScope,
     private val shuffleByApp: Boolean,
     private val onCommandFailed: (SonosFailure) -> Unit = {},
@@ -67,15 +75,50 @@ internal class SonosPlayer(
         require(queueItems.isNotEmpty()) { "A speaker session needs a queue" }
     }
 
-    private val queue = PlayerQueue(queueItems.map { it.mediaId }, speakerWindow)
+    /** The queue of the app (every song the speaker can get) and the part of it that is on the speaker. */
+    @Volatile private var items: List<MediaItem> = queueItems
+    @Volatile private var window: IntRange = speakerWindow
+    @Volatile private var queue = PlayerQueue(queueItems.map { it.mediaId }, speakerWindow)
 
-    /** Built once: a new timeline for every change of song would resend the whole queue to every controller. */
-    private val playlist: List<MediaItemData> = queueItems.mapIndexed { index, item ->
-        MediaItemData.Builder("$index:${item.mediaId}")
-            .setMediaItem(item)
-            .setDurationUs(appDurationMs(item)?.let { it * 1_000 } ?: C.TIME_UNSET)
-            .setIsSeekable(true)
-            .build()
+    /** Rebuilt when the queue is edited, not for every change of song: a new timeline resends the whole queue to every controller. */
+    @Volatile private var playlist: List<MediaItemData> = playlistOf(queueItems)
+
+    private fun playlistOf(songs: List<MediaItem>): List<MediaItemData> {
+        val seen = HashMap<String, Int>()
+        return songs.map { item ->
+            // A song keeps its identity when it moves: its id plus which copy of it this is.
+            val copy = seen.merge(item.mediaId, 1, Int::plus)
+            MediaItemData.Builder("${item.mediaId}#$copy")
+                .setMediaItem(item)
+                .setDurationUs(appDurationMs(item)?.let { it * 1_000 } ?: C.TIME_UNSET)
+                .setIsSeekable(true)
+                .build()
+        }
+    }
+
+    /** Keeps the speaker's queue equal to [items]. Made when first needed, as it asks the player where the playing song is. */
+    private val editor: SonosQueueEditor<MediaItem> by lazy {
+        SonosQueueEditor(
+            commander = commander,
+            scope = scope,
+            initial = slice(items, window),
+            idOf = { it.mediaId },
+            trackOf = trackOf,
+            playingIndex = ::speakerPlayingIndex,
+            publish = { access.publish(it) },
+            reload = ::reloadQueue,
+            onFinished = { if (it is SonosResult.Err) onCommandFailed(it.failure) },
+        )
+    }
+
+    private fun slice(songs: List<MediaItem>, range: IntRange): List<MediaItem> =
+        if (range.isEmpty() || songs.isEmpty()) emptyList() else songs.subList(range.first, minOf(range.last + 1, songs.size))
+
+    private fun speakerPlayingIndex(): Int? {
+        val playback = engine.state.value.playback
+        val index = (playback.currentTrackNumber ?: return null) - 1
+        val songId = playback.currentTrackUri?.let { SonosTrackMapper.songIdOf(it, access) } ?: return null
+        return index.takeIf { editor.speaker.getOrNull(it)?.mediaId == songId }
     }
 
     /** The app keeps the length of a song in an extra of its item; the typed field is the fallback. */
@@ -93,13 +136,17 @@ internal class SonosPlayer(
     internal fun lastOwnPlace(): OwnPlace? = ownPlace.place()
 
     /** The id of the song at [index] of the app's queue. */
-    fun songIdAt(index: Int): String? = queueItems.getOrNull(index)?.mediaId
+    fun songIdAt(index: Int): String? = items.getOrNull(index)?.mediaId
+
+    /** The queue of the app as it is now, in order. */
+    fun currentQueue(): List<MediaItem> = items
     private var observing: Job? = null
 
     /** Starts following the session: every change of it is a change of the player. */
     fun attach() {
         if (observing != null) return
         observing = scope.launch {
+            launch { loaded.collect { invalidateState() } }
             engine.state.collect {
                 val snapshot = snapshot()
                 previousIndex = snapshot.currentIndex ?: previousIndex
@@ -170,6 +217,8 @@ internal class SonosPlayer(
             .add(Player.COMMAND_SET_REPEAT_MODE)
             .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
             .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+        // Until the whole queue is on the speaker, a change would meet songs still being added.
+        if (loaded.value) commands.add(Player.COMMAND_CHANGE_MEDIA_ITEMS)
         if (snapshot.canSeek) commands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
         if (snapshot.canNext) commands.addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
         if (snapshot.canPreviousItem) commands.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
@@ -181,6 +230,68 @@ internal class SonosPlayer(
             commander.play().also { if (it is SonosResult.Ok) engine.onPlayAccepted() }
         } else {
             commander.pause()
+        }
+    }
+
+    override fun handleAddMediaItems(index: Int, mediaItems: List<MediaItem>): ListenableFuture<*> =
+        edited { QueueListEdits.add(it, index, mediaItems) }
+
+    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> =
+        edited { QueueListEdits.move(it, fromIndex, toIndex, newIndex) }
+
+    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> =
+        edited { QueueListEdits.remove(it, fromIndex, toIndex) }
+
+    override fun handleReplaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>): ListenableFuture<*> =
+        edited { QueueListEdits.replace(it, fromIndex, toIndex, mediaItems) }
+
+    /** The song that plays keeps playing: a new queue with another start song is not a thing a speaker queue can do from here. */
+    override fun handleSetMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> =
+        edited { mediaItems }
+
+    /**
+     * Shows the edited queue at once and lets the editor catch the speaker up in the background; if it cannot, the user
+     * is told. The song that plays is followed to its new place, and the part of the queue on the speaker is chosen again.
+     */
+    private fun edited(change: (List<MediaItem>) -> List<MediaItem>): ListenableFuture<*> {
+        val old = items
+        val playing = snapshot().currentIndex?.let { old.getOrNull(it) }
+        val edited = change(old)
+        val playingIndex = playing?.let { song -> edited.indexOfFirst { it === song }.takeIf { it >= 0 } ?: edited.indexOfFirst { it.mediaId == song.mediaId } }
+        val range = windowFor(edited, playingIndex)
+        items = edited
+        window = range
+        queue = PlayerQueue(edited.map { it.mediaId }, range)
+        playlist = playlistOf(edited)
+        previousIndex = playingIndex?.takeIf { it >= 0 } ?: previousIndex
+        editor.submit(slice(edited, range))
+        return Futures.immediateVoidFuture()
+    }
+
+    private fun windowFor(songs: List<MediaItem>, playingIndex: Int?): IntRange = when {
+        songs.isEmpty() -> IntRange.EMPTY
+        songs.size <= SonosCommander.MAX_QUEUE -> songs.indices
+        else -> SonosCommander.queueWindow(songs.size, (playingIndex ?: 0).coerceIn(songs.indices))
+    }
+
+    /** Loads the queue again, from the song that was playing, when nothing of what is on the speaker can be kept. */
+    private suspend fun reloadQueue(wanted: List<MediaItem>, tracks: List<TrackMetadata>): SonosResult<Unit> {
+        val playback = engine.state.value.playback
+        val playingId = playback.currentTrackUri?.let { SonosTrackMapper.songIdOf(it, access) }
+        val start = wanted.indexOfFirst { it.mediaId == playingId }.takeIf { it >= 0 } ?: 0
+        val result = commander.loadAndPlay(
+            tracks = tracks,
+            startIndex = start,
+            startPositionMs = 0L,
+            mode = PlayMode.of(shuffle = false, repeat = playback.playMode?.repeat ?: RepeatMode.OFF),
+            playWhenReady = playback.transportState == TransportState.PLAYING,
+            onStarted = {},
+            onProgress = {},
+        )
+        engine.requestRead()
+        return when (result) {
+            is SonosResult.Ok -> SonosResult.Ok(Unit)
+            is SonosResult.Err -> result
         }
     }
 
@@ -216,8 +327,8 @@ internal class SonosPlayer(
 
     private suspend fun seekToItem(mediaItemIndex: Int, positionMs: Long): SonosResult<*> {
         // Songs outside the window are not on the speaker.
-        if (mediaItemIndex !in speakerWindow) return SonosResult.Err(SonosFailure.NotOnSpeaker)
-        return commander.seekToTrack(mediaItemIndex - speakerWindow.first + 1, positionMs).also { engine.requestRead() }
+        if (mediaItemIndex !in window) return SonosResult.Err(SonosFailure.NotOnSpeaker)
+        return commander.seekToTrack(mediaItemIndex - window.first + 1, positionMs).also { engine.requestRead() }
     }
 
     private fun SonosResult<Navigation>.andRead(): SonosResult<Navigation> = also { engine.requestRead() }
