@@ -268,7 +268,10 @@ internal class SonosPlayer(
     private fun edited(change: (List<MediaItem>) -> List<MediaItem>): ListenableFuture<*> {
         val old = items
         val playing = snapshot().currentIndex?.let { old.getOrNull(it) }
-        val edited = change(old)
+        val changed = change(old)
+        // A song the speaker cannot get does not go in the queue: the numbers of the app's queue and the speaker's must match.
+        val edited = changed.filter { trackOf(it) != null }
+        if (edited.size != changed.size) onCommandFailed(SonosFailure.NotOnSpeaker)
         val playingIndex = playing?.let { song -> edited.indexOfFirst { it === song }.takeIf { it >= 0 } ?: edited.indexOfFirst { it.mediaId == song.mediaId } }
         val range = windowFor(edited, playingIndex)
         items = edited
