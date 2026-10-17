@@ -484,9 +484,15 @@ class MusicService : MediaLibraryService() {
             if (!finished && attempt == sonosAttempt) {
                 sonosResumeIntent = null
                 disarmSonosWakeListener()
-                if (resume) local.play()
+                if (resume) playLocal(local)
             }
         }
+    }
+
+    /** A queue that was put in the phone's player for a speaker was never prepared: playing it needs that first. */
+    private fun playLocal(local: Player) {
+        if (local.playbackState == Player.STATE_IDLE && local.mediaItemCount > 0) local.prepare()
+        local.play()
     }
 
     private fun finishSonosConnect(
@@ -504,7 +510,7 @@ class MusicService : MediaLibraryService() {
                 if (stillWanted) {
                     sonosResumeIntent = null
                     disarmSonosWakeListener()
-                    if (resume && result.failure != SonosFailure.Superseded) local.play()
+                    if (resume && result.failure != SonosFailure.Superseded) playLocal(local)
                 }
                 SessionResult(SessionError.ERROR_UNKNOWN)
             }
@@ -593,8 +599,7 @@ class MusicService : MediaLibraryService() {
         if (target != null && handBack != null) {
             local.seekTo(target, handBack.positionMs)
             if (resumeLocal && handBack.wasPlaying) {
-                if (local.playbackState == Player.STATE_IDLE) local.prepare()
-                local.play()
+                playLocal(local)
             }
         }
         return handBack
