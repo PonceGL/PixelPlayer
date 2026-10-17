@@ -1,9 +1,11 @@
 package com.theveloper.pixelplay.data.sonos.session
 
 import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
+import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import com.theveloper.pixelplay.data.sonos.net.safeName
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -44,7 +46,19 @@ internal class SonosQueueEditor<T>(
     private val requests = Channel<Request<T>>(Channel.CONFLATED)
 
     init {
-        scope.launch { for (request in requests) run(request) }
+        scope.launch {
+            for (request in requests) {
+                try {
+                    run(request)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // One request that cannot be done must not end the editor: the next one may.
+                    Timber.tag(LOG_TAG).e("A queue edit failed: %s", error.javaClass.simpleName)
+                    onFinished(SonosResult.Err(SonosFailure.Network(error.javaClass.simpleName)))
+                }
+            }
+        }
     }
 
     fun submit(queue: List<T>) {
@@ -52,10 +66,11 @@ internal class SonosQueueEditor<T>(
     }
 
     private suspend fun run(request: Request<T>) {
-        val wanted = request.queue.filter { trackOf(it) != null }
-        publish(wanted.map(idOf))
+        // What the speaker needs to know about each song is asked once: the answer can change while the plan runs.
+        val wanted = request.queue.mapNotNull { song -> trackOf(song)?.let { song to it } }
+        publish(wanted.map { idOf(it.first) })
         val playing = playingIndex()
-        val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map(idOf), playing)
+        val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map { idOf(it.first) }, playing)
         val startedAt = System.nanoTime()
         Timber.tag(LOG_TAG).d("queue edit: on speaker=%d wanted=%d playing=%s plan=%s", speaker.size, wanted.size, playing, plan.joinToString { describe(it) })
         for (edit in plan) {
@@ -81,7 +96,7 @@ internal class SonosQueueEditor<T>(
         QueueEdit.Reload -> "reload"
     }
 
-    private suspend fun execute(edit: QueueEdit, wanted: List<T>): SonosResult<Unit> = when (edit) {
+    private suspend fun execute(edit: QueueEdit, wanted: List<Pair<T, TrackMetadata>>): SonosResult<Unit> = when (edit) {
         is QueueEdit.Remove -> commander.removeTracks(edit.first, edit.count).also {
             if (it is SonosResult.Ok) speaker = QueueListEdits.remove(speaker, edit.first - 1, edit.first - 1 + edit.count)
         }
@@ -98,15 +113,15 @@ internal class SonosQueueEditor<T>(
             val songs = edit.targetIndices.map { wanted[it] }
             val base = if (edit.position == 0) speaker.size else edit.position - 1
             var done = 0
-            commander.insertTracks(songs.map { checkNotNull(trackOf(it)) }, edit.position) { inserted ->
-                speaker = QueueListEdits.add(speaker, base + done, songs.subList(done, inserted))
+            commander.insertTracks(songs.map { it.second }, edit.position) { inserted ->
+                speaker = QueueListEdits.add(speaker, base + done, songs.subList(done, inserted).map { it.first })
                 done = inserted
             }
         }
 
         QueueEdit.Reload -> {
-            val result = reload(wanted, wanted.map { checkNotNull(trackOf(it)) })
-            if (result is SonosResult.Ok) speaker = wanted
+            val result = reload(wanted.map { it.first }, wanted.map { it.second })
+            if (result is SonosResult.Ok) speaker = wanted.map { it.first }
             result
         }
     }

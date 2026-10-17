@@ -70,13 +70,18 @@ class SonosQueueEditorTest {
         var playing: Int? = 0
         val reloads = mutableListOf<List<String>>()
         var unservable = setOf<String>()
+        var trackOfOverride: ((String) -> TrackMetadata?)? = null
+        val trackCalls = mutableMapOf<String, Int>()
         val commander = SonosCommander(speaker, "h", SonosUdn("RINCON_1"), now = { scope.testScheduler.currentTime }, recordCommand = {})
         val editor = SonosQueueEditor(
             commander = commander,
             scope = scope.backgroundScope,
             initial = initial,
             idOf = { it },
-            trackOf = { id -> if (id in unservable) null else TrackMetadata(id, null, null, null, 1000, "audio/flac", "http://phone/song/$id") },
+            trackOf = { id ->
+                trackCalls.merge(id, 1, Int::plus)
+                trackOfOverride?.invoke(id) ?: if (id in unservable) null else TrackMetadata(id, null, null, null, 1000, "audio/flac", "http://phone/song/$id")
+            },
             playingIndex = { playing },
             publish = { published += it },
             reload = { _, tracks -> reloads += tracks.map { it.title }; SonosResult.Ok(Unit) },
@@ -199,5 +204,35 @@ class SonosQueueEditorTest {
 
         assertThat(speaker.actions).isEmpty()
         assertThat(f.finished).containsExactly(SonosResult.Ok(Unit))
+    }
+
+    @Test
+    fun `the editor goes on after a request that blew up`() = test("abc") { f, speaker ->
+        f.trackOfOverride = { id -> if (id == "x") error("no address for this one") else null }
+        f.editor.submit(ids("abx"))
+        runCurrent()
+
+        assertThat(f.finished.single()).isInstanceOf(SonosResult.Err::class.java)
+
+        f.trackOfOverride = null
+        f.editor.submit(ids("abcd"))
+        runCurrent()
+
+        assertThat(speaker.ids()).containsExactly("a", "b", "c", "d").inOrder()
+        assertThat(f.finished.last()).isEqualTo(SonosResult.Ok(Unit))
+    }
+
+    @Test
+    fun `what the speaker needs to know about a song is asked once per request, and a changed answer does not break the plan`() = test("abc") { f, speaker ->
+        var asked = 0
+        f.trackOfOverride = { id ->
+            if (id == "d" && ++asked > 1) null else TrackMetadata(id, null, null, null, 1000, "audio/flac", "http://phone/song/$id")
+        }
+        f.editor.submit(ids("abcd"))
+        runCurrent()
+
+        assertThat(speaker.ids()).containsExactly("a", "b", "c", "d").inOrder()
+        assertThat(f.trackCalls["d"]).isEqualTo(1)
+        assertThat(f.finished.single()).isEqualTo(SonosResult.Ok(Unit))
     }
 }
