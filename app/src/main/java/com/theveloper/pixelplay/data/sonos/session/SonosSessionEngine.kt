@@ -73,6 +73,7 @@ internal class SonosSessionEngine(
     private val readPending = AtomicBoolean(false)
     private var running: CoroutineScope? = null
     private var ownWindow = OwnChangeWindow()
+    private var lastQueueEditAtMs: Long? = null
     private var transportEventsApplied = 0L
     private var lastReadAtMs = 0L
     private var failedReadRetried = false
@@ -110,6 +111,21 @@ internal class SonosSessionEngine(
     fun noteCommand(atMs: Long) {
         synchronized(lock) { ownWindow = ownWindow.recordCommand(atMs) }
     }
+
+    /**
+     * Marks a change of the speaker's queue made by this app. Moving or removing songs before the one that plays
+     * gives it another track number, which is not a new song: for a few seconds a new number under the same
+     * address is taken as that shift. It is a command too.
+     */
+    fun noteQueueEdit(atMs: Long) {
+        synchronized(lock) {
+            ownWindow = ownWindow.recordCommand(atMs)
+            lastQueueEditAtMs = atMs
+        }
+    }
+
+    private fun queueShiftAllowed(now: Long): Boolean =
+        lastQueueEditAtMs?.let { now - it in 0..QUEUE_SHIFT_WINDOW_MS } == true
 
     /** Asks for a full read. Requests made before the read starts are answered by that one read. */
     fun requestRead() {
@@ -217,7 +233,7 @@ internal class SonosSessionEngine(
         val now = elapsedMs()
         val old = mutableState.value
         val playback = SonosStateReducer.reduce(old.playback, change)
-        val transition = Transition.between(old, playback, now)
+        val transition = Transition.between(old, playback, now, queueShiftAllowed(now))
         val errorInThisEvent = change.transportStatus != null
 
         val anchor = when {
@@ -258,7 +274,7 @@ internal class SonosSessionEngine(
             lastTransportError = old.playback.lastTransportError,
             nextTrackUri = old.playback.nextTrackUri,
         )
-        val transition = Transition.between(old, playback, now)
+        val transition = Transition.between(old, playback, now, queueShiftAllowed(now))
         val position = snapshot.positionMs ?: if (transition.songChanged) 0L else transition.positionNow
         val anchor = PositionAnchor(position, (startedAtMs + now) / 2, transition.playing, playback.currentTrackDurationMs)
         // What a read finds that no event told is a change too: it may be somebody else's, or the end of the queue.
@@ -319,10 +335,12 @@ internal class SonosSessionEngine(
         val changed get() = songChanged || stateChanged
 
         companion object {
-            fun between(old: SonosSessionState, playback: SonosPlaybackState, now: Long): Transition {
-                // The same song twice in a row in the queue has the same address but not the same number.
-                val songChanged = playback.currentTrackUri != old.playback.currentTrackUri ||
-                    (playback.currentTrackNumber != null && playback.currentTrackNumber != old.playback.currentTrackNumber)
+            fun between(old: SonosSessionState, playback: SonosPlaybackState, now: Long, queueShiftAllowed: Boolean): Transition {
+                // The same song twice in a row in the queue has the same address but not the same number, unless the
+                // queue was just edited: then a new number under the same address is the song moving in the queue.
+                val sameAddress = playback.currentTrackUri == old.playback.currentTrackUri
+                val numberChanged = playback.currentTrackNumber != null && playback.currentTrackNumber != old.playback.currentTrackNumber
+                val songChanged = !sameAddress || (numberChanged && !queueShiftAllowed)
                 return Transition(
                     songChanged = songChanged,
                     stateChanged = playback.transportState != old.playback.transportState,
@@ -336,6 +354,7 @@ internal class SonosSessionEngine(
     private companion object {
         const val LOG_TAG = "SonosSession"
         const val POLL_TICK_MS = 5_000L
+        const val QUEUE_SHIFT_WINDOW_MS = 3_000L
         const val FAST_POLL_MS = 5_000L
         const val SAFETY_POLL_MS = 30_000L
         const val RETRY_AFTER_FAILURE_MS = 2_000L
