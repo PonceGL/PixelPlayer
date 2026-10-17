@@ -57,6 +57,7 @@ import com.theveloper.pixelplay.data.sonos.session.SonosConnectPlan
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.data.sonos.session.ThrottleGate
 import com.theveloper.pixelplay.data.sonos.session.HandBack
+import com.theveloper.pixelplay.data.sonos.session.HandBackTarget
 import com.theveloper.pixelplay.data.sonos.session.LocalQueue
 import com.theveloper.pixelplay.data.sonos.session.QueueEntry
 import com.theveloper.pixelplay.PixelPlayApplication
@@ -568,6 +569,9 @@ class MusicService : MediaLibraryService() {
         val sonos = sonosPlayer
         val order = sonosSongOrder
         val local = engine.masterPlayer
+        // Taken before the player is let go: the queue as the user left it on the speaker, and the song it showed.
+        val speakerQueue = sonos?.takeIf { it.queueEdited }?.currentQueue()
+        val shownOnSpeaker = sonos?.currentMediaItemIndex
         // A speaker that does not answer would keep the controls on it while the session closes (each command waits
         // for its timeout), so the phone takes the session back first.
         if (speakerLost) {
@@ -578,11 +582,14 @@ class MusicService : MediaLibraryService() {
         val handBack = sonosController.disconnect()?.let { if (it.songId == null && ownPlace != null) ownPlace else it }
         val songId = handBack?.songId
         val target = if (restorePosition && handBack != null && songId != null) {
-            // The queue of the phone may have changed meanwhile: what is checked is that the song is still there. The
-            // speaker's player may not have been published yet (the session ended just as it was being made).
-            val shownIndex = sonos?.let { order.getOrNull(it.currentMediaItemIndex) }
-            shownIndex?.takeIf { it in 0 until local.mediaItemCount && local.getMediaItemAt(it).mediaId == songId }
-                ?: (0 until local.mediaItemCount).firstOrNull { local.getMediaItemAt(it).mediaId == songId }
+            // Edited on the speaker: its queue is the queue. Otherwise the queue of the phone may have changed meanwhile,
+            // and what is checked is that the song is still there. The speaker's player may not have been published yet
+            // (the session ended just as it was being made).
+            if (speakerQueue != null) {
+                HandBackTarget.of(speakerQueue.map { it.mediaId }, songId, shownOnSpeaker)
+            } else {
+                HandBackTarget.of(List(local.mediaItemCount) { local.getMediaItemAt(it).mediaId }, songId, shownOnSpeaker?.let { order.getOrNull(it) })
+            }
         } else {
             null
         }
@@ -598,7 +605,11 @@ class MusicService : MediaLibraryService() {
                 }
             }
         }
-        if (target != null && handBack != null) {
+        if (speakerQueue != null && speakerQueue.isNotEmpty() && restorePosition) {
+            // The phone gets the queue the user made on the speaker, at the song and second it was at.
+            local.setMediaItems(speakerQueue, target ?: 0, if (target != null) handBack?.positionMs ?: 0L else 0L)
+            if (target != null && resumeLocal && handBack?.wasPlaying == true) playLocal(local)
+        } else if (target != null && handBack != null) {
             local.seekTo(target, handBack.positionMs)
             if (resumeLocal && handBack.wasPlaying) {
                 playLocal(local)
@@ -3041,9 +3052,6 @@ class MusicService : MediaLibraryService() {
         enabled: Boolean,
         broadcast: Boolean
     ) {
-        // The order of the queue a speaker is playing was fixed when it was sent: changing the shuffle now would
-        // show a state the speaker does not have.
-        if (sonosPlayer != null) return
         val changed = isManualShuffleEnabled != enabled
         isManualShuffleEnabled = enabled
         session.player.shuffleModeEnabled = enabled

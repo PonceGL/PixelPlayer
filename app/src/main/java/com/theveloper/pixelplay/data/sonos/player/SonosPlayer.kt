@@ -140,6 +140,10 @@ internal class SonosPlayer(
 
     /** The queue of the app as it is now, in order. */
     fun currentQueue(): List<MediaItem> = items
+
+    /** Whether the user changed the queue after it was sent, so that it is no longer the one the phone has. */
+    @Volatile var queueEdited: Boolean = false
+        private set
     private var observing: Job? = null
 
     /** Starts following the session: every change of it is a change of the player. */
@@ -260,6 +264,7 @@ internal class SonosPlayer(
         val playingIndex = playing?.let { song -> edited.indexOfFirst { it === song }.takeIf { it >= 0 } ?: edited.indexOfFirst { it.mediaId == song.mediaId } }
         val range = windowFor(edited, playingIndex)
         items = edited
+        queueEdited = true
         window = range
         queue = PlayerQueue(edited.map { it.mediaId }, range)
         playlist = playlistOf(edited)
