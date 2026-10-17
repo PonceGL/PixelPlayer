@@ -1,5 +1,6 @@
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import android.content.Context
 import app.cash.turbine.test
 import com.theveloper.pixelplay.data.database.AlbumArtThemeDao
@@ -263,6 +264,7 @@ class PlayerViewModelTest {
             mockCastTransferStateHolder,
             mockConnectivityStateHolder,
             mockThemeStateHolder,
+            SonosSessionHolder(),
             mockContext
         )
         // Real controller-sync holder wired to the same mocks, so existing tests

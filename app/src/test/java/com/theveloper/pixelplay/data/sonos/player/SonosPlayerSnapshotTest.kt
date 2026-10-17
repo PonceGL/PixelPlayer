@@ -344,3 +344,35 @@ class SonosPlayerSnapshotElsewhereTest {
         assertThat(elsewhere(TransportState.PLAYING, null)).isFalse()
     }
 }
+
+class SonosPlayerSnapshotTakeoverTest {
+
+    private val token = "0123456789abcdef0123456789abcdef"
+    private val access = SonosMediaAccess { SonosServerIdentity(token, 8080) }
+    private val queue = PlayerQueue(listOf("a", "b", "c"), 0..2)
+    private val foreign = SonosSessionState(
+        playback = SonosPlaybackState(
+            transportState = TransportState.PLAYING, currentTrackNumber = 1, numberOfTracks = 1,
+            currentTrackUri = "x-sonosapi-stream:s1234?sid=254",
+        ),
+    )
+
+    @Test
+    fun `while somebody else has the speaker the last song stays on screen, paused and out of reach`() {
+        val snapshot = SonosPlayerSnapshot.from(foreign, 1_000, queue, access, shuffleByApp = false, previousIndex = 1)
+
+        assertThat(snapshot.phase).isEqualTo(SonosPlayerSnapshot.Phase.READY)
+        assertThat(snapshot.currentIndex).isEqualTo(1)
+        assertThat(snapshot.playWhenReady).isFalse()
+        assertThat(snapshot.positionAdvancing).isFalse()
+        assertThat(snapshot.canControl).isFalse()
+    }
+
+    @Test
+    fun `with no song shown before there is nothing to keep on screen`() {
+        val snapshot = SonosPlayerSnapshot.from(foreign, 1_000, queue, access, shuffleByApp = false, previousIndex = null)
+
+        assertThat(snapshot.phase).isEqualTo(SonosPlayerSnapshot.Phase.IDLE)
+        assertThat(snapshot.currentIndex).isNull()
+    }
+}

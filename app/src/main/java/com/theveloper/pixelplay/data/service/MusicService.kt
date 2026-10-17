@@ -53,6 +53,7 @@ import com.theveloper.pixelplay.data.sonos.session.meansSpeakerLost
 import com.theveloper.pixelplay.data.sonos.net.isLanHost
 import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.session.ActiveSession
+import com.theveloper.pixelplay.data.sonos.session.SonosConnectPlan
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.data.sonos.session.ThrottleGate
 import com.theveloper.pixelplay.data.sonos.session.HandBack
@@ -428,8 +429,14 @@ class MusicService : MediaLibraryService() {
         val local = engine.masterPlayer
         // Going from one speaker to another: bring the music back first (without playing it on the phone) so the
         // next one starts from where it is.
-        val handBack = if (sonosPlayer != null) returnFromSonos(resumeLocal = false, restorePosition = true) else null
-        val resume = sonosResumeIntent ?: (handBack?.wasPlaying ?: local.playWhenReady)
+        val freshQueue = args.getBoolean(MusicNotificationProvider.EXTRA_SONOS_FRESH_QUEUE, false)
+        val hadSession = sonosPlayer != null
+        val handBack = if (hadSession) {
+            returnFromSonos(resumeLocal = false, restorePosition = SonosConnectPlan.restoresPosition(freshQueue, hadSession))
+        } else {
+            null
+        }
+        val resume = SonosConnectPlan.plays(freshQueue, sonosResumeIntent, handBack?.wasPlaying, local.playWhenReady)
         sonosResumeIntent = resume
         if (local.mediaItemCount == 0) {
             sonosResumeIntent = null
@@ -477,9 +484,15 @@ class MusicService : MediaLibraryService() {
             if (!finished && attempt == sonosAttempt) {
                 sonosResumeIntent = null
                 disarmSonosWakeListener()
-                if (resume) local.play()
+                if (resume) playLocal(local)
             }
         }
+    }
+
+    /** A queue that was put in the phone's player for a speaker was never prepared: playing it needs that first. */
+    private fun playLocal(local: Player) {
+        if (local.playbackState == Player.STATE_IDLE && local.mediaItemCount > 0) local.prepare()
+        local.play()
     }
 
     private fun finishSonosConnect(
@@ -497,7 +510,7 @@ class MusicService : MediaLibraryService() {
                 if (stillWanted) {
                     sonosResumeIntent = null
                     disarmSonosWakeListener()
-                    if (resume && result.failure != SonosFailure.Superseded) local.play()
+                    if (resume && result.failure != SonosFailure.Superseded) playLocal(local)
                 }
                 SessionResult(SessionError.ERROR_UNKNOWN)
             }
@@ -586,8 +599,7 @@ class MusicService : MediaLibraryService() {
         if (target != null && handBack != null) {
             local.seekTo(target, handBack.positionMs)
             if (resumeLocal && handBack.wasPlaying) {
-                if (local.playbackState == Player.STATE_IDLE) local.prepare()
-                local.play()
+                playLocal(local)
             }
         }
         return handBack
