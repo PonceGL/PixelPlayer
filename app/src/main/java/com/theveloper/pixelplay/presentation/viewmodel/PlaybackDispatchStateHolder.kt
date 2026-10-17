@@ -21,6 +21,7 @@ import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.session.PlayTarget
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
+import com.theveloper.pixelplay.data.sonos.session.keepsShuffleOnNewPlay
 import com.theveloper.pixelplay.data.sonos.session.playTargetOf
 import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.utils.AppShortcutManager
@@ -547,7 +548,10 @@ class PlaybackDispatchStateHolder @Inject internal constructor(
             queueStateHolder.saveOriginalQueueState(validSongs, queueName)
 
             // Check if the user wants shuffle to be persistent across different albums
-            val isPersistent = userPreferencesRepository.persistentShuffleEnabledFlow.first()
+            val isPersistent = keepsShuffleOnNewPlay(
+                persistentSetting = userPreferencesRepository.persistentShuffleEnabledFlow.first(),
+                speakerActive = speakerFor(castActive = false) != null
+            )
             throwIfDirectPlaybackRequestIsStale(requestToken)
             // Check if shuffle is currently active in the player
             val isShuffleOn = playbackStateHolder.stablePlayerState.value.isShuffleEnabled

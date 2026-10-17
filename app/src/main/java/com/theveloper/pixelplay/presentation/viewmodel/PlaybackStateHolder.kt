@@ -973,6 +973,7 @@ class PlaybackStateHolder @Inject internal constructor(
                     // The speaker's queue is changed by few, big edits (each one is a round trip to it), and only through
                     // the session's player: the phone's own player must stay out of it or it would end the session.
                     val queueTarget: Player = if (speakerActive) player else dualPlayerEngine.masterPlayer
+                    Timber.tag(TAG).d("toggleShuffle: speaker=%s songs=%d turningOn=%s", speakerActive, currentSongs.size, !_stablePlayerState.value.isShuffleEnabled)
 
                     val isCurrentlyShuffled = _stablePlayerState.value.isShuffleEnabled
 

@@ -30,4 +30,16 @@ class SonosPlayRoutingTest {
     fun `cast keeps what it had`() {
         assertThat(playTargetOf(SonosConnection.Idle, castActive = true)).isEqualTo(PlayTarget.Cast)
     }
+
+    @Test
+    fun `with a speaker the shuffle state is kept when a new list is played, with or without the setting`() {
+        assertThat(keepsShuffleOnNewPlay(persistentSetting = false, speakerActive = true)).isTrue()
+        assertThat(keepsShuffleOnNewPlay(persistentSetting = true, speakerActive = true)).isTrue()
+    }
+
+    @Test
+    fun `without a speaker the setting decides`() {
+        assertThat(keepsShuffleOnNewPlay(persistentSetting = false, speakerActive = false)).isFalse()
+        assertThat(keepsShuffleOnNewPlay(persistentSetting = true, speakerActive = false)).isTrue()
+    }
 }

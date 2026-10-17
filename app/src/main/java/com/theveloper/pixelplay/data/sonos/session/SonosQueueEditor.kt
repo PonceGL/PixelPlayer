@@ -2,10 +2,12 @@ package com.theveloper.pixelplay.data.sonos.session
 
 import com.theveloper.pixelplay.data.sonos.model.TrackMetadata
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
+import com.theveloper.pixelplay.data.sonos.net.safeName
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * Keeps the speaker's queue equal to the queue the user wants. [submit] says what the queue should be now; the editor
@@ -52,16 +54,31 @@ internal class SonosQueueEditor<T>(
     private suspend fun run(request: Request<T>) {
         val wanted = request.queue.filter { trackOf(it) != null }
         publish(wanted.map(idOf))
-        val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map(idOf), playingIndex())
+        val playing = playingIndex()
+        val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map(idOf), playing)
+        val startedAt = System.nanoTime()
+        Timber.tag(LOG_TAG).d("queue edit: on speaker=%d wanted=%d playing=%s plan=%s", speaker.size, wanted.size, playing, plan.joinToString { describe(it) })
         for (edit in plan) {
             if (generations.get() != request.generation) return
             val result = execute(edit, wanted)
             if (result is SonosResult.Err) {
+                Timber.tag(LOG_TAG).w("queue edit stopped after %d ms: %s", (System.nanoTime() - startedAt) / 1_000_000, result.failure.safeName())
                 onFinished(result)
                 return
             }
         }
-        if (generations.get() == request.generation) onFinished(SonosResult.Ok(Unit))
+        if (generations.get() == request.generation) {
+            Timber.tag(LOG_TAG).d("queue edit done in %d ms", (System.nanoTime() - startedAt) / 1_000_000)
+            onFinished(SonosResult.Ok(Unit))
+        }
+    }
+
+    /** What an edit does, with counts and places only: no titles and no addresses. */
+    private fun describe(edit: QueueEdit): String = when (edit) {
+        is QueueEdit.Remove -> "remove(${edit.first}, ${edit.count})"
+        is QueueEdit.Move -> "move(${edit.first}, ${edit.count}, before ${edit.before})"
+        is QueueEdit.Insert -> "insert(${edit.targetIndices.size} at ${edit.position})"
+        QueueEdit.Reload -> "reload"
     }
 
     private suspend fun execute(edit: QueueEdit, wanted: List<T>): SonosResult<Unit> = when (edit) {
@@ -92,5 +109,9 @@ internal class SonosQueueEditor<T>(
             if (result is SonosResult.Ok) speaker = wanted
             result
         }
+    }
+
+    private companion object {
+        const val LOG_TAG = "SonosSession"
     }
 }

@@ -19,3 +19,9 @@ internal fun playTargetOf(connection: SonosConnection, castActive: Boolean): Pla
     connection is SonosConnection.Connecting -> PlayTarget.Speaker(connection.device)
     else -> PlayTarget.Phone
 }
+
+/**
+ * Whether playing a new list keeps the shuffle mode that was on (instead of switching it off). On a speaker it always
+ * does: the mode the user has is the mode they keep, as in other players; on the phone it is the setting "persistent shuffle".
+ */
+internal fun keepsShuffleOnNewPlay(persistentSetting: Boolean, speakerActive: Boolean): Boolean = persistentSetting || speakerActive

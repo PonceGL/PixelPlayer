@@ -66,7 +66,7 @@ internal class SonosPlayer(
     private val loaded: StateFlow<Boolean>,
     private val trackOf: (MediaItem) -> TrackMetadata?,
     private val scope: CoroutineScope,
-    private val shuffleByApp: Boolean,
+    shuffleByApp: Boolean,
     private val onCommandFailed: (SonosFailure) -> Unit = {},
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) : SimpleBasePlayer(looper) {
@@ -76,6 +76,7 @@ internal class SonosPlayer(
     }
 
     /** The queue of the app (every song the speaker can get) and the part of it that is on the speaker. */
+    @Volatile private var shuffleByApp: Boolean = shuffleByApp
     @Volatile private var items: List<MediaItem> = queueItems
     @Volatile private var window: IntRange = speakerWindow
     @Volatile private var queue = PlayerQueue(queueItems.map { it.mediaId }, speakerWindow)
@@ -137,6 +138,13 @@ internal class SonosPlayer(
 
     /** The id of the song at [index] of the app's queue. */
     fun songIdAt(index: Int): String? = items.getOrNull(index)?.mediaId
+
+    /** The user turned the app's shuffle on or off: the queue was reordered, and this is what the player reports. */
+    fun setShuffleByApp(on: Boolean) {
+        if (shuffleByApp == on) return
+        shuffleByApp = on
+        invalidateState()
+    }
 
     /** The queue of the app as it is now, in order. */
     fun currentQueue(): List<MediaItem> = items

@@ -3054,6 +3054,7 @@ class MusicService : MediaLibraryService() {
     ) {
         val changed = isManualShuffleEnabled != enabled
         isManualShuffleEnabled = enabled
+        sonosPlayer?.setShuffleByApp(enabled)
         session.player.shuffleModeEnabled = enabled
         
         if (persistentShuffleEnabled) {
