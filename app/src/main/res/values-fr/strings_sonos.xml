@@ -28,7 +28,7 @@
     <string name="sonos_error_permission">L\'accès au réseau local est désactivé pour PixelPlayer. Autorisez-le dans les réglages de l\'app, puis touchez pour réessayer.</string>
     <string name="sonos_toast_command_failed">L\'enceinte n\'a pas répondu</string>
     <string name="sonos_toast_queue_incomplete">Certains titres n\'ont pas pu être envoyés à l\'enceinte</string>
-    <string name="sonos_toast_shuffle_unavailable">Le mode aléatoire n\'est pas disponible pendant la lecture sur une enceinte</string>
+    <string name="sonos_toast_shuffle_unavailable">L\'enceinte charge encore la file d\'attente. Réessayez dans un instant.</string>
     <string name="sonos_toast_speaker_lost">L\'enceinte ne répond plus. La lecture est revenue sur le téléphone, en pause.</string>
     <string name="sonos_toast_taken_over">Un autre appareil a pris l\'enceinte. Votre musique est revenue sur le téléphone, en pause.</string>
 </resources>

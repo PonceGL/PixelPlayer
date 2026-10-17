@@ -31,7 +31,7 @@
     <string name="sonos_error_permission">الوصول إلى الشبكة المحلية متوقف لتطبيق PixelPlayer. اسمح به من إعدادات التطبيق ثم المس للمحاولة مرة أخرى.</string>
     <string name="sonos_toast_command_failed">لم تستجب السماعة</string>
     <string name="sonos_toast_queue_incomplete">تعذّر إرسال بعض الأغاني إلى السماعة</string>
-    <string name="sonos_toast_shuffle_unavailable">التشغيل العشوائي غير متاح أثناء التشغيل على السماعة</string>
+    <string name="sonos_toast_shuffle_unavailable">السماعة ما زالت تحمّل قائمة التشغيل. حاول مرة أخرى بعد قليل.</string>
     <string name="sonos_toast_speaker_lost">لا تستجيب السماعة. عادت المقطوعة إلى الهاتف في وضع الإيقاف المؤقت.</string>
     <string name="sonos_toast_taken_over">استخدم جهاز آخر السماعة. عادت الموسيقى إلى الهاتف في وضع الإيقاف المؤقت.</string>
 </resources>

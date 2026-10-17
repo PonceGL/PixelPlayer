@@ -27,7 +27,7 @@
     <string name="sonos_error_permission">Local network access is off for PixelPlayer. Allow it in the app settings, then tap to try again.</string>
     <string name="sonos_toast_command_failed">The speaker didn\'t respond</string>
     <string name="sonos_toast_queue_incomplete">Some songs couldn\'t be sent to the speaker</string>
-    <string name="sonos_toast_shuffle_unavailable">Shuffle isn\'t available while playing on a speaker</string>
+    <string name="sonos_toast_shuffle_unavailable">The speaker is still loading the queue. Try again in a moment.</string>
     <string name="sonos_toast_speaker_lost">The speaker stopped responding. Playback is back on your phone, paused.</string>
     <string name="sonos_toast_taken_over">Another device took the speaker. Your music is back on the phone, paused.</string>
 </resources>

@@ -62,7 +62,12 @@ class SonosCommanderTest {
     private class Fixture(val scope: TestScope, val host: String, val udn: SonosUdn) {
         val transport = FakeTransport()
         val recorded = mutableListOf<Long>()
-        val commander = SonosCommander(transport, host, udn, now = { scope.currentTime }, recordCommand = { recorded += it })
+        val edits = mutableListOf<Long>()
+        val commander = SonosCommander(
+            transport, host, udn, now = { scope.currentTime },
+            recordCommand = { recorded += it },
+            recordQueueEdit = { edits += it },
+        )
     }
 
     private fun test(block: suspend TestScope.(Fixture) -> Unit) = runTest { block(Fixture(this, host, udn)) }
@@ -599,5 +604,128 @@ class SonosCommanderTest {
         val pause = actions.indexOf("Pause")
         val thirdAdd = actions.withIndex().filter { it.value == "AddURIToQueue" }[2].index
         assertThat(pause).isEqualTo(thirdAdd + 1)
+    }
+
+    @Test
+    fun `inserting more than sixteen songs goes in batches of sixteen, each after the one before`() = test { f ->
+        val progress = mutableListOf<Int>()
+
+        val result = f.commander.insertTracks(tracks(20), position = 3, onProgress = { progress += it })
+
+        assertThat(result).isEqualTo(SonosResult.Ok(Unit))
+        assertThat(f.transport.actions).containsExactly("AddMultipleURIsToQueue", "AddMultipleURIsToQueue").inOrder()
+        val (first, second) = f.transport.calls
+        assertThat(first.arg("NumberOfURIs")).isEqualTo("16")
+        assertThat(first.arg("DesiredFirstTrackNumberEnqueued")).isEqualTo("3")
+        assertThat(second.arg("NumberOfURIs")).isEqualTo("4")
+        assertThat(second.arg("DesiredFirstTrackNumberEnqueued")).isEqualTo("19")
+        assertThat(first.arg("EnqueueAsNext")).isEqualTo("0")
+        assertThat(first.arg("UpdateID")).isEqualTo("0")
+        assertThat(progress).containsExactly(16, 20).inOrder()
+    }
+
+    @Test
+    fun `the addresses go separated by a space and each song brings its own metadata`() = test { f ->
+        f.commander.insertTracks(tracks(2), position = 0)
+
+        val call = f.transport.calls.single()
+        assertThat(call.arg("EnqueuedURIs")).isEqualTo("${track(0).resourceUrl} ${track(1).resourceUrl}")
+        assertThat(call.arg("EnqueuedURIsMetaData")).isEqualTo("${Didl.build(track(0))} ${Didl.build(track(1))}")
+    }
+
+    @Test
+    fun `appending keeps asking for the end on every batch`() = test { f ->
+        f.commander.insertTracks(tracks(20), position = 0)
+
+        assertThat(f.transport.calls.map { it.arg("DesiredFirstTrackNumberEnqueued") }).containsExactly("0", "0")
+    }
+
+    @Test
+    fun `a speaker that refuses a batch gets smaller ones, and the next batches stay small`() = test { f ->
+        f.transport.script = { call ->
+            if (call.arg("NumberOfURIs").toInt() > 4) upnp("AddMultipleURIsToQueue", UpnpErrorKind.InvalidArguments) else SonosResult.Ok(emptyMap())
+        }
+        val progress = mutableListOf<Int>()
+
+        val result = f.commander.insertTracks(tracks(12), position = 1, onProgress = { progress += it })
+
+        assertThat(result).isEqualTo(SonosResult.Ok(Unit))
+        // 16 would not fit in 12, so the first try is 12, then 6, then 3 from there on.
+        assertThat(f.transport.calls.map { it.arg("NumberOfURIs").toInt() }).containsExactly(12, 6, 3, 3, 3, 3).inOrder()
+        assertThat(progress).containsExactly(3, 6, 9, 12).inOrder()
+    }
+
+    @Test
+    fun `a failure in the middle says how many songs went in`() = test { f ->
+        f.transport.script = { call ->
+            if (call.arg("DesiredFirstTrackNumberEnqueued") == "17") SonosResult.Err(SonosFailure.Timeout) else SonosResult.Ok(emptyMap())
+        }
+        val progress = mutableListOf<Int>()
+
+        val result = f.commander.insertTracks(tracks(40), position = 1, onProgress = { progress += it })
+
+        assertThat(result).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+        assertThat(progress).containsExactly(16)
+        assertThat(f.transport.calls).hasSize(2)
+    }
+
+    @Test
+    fun `nothing to insert sends nothing`() = test { f ->
+        assertThat(f.commander.insertTracks(emptyList(), position = 1)).isEqualTo(SonosResult.Ok(Unit))
+        assertThat(f.transport.calls).isEmpty()
+    }
+
+    @Test
+    fun `a load that starts while songs are being inserted ends the insertion`() = test { f ->
+        val release = CompletableDeferred<Unit>()
+        f.transport.gate = { _, n -> if (n == 1) release.await() }
+        val result = CompletableDeferred<SonosResult<Unit>>()
+        launch { result.complete(f.commander.insertTracks(tracks(40), position = 1)) }
+        runCurrent()
+
+        launch { f.load(tracks(2)) }
+        runCurrent()
+        release.complete(Unit)
+        runCurrent()
+
+        assertThat(result.await()).isEqualTo(SonosResult.Err(SonosFailure.Superseded))
+        assertThat(f.transport.actions.count { it == "AddMultipleURIsToQueue" }).isEqualTo(1)
+    }
+
+    @Test
+    fun `removing songs sends the first track and how many`() = test { f ->
+        assertThat(f.commander.removeTracks(first = 4, count = 2)).isEqualTo(SonosResult.Ok(Unit))
+
+        val call = f.transport.calls.single()
+        assertThat(call.action).isEqualTo("RemoveTrackRangeFromQueue")
+        assertThat(call.arg("StartingIndex")).isEqualTo("4")
+        assertThat(call.arg("NumberOfTracks")).isEqualTo("2")
+        assertThat(call.arg("UpdateID")).isEqualTo("0")
+        assertThat(f.commander.removeTracks(first = 4, count = 0)).isEqualTo(SonosResult.Ok(Unit))
+        assertThat(f.transport.calls).hasSize(1)
+    }
+
+    @Test
+    fun `moving songs says before which original track they go`() = test { f ->
+        assertThat(f.commander.moveTracks(first = 1, count = 2, before = 6)).isEqualTo(SonosResult.Ok(Unit))
+
+        val call = f.transport.calls.single()
+        assertThat(call.action).isEqualTo("ReorderTracksInQueue")
+        assertThat(call.arg("StartingIndex")).isEqualTo("1")
+        assertThat(call.arg("NumberOfTracks")).isEqualTo("2")
+        assertThat(call.arg("InsertBefore")).isEqualTo("6")
+        assertThat(call.arg("UpdateID")).isEqualTo("0")
+    }
+
+    @Test
+    fun `every edit of the queue is marked as ours, before and after, and other commands are not edits`() = test { f ->
+        f.commander.insertTracks(tracks(1), position = 1)
+        f.commander.removeTracks(first = 1, count = 1)
+        f.commander.moveTracks(first = 1, count = 1, before = 3)
+        assertThat(f.edits).hasSize(6)
+
+        f.commander.pause()
+        assertThat(f.edits).hasSize(6)
+        assertThat(f.recorded).hasSize(2)
     }
 }
