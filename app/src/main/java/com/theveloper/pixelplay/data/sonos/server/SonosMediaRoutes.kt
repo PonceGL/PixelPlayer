@@ -25,6 +25,8 @@ import kotlinx.coroutines.withContext
 private const val SONG_PATH = "/sonos/song/{songId}"
 private const val ART_PATH = "/sonos/art/{songId}"
 private const val COPY_BUFFER_BYTES = 64 * 1024
+private const val NANOS_PER_MS = 1_000_000L
+private const val SLOW_MS = 300L
 private val HTTP_DATE: DateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC)
 
 /**
@@ -71,12 +73,16 @@ private suspend fun ApplicationCall.serveAudio(
     headOnly: Boolean,
 ) {
     val songId = rejectUnlessAllowed(access, log) ?: return
+    val lookupStartedAt = System.nanoTime()
     val payload = try {
         withContext(io) { source.audio(songId) }
     } catch (e: IOException) {
         finish(HttpStatusCode.InternalServerError, log)
         return
     } ?: return finish(HttpStatusCode.NotFound, log)
+    // A speaker gives up on a song that does not start quickly: how long finding it took is worth knowing.
+    val lookupMs = (System.nanoTime() - lookupStartedAt) / NANOS_PER_MS
+    if (lookupMs > SLOW_MS) log("slow lookup of a song: $lookupMs ms")
 
     val knownSize = payload.size >= 0
     if (knownSize) response.header(HttpHeaders.AcceptRanges, "bytes")
@@ -170,17 +176,24 @@ private suspend fun copy(
 ) {
     val buffer = ByteArray(COPY_BUFFER_BYTES)
     var remaining = limit
+    var sent = 0L
+    val startedAt = System.nanoTime()
     try {
         while (remaining > 0) {
             val read = withContext(io) { stream.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt()) }
             if (read < 0) break
+            if (sent == 0L) {
+                val firstMs = (System.nanoTime() - startedAt) / NANOS_PER_MS
+                if (firstMs > SLOW_MS) log("slow start of a transfer: first bytes after $firstMs ms")
+            }
             channel.writeFully(buffer, 0, read)
             remaining -= read
+            sent += read
         }
     } catch (e: IOException) {
         // Usually the speaker aborting a transfer, which it does routinely when it seeks; a read error on
         // the file looks the same from here, so the kind is logged to tell them apart.
-        log("transfer ended early: ${e.javaClass.simpleName}")
+        log("transfer ended early: ${e.javaClass.simpleName} after $sent bytes in ${(System.nanoTime() - startedAt) / NANOS_PER_MS} ms")
     }
 }
 

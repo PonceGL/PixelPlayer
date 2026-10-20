@@ -97,8 +97,11 @@ internal class SonosPlayer(
         }
     }
 
-    /** Keeps the speaker's queue equal to [items]. Made when first needed, as it asks the player where the playing song is. */
-    private val editor: SonosQueueEditor<MediaItem> by lazy {
+    /**
+     * Keeps the speaker's queue equal to [items]. It starts with the queue the speaker was given, so it must exist before
+     * the first edit: made later, it would take the edited queue as what the speaker already has and send nothing.
+     */
+    private val editor: SonosQueueEditor<MediaItem> =
         SonosQueueEditor(
             commander = commander,
             scope = scope,
@@ -112,7 +115,6 @@ internal class SonosPlayer(
             reload = ::reloadQueue,
             onFinished = { if (it is SonosResult.Err) onCommandFailed(it.failure) },
         )
-    }
 
     private fun slice(songs: List<MediaItem>, range: IntRange): List<MediaItem> =
         if (range.isEmpty() || songs.isEmpty()) emptyList() else songs.subList(range.first, minOf(range.last + 1, songs.size))
