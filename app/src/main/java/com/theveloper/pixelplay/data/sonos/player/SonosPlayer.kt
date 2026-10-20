@@ -107,6 +107,8 @@ internal class SonosPlayer(
             trackOf = trackOf,
             playingIndex = ::speakerPlayingIndex,
             publish = { access.publish(it) },
+            readSpeaker = ::readSpeakerSongIds,
+            reportedSize = { engine.state.value.playback.numberOfTracks },
             reload = ::reloadQueue,
             onFinished = { if (it is SonosResult.Err) onCommandFailed(it.failure) },
         )
@@ -288,6 +290,12 @@ internal class SonosPlayer(
         songs.isEmpty() -> IntRange.EMPTY
         songs.size <= SonosCommander.MAX_QUEUE -> songs.indices
         else -> SonosCommander.queueWindow(songs.size, (playingIndex ?: 0).coerceIn(songs.indices))
+    }
+
+    /** The songs of the speaker's real queue by id; an entry that is not a song of this app is null. */
+    private suspend fun readSpeakerSongIds(): SonosResult<List<String?>> = when (val read = commander.readQueue()) {
+        is SonosResult.Err -> read
+        is SonosResult.Ok -> SonosResult.Ok(read.value.map { uri -> uri?.let { SonosTrackMapper.songIdOf(it, access) } })
     }
 
     /** Loads the queue again, from the song that was playing, when nothing of what is on the speaker can be kept. */

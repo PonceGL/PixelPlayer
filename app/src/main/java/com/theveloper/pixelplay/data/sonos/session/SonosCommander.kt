@@ -161,6 +161,31 @@ internal class SonosCommander(
         ).unit()
     }
 
+    /**
+     * The addresses of the songs the speaker really has in its queue, in order (null for an entry without one). Used to
+     * find out where the app's idea of the queue and the speaker's part ways.
+     */
+    suspend fun readQueue(): SonosResult<List<String?>> = order.withLock {
+        val result = transport.call(
+            host,
+            SonosService.CONTENT_DIRECTORY,
+            "Browse",
+            listOf(
+                "ObjectID" to "Q:0",
+                "BrowseFlag" to "BrowseDirectChildren",
+                "Filter" to "res",
+                "StartingIndex" to "0",
+                "RequestedCount" to MAX_READ.toString(),
+                "SortCriteria" to "",
+            ),
+        )
+        when (result) {
+            is SonosResult.Err -> result
+            is SonosResult.Ok -> Didl.parseResources(result.value["Result"])?.let { SonosResult.Ok(it) }
+                ?: SonosResult.Err(SonosFailure.MalformedResponse)
+        }
+    }
+
     suspend fun play(): SonosResult<Unit> = send("Play", "Speed" to "1").unit()
 
     suspend fun pause(): SonosResult<Unit> = send("Pause").unit()
@@ -243,6 +268,9 @@ internal class SonosCommander(
 
         /** Most songs the speaker takes in one `AddMultipleURIsToQueue` (measured on a Move: more gives error 402). */
         const val MAX_BATCH = 16
+
+        /** The most entries asked for when the queue is read back: the queue sent never has more than [MAX_QUEUE]. */
+        private const val MAX_READ = 2 * MAX_QUEUE
         private const val LEAD_SONGS = 100
         private const val RESTART_THRESHOLD_MS = 3_000L
 

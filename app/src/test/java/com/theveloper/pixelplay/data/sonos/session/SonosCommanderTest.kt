@@ -728,4 +728,36 @@ class SonosCommanderTest {
         assertThat(f.edits).hasSize(6)
         assertThat(f.recorded).hasSize(2)
     }
+
+    @Test
+    fun `reading the queue asks the content directory for the queue and gives the addresses in order`() = test { f ->
+        val didl = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">" +
+            "<item id=\"Q:0/1\"><res>http://phone/song/a</res></item>" +
+            "<item id=\"Q:0/2\"><res>x-sonosapi-stream:s1</res></item>" +
+            "<item id=\"Q:0/3\"></item></DIDL-Lite>"
+        f.transport.script = { SonosResult.Ok(mapOf("Result" to didl, "NumberReturned" to "3")) }
+
+        val result = f.commander.readQueue()
+
+        assertThat(result).isEqualTo(SonosResult.Ok(listOf<String?>("http://phone/song/a", "x-sonosapi-stream:s1", null)))
+        val call = f.transport.calls.single()
+        assertThat(call.service).isEqualTo(SonosService.CONTENT_DIRECTORY)
+        assertThat(call.action).isEqualTo("Browse")
+        assertThat(call.arg("ObjectID")).isEqualTo("Q:0")
+        assertThat(call.arg("BrowseFlag")).isEqualTo("BrowseDirectChildren")
+    }
+
+    @Test
+    fun `an answer with no result is not an empty queue`() = test { f ->
+        f.transport.script = { SonosResult.Ok(emptyMap()) }
+
+        assertThat(f.commander.readQueue()).isEqualTo(SonosResult.Err(SonosFailure.MalformedResponse))
+    }
+
+    @Test
+    fun `a speaker that cannot be reached cannot be read`() = test { f ->
+        f.transport.script = { SonosResult.Err(SonosFailure.Timeout) }
+
+        assertThat(f.commander.readQueue()).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+    }
 }

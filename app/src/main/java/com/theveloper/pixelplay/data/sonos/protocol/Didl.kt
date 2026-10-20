@@ -26,6 +26,12 @@ internal object Didl {
         append("</item></DIDL-Lite>")
     }
 
+    /** The address of each item of a list of items (a queue), in order; null for an item without one. Null itself when the document is not readable. */
+    fun parseResources(didl: String?): List<String?>? {
+        val root = didl?.let(SafeXml::parse) ?: return null
+        return root.children.filter { it.name == "item" }.map { item -> item.child("res")?.text?.trim()?.takeIf { it.isNotEmpty() } }
+    }
+
     /** Null when [didl] is missing, malformed or describes an item without a playable resource. */
     fun parse(didl: String?): TrackMetadata? {
         val item = didl?.let(SafeXml::parse)?.child("item") ?: return null

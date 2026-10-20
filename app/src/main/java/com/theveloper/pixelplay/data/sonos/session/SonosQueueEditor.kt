@@ -21,6 +21,8 @@ import timber.log.Timber
  * @param trackOf what the speaker needs to know about a song, or null for one it cannot get (it is left out)
  * @param playingIndex the place in [speaker] of the song that plays, or null when that is not known
  * @param publish told every song id about to be on the speaker, before any command: the media server only serves those
+ * @param readSpeaker the song ids of the queue the speaker really has, in order (null for an entry that is not ours)
+ * @param reportedSize how many songs the speaker says it has, when it has said (events), to notice that the editor lost track
  * @param reload loads the queue from scratch when nothing of what is on the speaker can be kept
  * @param onFinished told when the speaker has the queue asked for (Ok), or why it stopped short
  */
@@ -32,6 +34,8 @@ internal class SonosQueueEditor<T>(
     private val trackOf: (T) -> TrackMetadata?,
     private val playingIndex: () -> Int?,
     private val publish: (List<String>) -> Unit,
+    private val readSpeaker: suspend () -> SonosResult<List<String?>>,
+    private val reportedSize: () -> Int?,
     private val reload: suspend (items: List<T>, tracks: List<TrackMetadata>) -> SonosResult<Unit>,
     private val onFinished: (SonosResult<Unit>) -> Unit,
 ) {
@@ -69,23 +73,84 @@ internal class SonosQueueEditor<T>(
         // What the speaker needs to know about each song is asked once: the answer can change while the plan runs.
         val wanted = request.queue.mapNotNull { song -> trackOf(song)?.let { song to it } }
         publish(wanted.map { idOf(it.first) })
-        val playing = playingIndex()
-        val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map { idOf(it.first) }, playing)
-        val startedAt = System.nanoTime()
-        Timber.tag(LOG_TAG).d("queue edit: on speaker=%d wanted=%d playing=%s plan=%s", speaker.size, wanted.size, playing, plan.joinToString { describe(it) })
+        var knownToDiffer = false
+        var retried = false
+        while (true) {
+            val reported = reportedSize()
+            if (knownToDiffer || (reported != null && reported != speaker.size)) {
+                Timber.tag(LOG_TAG).w("queue edit: the speaker has %s songs, believed %d: reading its queue", reported ?: "?", speaker.size)
+                when (val read = resync(request.queue)) {
+                    is SonosResult.Err -> {
+                        onFinished(read)
+                        return
+                    }
+                    is SonosResult.Ok -> if (!read.value) {
+                        // Entries that are not ours: nothing of it can be kept.
+                        finish(request, listOf(QueueEdit.Reload), wanted, startedAt = System.nanoTime())?.let { return }
+                        return
+                    }
+                }
+                knownToDiffer = false
+            }
+            val playing = playingIndex()
+            val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map { idOf(it.first) }, playing)
+            Timber.tag(LOG_TAG).d("queue edit: on speaker=%d wanted=%d playing=%s plan=%s", speaker.size, wanted.size, playing, plan.joinToString { describe(it) })
+            val failure = finish(request, plan, wanted, startedAt = System.nanoTime())
+            when {
+                failure == null -> return
+                // The speaker refused: what the editor believes may not be what it has. Read it and try once more.
+                !retried && failure is SonosFailure.Upnp -> {
+                    retried = true
+                    knownToDiffer = true
+                }
+                else -> {
+                    onFinished(SonosResult.Err(failure))
+                    return
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends [plan]. Returns null when it was done (and told) or overtaken by a newer queue, otherwise why it stopped.
+     */
+    private suspend fun finish(request: Request<T>, plan: List<QueueEdit>, wanted: List<Pair<T, TrackMetadata>>, startedAt: Long): SonosFailure? {
         for (edit in plan) {
-            if (generations.get() != request.generation) return
+            if (generations.get() != request.generation) return null
             val result = execute(edit, wanted)
             if (result is SonosResult.Err) {
                 Timber.tag(LOG_TAG).w("queue edit stopped after %d ms: %s", (System.nanoTime() - startedAt) / 1_000_000, result.failure.safeName())
-                onFinished(result)
-                return
+                return result.failure
             }
         }
         if (generations.get() == request.generation) {
             Timber.tag(LOG_TAG).d("queue edit done in %d ms", (System.nanoTime() - startedAt) / 1_000_000)
             onFinished(SonosResult.Ok(Unit))
         }
+        return null
+    }
+
+    /**
+     * Makes [speaker] the queue the speaker really has. Ok(false) when it holds entries the editor does not know (not
+     * ours, or songs that are in neither queue), so the list cannot be rebuilt.
+     */
+    private suspend fun resync(known: List<T>): SonosResult<Boolean> {
+        val real = when (val read = readSpeaker()) {
+            is SonosResult.Err -> return read
+            is SonosResult.Ok -> read.value
+        }
+        val pool = (speaker + known).groupBy(idOf).mapValues { ArrayDeque(it.value.distinct()) }
+        val rebuilt = mutableListOf<T>()
+        for (id in real) {
+            val song = id?.let { pool[it] }?.let { copies -> if (copies.size > 1) copies.removeFirst() else copies.firstOrNull() }
+            if (song == null) {
+                speaker = emptyList()
+                return SonosResult.Ok(false)
+            }
+            rebuilt += song
+        }
+        speaker = rebuilt
+        return SonosResult.Ok(true)
     }
 
     /** What an edit does, with counts and places only: no titles and no addresses. */

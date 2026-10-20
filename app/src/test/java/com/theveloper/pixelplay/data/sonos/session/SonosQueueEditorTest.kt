@@ -71,6 +71,9 @@ class SonosQueueEditorTest {
         val reloads = mutableListOf<List<String>>()
         var unservable = setOf<String>()
         var trackOfOverride: ((String) -> TrackMetadata?)? = null
+        var readOverride: (suspend () -> SonosResult<List<String?>>)? = null
+        var reportedOverride: Int? = null
+        val reads = mutableListOf<List<String>>()
         val trackCalls = mutableMapOf<String, Int>()
         val commander = SonosCommander(speaker, "h", SonosUdn("RINCON_1"), now = { scope.testScheduler.currentTime }, recordCommand = {})
         val editor = SonosQueueEditor(
@@ -84,6 +87,10 @@ class SonosQueueEditorTest {
             },
             playingIndex = { playing },
             publish = { published += it },
+            readSpeaker = {
+                readOverride?.invoke() ?: SonosResult.Ok(speaker.queue.map { it.substringAfterLast('/') }).also { reads += speaker.queue.map { u -> u.substringAfterLast('/') } }
+            },
+            reportedSize = { reportedOverride ?: speaker.queue.size },
             reload = { _, tracks -> reloads += tracks.map { it.title }; SonosResult.Ok(Unit) },
             onFinished = { finished += it },
         )
@@ -234,5 +241,70 @@ class SonosQueueEditorTest {
         assertThat(speaker.ids()).containsExactly("a", "b", "c", "d").inOrder()
         assertThat(f.trackCalls["d"]).isEqualTo(1)
         assertThat(f.finished.single()).isEqualTo(SonosResult.Ok(Unit))
+    }
+
+    @Test
+    fun `when the speaker reports another length than the editor believes, it reads the real queue first`() = test("abcdef") { f, speaker ->
+        // "d" vanished from the speaker without the editor knowing.
+        speaker.queue.remove("http://phone/song/d")
+        f.playing = 2
+        f.editor.submit(ids("fecbaz".replace('z', 'a').take(5)))
+        runCurrent()
+
+        assertThat(f.reads).isNotEmpty()
+        assertThat(speaker.ids()).isEqualTo(ids("fecba".take(5)))
+        assertThat(f.editor.speaker).isEqualTo(speaker.ids())
+    }
+
+    @Test
+    fun `a refusal from the speaker makes it read the real queue and try once more`() = test("abcdef") { f, speaker ->
+        f.playing = 2
+        // The real queue lost "f"; the first removal (believing six songs) is refused, the retry after reading works.
+        speaker.queue.remove("http://phone/song/f")
+        f.reportedOverride = 6
+        var refused = false
+        speaker.script = { action, _ ->
+            if (action == "RemoveTrackRangeFromQueue" && !refused) { refused = true; SonosFailure.Upnp(action, com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind.Other(402)) } else null
+        }
+        f.readOverride = { f.reportedOverride = null; SonosResult.Ok(speaker.ids()) }
+        f.editor.submit(ids("edcba"))
+        runCurrent()
+
+        assertThat(speaker.ids()).isEqualTo(ids("edcba"))
+        assertThat(f.finished.single()).isEqualTo(SonosResult.Ok(Unit))
+    }
+
+    @Test
+    fun `a second refusal after reading again is told to the user, with no more tries`() = test("abcd") { f, speaker ->
+        f.playing = 1
+        speaker.script = { action, _ ->
+            if (action == "RemoveTrackRangeFromQueue") SonosFailure.Upnp(action, com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind.Other(402)) else null
+        }
+        f.editor.submit(ids("ab"))
+        runCurrent()
+
+        assertThat(f.finished.single()).isInstanceOf(SonosResult.Err::class.java)
+        assertThat(speaker.actions.count { it == "RemoveTrackRangeFromQueue" }).isEqualTo(2)
+    }
+
+    @Test
+    fun `a speaker that cannot be read is told to the user`() = test("abc") { f, speaker ->
+        f.reportedOverride = 9
+        f.readOverride = { SonosResult.Err(SonosFailure.Timeout) }
+        f.editor.submit(ids("acb"))
+        runCurrent()
+
+        assertThat(f.finished.single()).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+        assertThat(speaker.actions).isEmpty()
+    }
+
+    @Test
+    fun `entries on the speaker that are not ours cannot be kept, the queue is loaded again`() = test("abc") { f, speaker ->
+        f.reportedOverride = 4
+        f.readOverride = { SonosResult.Ok(listOf("a", null, "b", "c")) }
+        f.editor.submit(ids("cba"))
+        runCurrent()
+
+        assertThat(f.reloads.single()).containsExactly("c", "b", "a").inOrder()
     }
 }
