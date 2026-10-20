@@ -1067,6 +1067,7 @@ class PlaybackStateHolder @Inject internal constructor(
                         }
 
                         if (!queueStateHolder.hasOriginalQueue()) {
+                            Timber.tag(TAG).d("toggleShuffle off: there is no original order to go back to, only the mode is switched off")
                             _stablePlayerState.update { it.copy(isShuffleEnabled = false) }
                             return@launch
                         }
@@ -1079,6 +1080,7 @@ class PlaybackStateHolder @Inject internal constructor(
                         val originalIndex = originalQueue.indexOfFirst { it.id == currentSongId }.takeIf { it >= 0 }
 
                         if (originalIndex == null) {
+                            Timber.tag(TAG).d("toggleShuffle off: the playing song is not in the original order (%d songs), only the mode is switched off", originalQueue.size)
                             _stablePlayerState.update { it.copy(isShuffleEnabled = false) }
                             return@launch
                         }

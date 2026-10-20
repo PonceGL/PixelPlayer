@@ -95,6 +95,10 @@ internal class SonosQueueEditor<T>(
             val playing = playingIndex()
             val plan = QueueEditPlanner.plan(speaker.map(idOf), wanted.map { idOf(it.first) }, playing)
             Timber.tag(LOG_TAG).d("queue edit: on speaker=%d wanted=%d playing=%s plan=%s", speaker.size, wanted.size, playing, plan.joinToString { describe(it) })
+            // Only for a plan that is not a simple one: the ids (not titles) of both queues tell what really differed.
+            if (plan.size > 1 || plan.any { it is QueueEdit.Reload }) {
+                Timber.tag(LOG_TAG).d("queue edit: have=%s want=%s", speaker.take(LOG_IDS).joinToString(",", transform = idOf), wanted.take(LOG_IDS).joinToString(",") { idOf(it.first) })
+            }
             val failure = finish(request, plan, wanted, startedAt = System.nanoTime())
             when {
                 failure == null -> return
@@ -193,5 +197,6 @@ internal class SonosQueueEditor<T>(
 
     private companion object {
         const val LOG_TAG = "SonosSession"
+        const val LOG_IDS = 40
     }
 }
