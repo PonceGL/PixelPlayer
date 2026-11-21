@@ -1,0 +1,23 @@
+# Git hooks (https://lefthook.dev). Install once with `lefthook install`.
+# They are a convenience for the developer, not the gate: anything important is checked again by the CI.
+min_version: 2.0.0
+
+pre-commit:
+  commands:
+    whitespace:
+      run: git diff --cached --check
+    large-files:
+      run: scripts/hooks/large-files-check.sh {staged_files}
+    secrets:
+      run: gitleaks git --staged --redact --no-banner --config .gitleaks.toml
+
+commit-msg:
+  commands:
+    message:
+      run: scripts/hooks/commit-msg-check.sh {1}
+
+# Slow on purpose, and only on push: compiles and runs the unit tests. Skip once with `git push --no-verify`.
+pre-push:
+  commands:
+    build-and-test:
+      run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest

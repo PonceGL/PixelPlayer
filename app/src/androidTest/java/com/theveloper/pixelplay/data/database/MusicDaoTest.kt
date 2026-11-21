@@ -204,4 +204,216 @@ class MusicDaoTest {
         val titles = results.map { it.title }.sorted()
         assertEquals(listOf("Cool Song", "Coolest Song Ever"), titles)
     }
+
+    /**
+     * Regression test for a real bug found on-device: FTS4 MATCH queries built with the
+     * literal "AND" keyword only behave as a boolean operator on SQLite builds compiled
+     * with SQLITE_ENABLE_FTS3_PARENTHESIS. Without it "AND" is parsed as an ordinary
+     * search term, so a two-word query would only match rows that literally contained
+     * the word "and" - silently breaking multi-word search. This runs against the real
+     * on-device/emulator SQLite engine (unlike a plain string-building unit test), which
+     * is what actually caught the bug.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun searchSongs_multiWordQuery_matchesSongWithoutLiteralAndKeyword() = runTest {
+        // Insert the referenced artist/album first: songs has a foreign key to both.
+        musicDao.insertArtists(listOf(createArtistEntity(101L, "Some Artist")))
+        musicDao.insertAlbums(listOf(createAlbumEntity(201L, "Album X")))
+        val songs = listOf(
+            createSongEntity(1L, "Qué ganas de comerte", "Some Artist", "Album X", "/p1/s1.mp3"),
+            createSongEntity(2L, "Completely unrelated title", "Other Artist", "Album Y", "/p2/s2.mp3")
+        )
+        musicDao.insertSongs(songs)
+
+        val results = musicDao.searchSongs("que ganas", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+        assertEquals("Qué ganas de comerte", results[0].title)
+    }
+
+    // --- Persisted genre queries (GenreEntity / song_genre_cross_ref) ---
+
+    // SongEntity has a real FK to artists(id)/albums(id) (see SongEntity's foreignKeys),
+    // enforced by SQLite here - every test below inserts the referenced artist/album row
+    // first (matching createSongEntity's default artistId=101L/albumId=201L).
+    private suspend fun insertDefaultArtistAndAlbum() {
+        musicDao.insertArtists(listOf(createArtistEntity(101L, "Artist 1")))
+        musicDao.insertAlbums(listOf(createAlbumEntity(201L, "Album X")))
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenresFiltered_returnsOnlyGenresWithAMatchingSong() = runTest {
+        insertDefaultArtistAndAlbum()
+        val songs = listOf(
+            createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3"),
+            createSongEntity(2L, "Song B", "Artist 1", "Album X", "/p1/b.mp3")
+        )
+        musicDao.insertSongs(songs)
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+        // Song 2 has no genre cross-ref at all.
+
+        val genres = musicDao.getGenresFiltered(emptyList(), false).first()
+
+        assertEquals(1, genres.size)
+        assertEquals("Rock", genres[0].name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenresFiltered_respectsDirectoryFilter() = runTest {
+        insertDefaultArtistAndAlbum()
+        val songs = listOf(
+            createSongEntity(1L, "Allowed Song", "Artist 1", "Album X", "/allowed/a.mp3"),
+            createSongEntity(2L, "Blocked Song", "Artist 1", "Album X", "/blocked/b.mp3")
+        )
+        musicDao.insertSongs(songs)
+        musicDao.insertGenres(
+            listOf(
+                GenreEntity(id = -1L, name = "Rock", matchKey = "rock"),
+                GenreEntity(id = -2L, name = "Jazz", matchKey = "jazz")
+            )
+        )
+        musicDao.insertSongGenreCrossRefs(
+            listOf(
+                SongGenreCrossRef(songId = 1L, genreId = -1L),
+                SongGenreCrossRef(songId = 2L, genreId = -2L)
+            )
+        )
+
+        val genres = musicDao.getGenresFiltered(listOf("/allowed"), true).first()
+
+        assertEquals(1, genres.size)
+        assertEquals("Rock", genres[0].name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesBySlugifiedMatchKey() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        // matchKey has a space - the caller slugifies it to "hip_hop" the same way
+        // MusicRepositoryImpl.buildGenre() already did for the legacy id scheme.
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Hip Hop", matchKey = "hip hop")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("hip_hop", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+        assertEquals("Song A", results[0].title)
+    }
+
+    /**
+     * Regression test for a real bug found on-device: GenreDetailViewModel calls
+     * getMusicByGenre(genre.name) - the display name ("Salsa"), not the slugified id
+     * ("salsa") - relying on the old LIKE-based query's default ASCII case-insensitivity.
+     * This query must tolerate the same mismatched casing or genre detail screens
+     * silently show zero songs, which is exactly what happened before this fix.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesTheDisplayNameCasingCallersActuallyPass() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Salsa", matchKey = "salsa")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("Salsa", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+    }
+
+    /**
+     * Regression test for a real bug found on-device: GenreDetailViewModel and
+     * MultiSelectionStateHolder call getMusicByGenre(genre.name) - the raw display name
+     * ("Hip Hop", with a space), not the slugified id ("hip_hop", with an underscore).
+     * The query's left side replaces match_key's spaces/slashes with "_" to build the
+     * comparable id, but never applied that same transform to the incoming :genreId - so a
+     * caller passing the space-separated display name never matched, silently emptying the
+     * genre detail screen for every multi-word genre.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByPersistedGenreId_matchesTheRawDisplayNameCallersActuallyPass() = runTest {
+        insertDefaultArtistAndAlbum()
+        val song = createSongEntity(1L, "Song A", "Artist 1", "Album X", "/p1/a.mp3")
+        musicDao.insertSongs(listOf(song))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Hip Hop", matchKey = "hip hop")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByPersistedGenreId("Hip Hop", emptyList(), false).first()
+
+        assertEquals(1, results.size)
+    }
+
+    /**
+     * Regression test for a real bug found on-device: SQLite's LOWER() does not fold
+     * diacritics, so a genre id (already accent-stripped via genreMatchKey's withoutDiacritics())
+     * can never equal a raw display name that still has its accents (e.g. "Cumbia Norteña
+     * Mexicana"). getGenreNameById resolves the id back to the persisted display name so
+     * callers can get the raw text without needing to compare accented strings in SQL.
+     */
+    @Test
+    @Throws(Exception::class)
+    fun getGenreNameById_resolvesTheRawDisplayNameFromAnAccentStrippedId() = runTest {
+        musicDao.insertGenres(
+            listOf(GenreEntity(id = -1L, name = "Cumbia Norteña Mexicana", matchKey = "cumbia nortena mexicana"))
+        )
+
+        val name = musicDao.getGenreNameById("cumbia_nortena_mexicana")
+
+        assertEquals("Cumbia Norteña Mexicana", name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getGenreNameById_returnsNullForAnUnknownId() = runTest {
+        val name = musicDao.getGenreNameById("does_not_exist")
+
+        assertEquals(null, name)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getUniqueGenres_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {
+        insertDefaultArtistAndAlbum()
+        val migratedSong = createSongEntity(1L, "Migrated Song", "Artist 1", "Album X", "/p1/a.mp3", genre = "Rock")
+        val unmigratedSong = createSongEntity(2L, "Unmigrated Song", "Artist 1", "Album X", "/p1/b.mp3", genre = "Jazz")
+        musicDao.insertSongs(listOf(migratedSong, unmigratedSong))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val legacyGenres = musicDao.getUniqueGenres(emptyList(), false).first()
+
+        assertEquals(listOf("Jazz"), legacyGenres)
+    }
+
+    @Test
+    @Throws(Exception::class)
+    fun getSongsByGenreContaining_excludesSongsAlreadyMigratedToPersistedGenres() = runTest {
+        insertDefaultArtistAndAlbum()
+        val migratedSong = createSongEntity(1L, "Migrated Song", "Artist 1", "Album X", "/p1/a.mp3", genre = "Rock")
+        val unmigratedSong = createSongEntity(2L, "Unmigrated Song", "Artist 1", "Album X", "/p1/b.mp3", genre = "Rock")
+        musicDao.insertSongs(listOf(migratedSong, unmigratedSong))
+        musicDao.insertGenres(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        musicDao.insertSongGenreCrossRefs(listOf(SongGenreCrossRef(songId = 1L, genreId = -1L)))
+
+        val results = musicDao.getSongsByGenreContaining(
+            genreName = "Rock",
+            genrePrefix = "Rock,%",
+            genreSuffixWithSpace = "%, Rock",
+            genreSuffix = "%,Rock",
+            genreMiddleWithSpace = "%, Rock,%",
+            genreMiddle = "%,Rock,%",
+            allowedParentDirs = emptyList(),
+            applyDirectoryFilter = false
+        ).first()
+
+        assertEquals(1, results.size)
+        assertEquals("Unmigrated Song", results[0].title)
+    }
 }

@@ -89,6 +89,7 @@ data class SongEntity(
     @ColumnInfo(name = "disc_number", defaultValue = "null") val discNumber: Int? = null,
     @ColumnInfo(name = "year", defaultValue = "0") val year: Int = 0,
     @ColumnInfo(name = "date_added", defaultValue = "0") val dateAdded: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "metadata_date_added", defaultValue = "null") val metadataDateAdded: Long? = null,
     @ColumnInfo(name = "mime_type") val mimeType: String? = null,
     @ColumnInfo(name = "bitrate") val bitrate: Int? = null, // bits per second
     @ColumnInfo(name = "sample_rate") val sampleRate: Int? = null, // Hz
@@ -122,6 +123,7 @@ private fun SongEntity.toSongInternal(artists: List<ArtistRef>): Song {
         trackNumber = this.trackNumber,
         discNumber = this.discNumber,
         dateAdded = this.dateAdded,
+        metadataDateAdded = this.metadataDateAdded,
         year = this.year,
         // Parse Telegram metadata from contentUriString
         telegramChatId = if (this.contentUriString.startsWith("telegram://")) {
@@ -235,6 +237,7 @@ fun Song.toEntity(filePathFromMediaStore: String, parentDirFromMediaStore: Strin
         filePath = filePathFromMediaStore,
         parentDirectoryPath = parentDirFromMediaStore,
         dateAdded = this.dateAdded,
+        metadataDateAdded = this.metadataDateAdded,
         year = this.year,
         mimeType = this.mimeType,
         bitrate = this.bitrate,
@@ -274,6 +277,7 @@ fun Song.toEntityWithoutPaths(): SongEntity {
         filePath = "",
         parentDirectoryPath = "",
         dateAdded = this.dateAdded,
+        metadataDateAdded = this.metadataDateAdded,
         year = this.year,
         mimeType = this.mimeType,
         bitrate = this.bitrate,

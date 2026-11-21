@@ -663,8 +663,8 @@ class PlayerViewModel @Inject constructor(
     val albumNavigationRequests = _albumNavigationRequests.asSharedFlow()
     private val _artistNavigationRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val artistNavigationRequests = _artistNavigationRequests.asSharedFlow()
-    private val _searchNavDoubleTapEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val searchNavDoubleTapEvents = _searchNavDoubleTapEvents.asSharedFlow()
+    private val _searchTabReselectedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val searchTabReselectedEvents = _searchTabReselectedEvents.asSharedFlow()
     
     // New event for scrolling to a specific index in the songs list
     private val _scrollToIndexEvent = MutableSharedFlow<Int>(extraBufferCapacity = 1)
@@ -1049,8 +1049,8 @@ class PlayerViewModel @Inject constructor(
         favoriteSongIds = { favoriteSongIds.value },
     )
 
-    fun onSearchNavIconDoubleTapped() {
-        _searchNavDoubleTapEvents.tryEmit(Unit)
+    fun onSearchTabReselected() {
+        _searchTabReselectedEvents.tryEmit(Unit)
     }
 
 
@@ -1132,6 +1132,32 @@ class PlayerViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
+        )
+
+    /** Configured genre delimiters, for the bulk-edit sheet's chip input - see
+     *  SongInfoBottomSheetViewModel.genreDelimiters for the single-song equivalent. */
+    val genreDelimiters: StateFlow<List<String>> = userPreferencesRepository.genreDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS
+        )
+
+    // Artists StateFlow - delegated to LibraryStateHolder, for the bulk-edit sheet's chip input.
+    val artists: StateFlow<ImmutableList<Artist>> = libraryStateHolder.artists
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = persistentListOf()
+        )
+
+    /** Configured artist delimiters, for the bulk-edit sheet's chip input - see
+     *  SongInfoBottomSheetViewModel.artistDelimiters for the single-song equivalent. */
+    val artistDelimiters: StateFlow<List<String>> = userPreferencesRepository.artistDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = UserPreferencesRepository.DEFAULT_ARTIST_DELIMITERS
         )
 
     val homeMixPreviewSongs: StateFlow<ImmutableList<Song>> = musicRepository.getHomeMixPreviewSongs(
@@ -2879,6 +2905,7 @@ class PlayerViewModel @Inject constructor(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -2890,7 +2917,7 @@ class PlayerViewModel @Inject constructor(
         replayGainAlbumGainDb: String?,
         coverArtUpdate: CoverArtUpdate?
     ) = metadataEditStateHolder.saveBatchMetadata(
-        songs, title, artist, album, albumArtist, composer, genre, lyrics,
+        songs, title, artist, artists, album, albumArtist, composer, genre, lyrics,
         trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate,
         metadataEditCallbacks()
     )
@@ -2899,6 +2926,7 @@ class PlayerViewModel @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String?,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -2910,7 +2938,7 @@ class PlayerViewModel @Inject constructor(
         newReplayGainAlbumGainDb: String? = null,
         coverArtUpdate: CoverArtUpdate?,
     ) = metadataEditStateHolder.editSongMetadata(
-        song, newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
+        song, newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
         newTrackNumber, newDiscNumber, newReplayGainTrackGainDb, newReplayGainAlbumGainDb, coverArtUpdate,
         metadataEditCallbacks()
     )

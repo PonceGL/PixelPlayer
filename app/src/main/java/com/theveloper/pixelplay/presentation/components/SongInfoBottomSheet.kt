@@ -86,6 +86,7 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.subcomps.AutoSizingTextToFill
 import com.theveloper.pixelplay.utils.formatDuration
+import com.theveloper.pixelplay.utils.splitByDelimiters
 import com.theveloper.pixelplay.utils.shapes.RoundedStarShape
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.core.net.toUri
@@ -126,10 +127,12 @@ fun SongInfoBottomSheet(
     onNavigateToAlbum: () -> Unit,
     onNavigateToArtist: () -> Unit,
     onNavigateToArtistById: (Long) -> Unit = { onNavigateToArtist() },
-    onNavigateToGenre: () -> Unit,
+    onNavigateToGenre: () -> Unit = {},
+    onNavigateToGenreByName: (String) -> Unit = { onNavigateToGenre() },
     onEditSong: (
         title: String,
         artist: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
@@ -151,13 +154,24 @@ fun SongInfoBottomSheet(
     val errorShareSongFormat = stringResource(R.string.song_info_error_share_song)
     var showEditSheet by remember { mutableStateOf(false) }
     var showArtistPicker by remember { mutableStateOf(false) }
+    var showGenrePicker by remember { mutableStateOf(false) }
     var showTonePickerDialog by remember { mutableStateOf(false) }
     var toneConfirmationTarget by remember { mutableStateOf<ToneTarget?>(null) }
     var pendingTonePermissionSong by remember { mutableStateOf<Song?>(null) }
     var pendingTonePermissionTarget by remember { mutableStateOf<ToneTarget?>(null) }
     val audioMeta by songInfoViewModel.audioMeta.collectAsStateWithLifecycle()
+    val existingGenreNames by songInfoViewModel.existingGenreNames.collectAsStateWithLifecycle()
+    val genreDelimiters by songInfoViewModel.genreDelimiters.collectAsStateWithLifecycle()
+    val existingArtistNames by songInfoViewModel.existingArtistNames.collectAsStateWithLifecycle()
+    val artistDelimiters by songInfoViewModel.artistDelimiters.collectAsStateWithLifecycle()
+    val songGenres = remember(song.genre, genreDelimiters) {
+        song.genre?.takeIf { it.isNotBlank() }?.let {
+            it.splitByDelimiters(genreDelimiters)
+        } ?: emptyList()
+    }
     val resolvedArtists by songInfoViewModel.resolvedArtists.collectAsStateWithLifecycle()
     val isPixelPlayWatchAvailable by songInfoViewModel.isPixelPlayWatchAvailable.collectAsStateWithLifecycle()
+    val isAnyWatchPaired by songInfoViewModel.isAnyWatchPaired.collectAsStateWithLifecycle()
     val isWatchAvailabilityResolved by songInfoViewModel.isWatchAvailabilityResolved.collectAsStateWithLifecycle()
     val isSendingToWatch by songInfoViewModel.isSendingToWatch.collectAsStateWithLifecycle()
     val watchTransfers by songInfoViewModel.watchTransfers.collectAsStateWithLifecycle()
@@ -281,21 +295,29 @@ fun SongInfoBottomSheet(
     val shouldOfferWatchTransfer = remember(
         canSendToWatch,
         currentSongTransfer,
+        isAnyWatchPaired,
         isPixelPlayWatchAvailable,
         isSongSavedOnWatch,
         isWatchAvailabilityResolved,
     ) {
         currentSongTransfer == null &&
                 canSendToWatch &&
+                isAnyWatchPaired &&
                 isWatchAvailabilityResolved &&
                 isPixelPlayWatchAvailable &&
                 !isSongSavedOnWatch
     }
+    // isAnyWatchPaired gates this too — otherwise this "checking watch…" state would flash for
+    // every song info sheet even on a phone that's never paired a watch at all, since
+    // isWatchAvailabilityResolved only flips true after the (irrelevant, in that case) reachability
+    // check finishes.
     val shouldShowWatchTransferLoading = remember(
         canSendToWatch,
+        isAnyWatchPaired,
         isWatchAvailabilityResolved,
     ) {
         canSendToWatch &&
+                isAnyWatchPaired &&
                 !isWatchAvailabilityResolved
     }
 
@@ -615,7 +637,15 @@ fun SongInfoBottomSheet(
                                                     icon = Icons.Rounded.MusicNote,
                                                     iconDescription = stringResource(R.string.song_info_genre_label),
                                                     shape = infoSegmentItemShape,
-                                                    onClick = onNavigateToGenre,
+                                                    onClick = {
+                                                        if (songGenres.size > 1) {
+                                                            showGenrePicker = true
+                                                        } else {
+                                                            songGenres.firstOrNull()
+                                                                ?.let { onNavigateToGenreByName(it) }
+                                                                ?: onNavigateToGenre()
+                                                        }
+                                                    },
                                                 )
                                             }
 
@@ -748,11 +778,16 @@ fun SongInfoBottomSheet(
     EditSongSheet(
         visible = showEditSheet,
         song = song,
+        existingGenres = existingGenreNames,
+        genreDelimiters = genreDelimiters,
+        existingArtistNames = existingArtistNames,
+        artistDelimiters = artistDelimiters,
         onDismiss = { showEditSheet = false },
-        onSave = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
+        onSave = { title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArt ->
             onEditSong(
                 title,
                 artist,
+                artists,
                 album,
                 albumArtist,
                 composer,
@@ -778,6 +813,19 @@ fun SongInfoBottomSheet(
             onArtistClick = { artist ->
                 showArtistPicker = false
                 onNavigateToArtistById(artist.id)
+            }
+        )
+    }
+
+    val genrePickerSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showGenrePicker && songGenres.size > 1) {
+        com.theveloper.pixelplay.presentation.components.player.GenrePickerBottomSheet(
+            genreNames = songGenres,
+            sheetState = genrePickerSheetState,
+            onDismiss = { showGenrePicker = false },
+            onGenreClick = { genreName ->
+                showGenrePicker = false
+                onNavigateToGenreByName(genreName)
             }
         )
     }

@@ -245,6 +245,7 @@ import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
 import com.theveloper.pixelplay.presentation.components.LibrarySortBottomSheet
 import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
+import com.theveloper.pixelplay.data.service.wear.PhoneWatchBatchTransferState
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferState
 import com.theveloper.pixelplay.shared.WearTransferProgress
 import java.io.File
@@ -385,6 +386,141 @@ private fun WatchTransferProgressDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun WatchPlaylistBatchProgressDialog(
+    batch: PhoneWatchBatchTransferState,
+    onDismiss: () -> Unit,
+    onCancelTransfer: () -> Unit,
+) {
+    val rawProgress = if (batch.totalSongCount > 0) {
+        ((batch.processedSongCount + batch.currentSongProgress) / batch.totalSongCount.toFloat())
+    } else {
+        0f
+    }.coerceIn(0f, 1f)
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = tween(durationMillis = 300),
+        label = "WatchPlaylistBatchProgressDialog"
+    )
+    val progressPercent = (animatedProgress * 100f).toInt().coerceIn(0, 100)
+    val statusText = when (batch.status) {
+        WearTransferProgress.STATUS_TRANSFERRING -> stringResource(R.string.watch_transfer_status_transferring)
+        WearTransferProgress.STATUS_COMPLETED -> stringResource(R.string.watch_transfer_status_completed)
+        WearTransferProgress.STATUS_FAILED -> stringResource(R.string.watch_transfer_status_failed)
+        WearTransferProgress.STATUS_CANCELLED -> stringResource(R.string.watch_transfer_status_cancelled)
+        else -> stringResource(R.string.watch_transfer_status_preparing)
+    }
+    val songsText = stringResource(
+        R.string.watch_transfer_batch_progress,
+        batch.processedSongCount,
+        batch.totalSongCount,
+    )
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = stringResource(R.string.watch_transfer_dialog_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .padding(vertical = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .scale(1.84f),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stringResource(R.string.common_percentage_text, progressPercent),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = MaterialTheme.typography.labelLarge.fontSize * 1.4f
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                LinearWavyProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(50)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                )
+                Text(
+                    text = batch.playlistName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                if (batch.status == WearTransferProgress.STATUS_TRANSFERRING && batch.currentSongTitle.isNotBlank()) {
+                    Text(
+                        text = stringResource(R.string.watch_transfer_current_song, batch.currentSongTitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.watch_transfer_bullet_step, statusText, songsText),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                if (batch.failedSongCount > 0) {
+                    Text(
+                        text = stringResource(R.string.watch_transfer_batch_failed_count, batch.failedSongCount),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (batch.status == WearTransferProgress.STATUS_TRANSFERRING) {
+                    Button(
+                        modifier = Modifier.padding(top = 4.dp),
+                        onClick = onCancelTransfer,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text(text = stringResource(R.string.watch_transfer_action_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private data class LibraryScreenPlayerProjection(
     val currentFolder: MusicFolder? = null,
     val folderSourceRootPath: String = "",
@@ -442,6 +578,16 @@ fun LibraryScreen(
     val haptic = LocalHapticFeedback.current
     val lastTabIndex by playerViewModel.lastLibraryTabIndexFlow.collectAsStateWithLifecycle()
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle() // Reintroducir favoriteIds aquí
+    val allGenres by playerViewModel.genres.collectAsStateWithLifecycle()
+    val existingGenreNames by remember {
+        derivedStateOf { allGenres.filter { it.id != "unknown" }.map { it.name } }
+    }
+    val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
+    val allArtists by playerViewModel.artists.collectAsStateWithLifecycle()
+    val existingArtistNames by remember {
+        derivedStateOf { allArtists.map { it.name } }
+    }
+    val artistDelimiters by playerViewModel.artistDelimiters.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope() // Mantener si se usa para acciones de UI
     val syncManager = playerViewModel.syncManager
     var isRefreshing by remember { mutableStateOf(false) }
@@ -486,6 +632,11 @@ fun LibraryScreen(
     val isSendingToWatch by songInfoBottomSheetViewModel.isSendingToWatch.collectAsStateWithLifecycle()
     val activeWatchTransfer by songInfoBottomSheetViewModel.activeWatchTransfer.collectAsStateWithLifecycle()
     var showWatchTransferDialog by remember { mutableStateOf(false) }
+    // A playlist batch takes priority over a concurrent lone single-song transfer in this badge —
+    // same priority rule as the transfer notification (WatchTransferForegroundService): it's the
+    // longer-running, more significant operation.
+    val activePlaylistBatchTransfer by playlistViewModel.activePlaylistBatchTransfer.collectAsStateWithLifecycle()
+    var showWatchBatchProgressDialog by remember { mutableStateOf(false) }
     val canNavigateBackInFolders by remember(playerViewModel) {
         playerViewModel.playerUiState
             .map { uiState -> uiState.currentFolder != null && uiState.folderBackGestureNavigationEnabled }
@@ -507,6 +658,12 @@ fun LibraryScreen(
 
     var showReorderTabsSheet by remember { mutableStateOf(false) }
     var showTabSwitcherSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(activePlaylistBatchTransfer?.batchId) {
+        if (activePlaylistBatchTransfer == null) {
+            showWatchBatchProgressDialog = false
+        }
+    }
 
     LaunchedEffect(activeWatchTransfer?.requestId) {
         if (activeWatchTransfer == null) {
@@ -847,14 +1004,15 @@ fun LibraryScreen(
                 TopAppBar(
                     title = {
                         if (isCompactNavigation) {
+                            val isShowingWatchBadge = activePlaylistBatchTransfer != null || isSendingToWatch
                             LibraryNavigationPill(
                                 modifier = Modifier,
                                 title = currentTabTitle,
                                 isExpanded = showTabSwitcherSheet,
-                                showIcon = !isSendingToWatch,
+                                showIcon = !isShowingWatchBadge,
                                 iconRes = currentTab.iconRes(),
                                 pageIndex = pagerState.currentPage,
-                                compressForWatchTransfer = isSendingToWatch,
+                                compressForWatchTransfer = isShowingWatchBadge,
                                 onClick = {
                                     showTabSwitcherSheet = true
                                 },
@@ -873,7 +1031,45 @@ fun LibraryScreen(
                         }
                     },
                     actions = {
-                        if (isSendingToWatch) {
+                        val currentBatch = activePlaylistBatchTransfer
+                        if (currentBatch != null) {
+                            val batchProgress = if (currentBatch.totalSongCount > 0) {
+                                ((currentBatch.processedSongCount + currentBatch.currentSongProgress) / currentBatch.totalSongCount.toFloat())
+                                    .coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+                            val batchPercent = (batchProgress * 100f).toInt().coerceIn(0, 100)
+                            Surface(
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .wrapContentWidth()
+                                    .height(40.dp)
+                                    .clip(CircleShape)
+                                    .clickable { showWatchBatchProgressDialog = true },
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.rounded_watch_arrow_down_24),
+                                        contentDescription = stringResource(R.string.library_cd_watch_transfer),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.common_percentage_text, batchPercent),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        } else if (isSendingToWatch) {
                             val watchTransferProgress = activeWatchTransfer?.progress ?: 0f
                             val watchTransferPercent = (watchTransferProgress * 100f).toInt().coerceIn(0, 100)
                             Surface(
@@ -1818,6 +2014,19 @@ fun LibraryScreen(
         }
     )
 
+    if (showWatchBatchProgressDialog) {
+        activePlaylistBatchTransfer?.let { currentBatch ->
+            WatchPlaylistBatchProgressDialog(
+                batch = currentBatch,
+                onDismiss = { showWatchBatchProgressDialog = false },
+                onCancelTransfer = {
+                    playlistViewModel.cancelPlaylistTransfer(currentBatch.batchId)
+                    showWatchBatchProgressDialog = false
+                }
+            )
+        }
+    }
+
     if (showWatchTransferDialog && activeWatchTransfer != null) {
         val currentWatchTransfer = activeWatchTransfer!!
         WatchTransferProgressDialog(
@@ -1883,20 +2092,19 @@ fun LibraryScreen(
                     )
                     showSongInfoBottomSheet = false
                 },
-                onNavigateToGenre = {
-                    currentSong.genre?.let {
-                        navController.navigateSafelyReplacing(
-                            route = Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")),
-                            patternToPop = Screen.GenreDetail.route
-                        )
-                    }
+                onNavigateToGenreByName = { genreName ->
+                    navController.navigateSafelyReplacing(
+                        route = Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")),
+                        patternToPop = Screen.GenreDetail.route
+                    )
                     showSongInfoBottomSheet = false
                 },
-                onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                     playerViewModel.editSongMetadata(
                         currentSong,
                         newTitle,
                         newArtist,
+                        newArtists,
                         newAlbum,
                         newAlbumArtist,
                         newComposer,
@@ -2152,12 +2360,17 @@ fun LibraryScreen(
         EditMultipleSongsSheet(
             visible = showBatchEditSheet,
             songs = selectedSongs,
+            existingGenres = existingGenreNames,
+            genreDelimiters = genreDelimiters,
+            existingArtistNames = existingArtistNames,
+            artistDelimiters = artistDelimiters,
             onDismiss = { showBatchEditSheet = false },
-            onSave = { songs, title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+            onSave = { songs, title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                 playerViewModel.saveBatchMetadata(
                     songs = songs,
                     title = title,
                     artist = artist,
+                    artists = artists,
                     album = album,
                     albumArtist = albumArtist,
                     composer = composer,

@@ -80,6 +80,8 @@
     <string name="common_select_all">Seleccionar todo</string>
     <string name="common_clear">Limpiar</string>
     <string name="common_error_unknown">Error desconocido</string>
+    <string name="tag_chip_remove">Quitar %1$s</string>
+    <string name="tag_chip_input_placeholder">Escribe o elige de la lista…</string>
 
     <!-- Common Actions & Labels -->
     <string name="common_save">Guardar</string>
