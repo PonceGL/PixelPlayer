@@ -4,6 +4,8 @@ import com.google.common.truth.Truth.assertThat
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.model.SonosUdn
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -70,5 +72,54 @@ class SonosVolumeKeysTest {
         advanceTimeBy(600)
         runCurrent()
         assertThat(states.last()).isFalse()
+    }
+
+    private class KeysFixture(val keys: SonosVolumeKeys, val session: SonosSessionHolder, val bridge: SonosVolumeBridge)
+
+    private fun keysFixture(): KeysFixture {
+        val bridge = SonosVolumeBridge()
+        val session = SonosSessionHolder()
+        return KeysFixture(SonosVolumeKeys(bridge, session), session, bridge)
+    }
+
+    @Test
+    fun `a key with a session on and a volume to change goes to the speaker and shows the indicator`() = runTest {
+        val f = keysFixture()
+        val control = mockk<SonosVolumeControl>(relaxed = true)
+        f.bridge.attach(control)
+        f.session.set(SonosConnection.Active(device))
+        var shown = 0
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { f.keys.requests.collect { shown++ } }
+        runCurrent()
+
+        assertThat(f.keys.onKey(up = true)).isTrue()
+        assertThat(f.keys.onKey(up = false)).isTrue()
+
+        verify(exactly = 1) { control.adjust(+SonosVolumeKeys.STEP) }
+        verify(exactly = 1) { control.adjust(-SonosVolumeKeys.STEP) }
+        assertThat(shown).isEqualTo(2)
+    }
+
+    @Test
+    fun `a key with no volume to change stays with the phone and shows nothing`() = runTest {
+        val f = keysFixture()
+        f.session.set(SonosConnection.Active(device))
+        var shown = 0
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { f.keys.requests.collect { shown++ } }
+        runCurrent()
+
+        assertThat(f.keys.onKey(up = true)).isFalse()
+        assertThat(shown).isEqualTo(0)
+    }
+
+    @Test
+    fun `a key while the speaker is still connecting stays with the phone`() = runTest {
+        val f = keysFixture()
+        val control = mockk<SonosVolumeControl>(relaxed = true)
+        f.bridge.attach(control)
+        f.session.set(SonosConnection.Connecting(device))
+
+        assertThat(f.keys.onKey(up = true)).isFalse()
+        verify(exactly = 0) { control.adjust(any()) }
     }
 }
