@@ -275,4 +275,67 @@ class SonosVolumeControlTest {
         assertThat(f.sink.log).containsExactly("adjust 5")
         assertThat(f.shown?.level).isEqualTo(35)
     }
+
+    @Test
+    fun `raising the level with a slider while muted takes the mute off first`() = test { f ->
+        f.sink.muted = true
+        f.reported.value = SonosVolume(30, true)
+        runCurrent()
+        f.control.setLevel(60)
+        settle()
+
+        assertThat(f.sink.log).containsExactly("mute false", "set 60").inOrder()
+        assertThat(f.shown).isEqualTo(SonosVolume(60, false))
+    }
+
+    @Test
+    fun `lowering the level with a slider while muted leaves the mute alone`() = test { f ->
+        f.sink.muted = true
+        f.reported.value = SonosVolume(30, true)
+        runCurrent()
+        f.control.setLevel(10)
+        settle()
+
+        assertThat(f.sink.log).containsExactly("set 10")
+        assertThat(f.shown?.muted).isTrue()
+    }
+
+    @Test
+    fun `a speaker that cannot call back keeps the level it answered to a key, the old observation does not come back`() = test { f ->
+        f.sink.onState = {} // no events: what the speaker reported stays at 30
+        runCurrent()
+        f.control.adjust(5)
+        settle()
+
+        assertThat(f.shown?.level).isEqualTo(35)
+    }
+
+    @Test
+    fun `an event after the answer is the speaker's word again`() = test { f ->
+        f.sink.onState = {}
+        runCurrent()
+        f.control.adjust(5)
+        settle()
+
+        f.reported.value = SonosVolume(50, false) // somebody else turned it up
+        runCurrent()
+
+        assertThat(f.shown?.level).isEqualTo(50)
+    }
+
+    @Test
+    fun `a level chosen while a key is on its way is not replaced by the answer to the key`() = test { f ->
+        f.sink.rttMs = 200
+        runCurrent()
+        f.control.adjust(5)
+        advanceTimeBy(50)
+        f.control.setLevel(80)
+        advanceTimeBy(300) // the answer to the key arrives (35)
+        runCurrent()
+
+        assertThat(f.shown?.level).isEqualTo(80)
+        settle()
+        assertThat(f.sink.log).containsExactly("adjust 5", "set 80").inOrder()
+        assertThat(f.shown?.level).isEqualTo(80)
+    }
 }

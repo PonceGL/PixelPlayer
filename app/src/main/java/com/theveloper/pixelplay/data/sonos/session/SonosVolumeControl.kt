@@ -47,6 +47,9 @@ internal class SonosVolumeControl(
     private var settleToken = 0L
     private var settleJob: Job? = null
 
+    /** What the speaker accepted last, kept until it says something itself: an older observation must not take its place. */
+    private var confirmed: SonosVolume? = null
+
     private sealed interface Work {
         data object Unmute : Work
         data class Mute(val muted: Boolean) : Work
@@ -62,6 +65,13 @@ internal class SonosVolumeControl(
     fun setLevel(level: Int) {
         val clamped = level.coerceIn(MIN_LEVEL, MAX_LEVEL)
         synchronized(lock) {
+            val current = mutableShown.value
+            // Raising a muted speaker takes the mute off first, as a key does: a level alone leaves it silent.
+            if (current?.muted == true && clamped > current.level) {
+                unmuteFirst = true
+                wantedMute = null
+                showAsked(muted = false)
+            }
             wantedLevel = clamped
             pendingDelta = 0
             showAsked(level = clamped)
@@ -131,7 +141,7 @@ internal class SonosVolumeControl(
                 if (token == settleToken && !busy()) {
                     echoLevel = null
                     echoMute = null
-                    mutableShown.value = reported.value
+                    mutableShown.value = confirmed ?: reported.value
                 }
             }
         }
@@ -142,9 +152,11 @@ internal class SonosVolumeControl(
     private fun onReported(volume: SonosVolume?) {
         synchronized(lock) {
             if (volume == null) {
+                confirmed = null
                 mutableShown.value = null
                 return
             }
+            confirmed = null
             val inMargin = now() < echoUntilMs
             val keepLevel = inMargin && echoLevel != null && volume.level != echoLevel
             val keepMute = inMargin && echoMute != null && volume.muted != echoMute
@@ -166,7 +178,17 @@ internal class SonosVolumeControl(
 
     private suspend fun runSender() {
         while (true) {
-            val work = synchronized(lock) { nextWork().also { if (it == null) senderRunning = false } } ?: return
+            val work = synchronized(lock) {
+                nextWork().also {
+                    if (it == null) {
+                        senderRunning = false
+                        // Everything asked for was accepted: that is what the speaker has until it says otherwise, and the
+                        // margin is counted again from here in case the last request was slow.
+                        confirmed = mutableShown.value
+                        scheduleSettle()
+                    }
+                }
+            } ?: return
             val failure = when (work) {
                 Work.Unmute -> sink.setMuted(false).failure()
                 is Work.Mute -> sink.setMuted(work.muted).failure()
@@ -175,8 +197,9 @@ internal class SonosVolumeControl(
                     is SonosResult.Ok -> {
                         synchronized(lock) {
                             val muted = mutableShown.value?.muted ?: false
-                            // Keys pressed meanwhile are not in the speaker's answer yet.
-                            val level = (result.value + pendingDelta).coerceIn(MIN_LEVEL, MAX_LEVEL)
+                            // A level chosen meanwhile on a slider is what the user wants; otherwise the keys pressed
+                            // meanwhile are not in the speaker's answer yet.
+                            val level = (wantedLevel ?: (result.value + pendingDelta)).coerceIn(MIN_LEVEL, MAX_LEVEL)
                             echoLevel = level
                             echoUntilMs = now() + ECHO_MS
                             mutableShown.value = SonosVolume(level, muted)
@@ -195,6 +218,7 @@ internal class SonosVolumeControl(
                     unmuteFirst = false
                     echoLevel = null
                     echoMute = null
+                    confirmed = null
                     senderRunning = false
                     mutableShown.value = reported.value
                 }
