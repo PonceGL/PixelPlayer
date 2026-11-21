@@ -55,6 +55,20 @@ PixelPlayer is a local music player for Android, written in Kotlin with Jetpack 
 - New components in `AndroidManifest.xml` are `android:exported="false"` unless there is a reason.
 - `WebView` has JavaScript disabled unless the screen needs it.
 
+## Music player specifics (report as high severity)
+
+- **Media3 and the player.** A `Player` is only touched from the application thread (the looper it was built on),
+  never from a background coroutine. Every `Player`, `MediaSession` and service is released in `onDestroy` or
+  when its owner goes away. The UI never keeps a reference to the `Player`.
+- **Large libraries.** A library has thousands of songs, so do not copy, sort, filter or group the whole list on
+  every emission, and keep that work off the main thread. Prefer building `MediaItem`s lazily.
+- **Files and metadata.** A song can be missing, deleted or have a null artist, album or duration: show a default,
+  never fail. Respect scoped storage and the audio permission.
+- **User-visible text.** Text shown to the user comes from string resources, never from a literal in code. A new
+  string is added to `values/` and to every locale the project ships (12 at the moment).
+- **Local network (Sonos/UPnP).** Every network call has a timeout and an error path, never runs on the main thread
+  and never uses a fixed IP address.
+
 ## Tests and documentation (report as medium severity)
 
 - New or changed behaviour comes with a unit test. Fixing a bug comes with a test that fails without the fix.

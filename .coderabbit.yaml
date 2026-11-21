@@ -55,6 +55,17 @@ reviews:
         pass a ViewModel to a child composable; business state lives in the ViewModel, `remember` is only UI state
         and `rememberSaveable` when it must survive a configuration change; read frequently changing state
         (animation, scroll) as late as possible; correct `contentDescription` (`null` only for decorative images).
+    - path: "app/src/main/java/**"
+      instructions: |
+        Music player rules, report as high severity. Media3: a `Player` is only touched from the application
+        thread, never from a background coroutine; every `Player`, `MediaSession` and service is released in
+        `onDestroy` or when its owner goes away; the UI never keeps a reference to the `Player`. Large libraries
+        (thousands of songs): do not copy, sort, filter or group the whole list on every emission, keep that work off
+        the main thread, build `MediaItem`s lazily. Files and metadata: a song can be missing, deleted or have a
+        null artist, album or duration, so show a default and never fail; respect scoped storage and the audio
+        permission. User-visible text comes from string resources, never a literal in code, and a new string is
+        added to `values/` and to every locale the project ships (12 at the moment). Local network (Sonos/UPnP):
+        every call has a timeout and an error path, never runs on the main thread and never uses a fixed IP.
     - path: "**/AndroidManifest.xml"
       instructions: |
         New components are `android:exported="false"` unless there is a stated reason. Explicit intents for
