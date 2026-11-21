@@ -47,7 +47,7 @@ object LocalArtworkUri {
 
         // The shared artwork provider names the song in the path (.../artwork/song/<id>), not in a file name.
         val sharedMarker = ".artwork/song/"
-        val sharedAt = uriString.lowercase().indexOf(sharedMarker)
+        val sharedAt = uriString.indexOf(sharedMarker, ignoreCase = true)
         if (sharedAt >= 0) {
             return uriString.substring(sharedAt + sharedMarker.length)
                 .substringBefore('?')

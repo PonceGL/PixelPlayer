@@ -77,6 +77,15 @@ class LocalArtworkUriTest {
     }
 
     @Test
+    fun parseSongIdFromVolatileArtworkUri_readsSharedArtworkUriWhateverItsCase() {
+        val songId = LocalArtworkUri.parseSongIdFromVolatileArtworkUri(
+            "CONTENT://com.theveloper.pixelplay.ARTWORK/SONG/99?t=1"
+        )
+
+        assertThat(songId).isEqualTo(99L)
+    }
+
+    @Test
     fun parseSongIdFromVolatileArtworkUri_hasNoSongForAnAddressItDoesNotKnow() {
         assertThat(LocalArtworkUri.parseSongIdFromVolatileArtworkUri("https://example.com/cover.jpg")).isNull()
         assertThat(LocalArtworkUri.parseSongIdFromVolatileArtworkUri("content://com.theveloper.pixelplay.artwork/song/abc")).isNull()
