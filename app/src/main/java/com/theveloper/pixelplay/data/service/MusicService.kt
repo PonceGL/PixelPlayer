@@ -61,6 +61,7 @@ import com.theveloper.pixelplay.data.sonos.session.SonosVolume
 import com.theveloper.pixelplay.data.sonos.session.ThrottleGate
 import com.theveloper.pixelplay.data.sonos.session.HandBack
 import com.theveloper.pixelplay.data.sonos.session.HandBackTarget
+import com.theveloper.pixelplay.data.sonos.session.QueueRestore
 import com.theveloper.pixelplay.data.sonos.session.LocalQueue
 import com.theveloper.pixelplay.data.sonos.session.QueueEntry
 import com.theveloper.pixelplay.PixelPlayApplication
@@ -615,14 +616,19 @@ class MusicService : MediaLibraryService() {
                 }
             }
         }
-        if (speakerQueue != null && speakerQueue.isNotEmpty() && restorePosition) {
-            // The phone gets the queue the user made on the speaker, at the song and second it was at.
-            local.setMediaItems(speakerQueue, target ?: 0, if (target != null) handBack?.positionMs ?: 0L else 0L)
-            if (target != null && resumeLocal && handBack?.wasPlaying == true) playLocal(local)
-        } else if (target != null && handBack != null) {
-            local.seekTo(target, handBack.positionMs)
-            if (resumeLocal && handBack.wasPlaying) {
-                playLocal(local)
+        when (HandBackTarget.queueToRestore(speakerQueue?.size, restorePosition)) {
+            QueueRestore.USE_SPEAKER_QUEUE -> {
+                // The phone gets the queue the user made on the speaker, at the song and second it was at.
+                local.setMediaItems(checkNotNull(speakerQueue), target ?: 0, if (target != null) handBack?.positionMs ?: 0L else 0L)
+                if (target != null && resumeLocal && handBack?.wasPlaying == true) playLocal(local)
+            }
+            // The songs the user took out on the speaker must not come back on the phone.
+            QueueRestore.CLEAR -> local.clearMediaItems()
+            QueueRestore.KEEP_PHONE_QUEUE -> if (target != null && handBack != null) {
+                local.seekTo(target, handBack.positionMs)
+                if (resumeLocal && handBack.wasPlaying) {
+                    playLocal(local)
+                }
             }
         }
         return handBack

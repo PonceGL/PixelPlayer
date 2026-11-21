@@ -327,6 +327,8 @@ internal class SonosPlayer(
 
     override fun handleRelease(): ListenableFuture<*> {
         detach()
+        // The speaker goes back to the phone: no edit may reach its queue after that.
+        editor.close()
         return Futures.immediateVoidFuture()
     }
 

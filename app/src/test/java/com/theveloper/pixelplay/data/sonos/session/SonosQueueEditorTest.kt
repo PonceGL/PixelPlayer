@@ -73,6 +73,7 @@ class SonosQueueEditorTest {
         var trackOfOverride: ((String) -> TrackMetadata?)? = null
         var readOverride: (suspend () -> SonosResult<List<String?>>)? = null
         var reportedOverride: Int? = null
+        var reloadResult: SonosResult<Unit> = SonosResult.Ok(Unit)
         val reads = mutableListOf<List<String>>()
         val trackCalls = mutableMapOf<String, Int>()
         val commander = SonosCommander(speaker, "h", SonosUdn("RINCON_1"), now = { scope.testScheduler.currentTime }, recordCommand = {})
@@ -91,7 +92,7 @@ class SonosQueueEditorTest {
                 readOverride?.invoke() ?: SonosResult.Ok(speaker.queue.map { it.substringAfterLast('/') }).also { reads += speaker.queue.map { u -> u.substringAfterLast('/') } }
             },
             reportedSize = { reportedOverride ?: speaker.queue.size },
-            reload = { _, tracks -> reloads += tracks.map { it.title }; SonosResult.Ok(Unit) },
+            reload = { _, tracks -> reloads += tracks.map { it.title }; reloadResult },
             onFinished = { finished += it },
         )
     }
@@ -306,5 +307,42 @@ class SonosQueueEditorTest {
         runCurrent()
 
         assertThat(f.reloads.single()).containsExactly("c", "b", "a").inOrder()
+    }
+
+    @Test
+    fun `a reload that fails after reading entries that are not ours is told to the user`() = test("abc") { f, speaker ->
+        f.reportedOverride = 4
+        f.readOverride = { SonosResult.Ok(listOf("a", null, "b", "c")) }
+        f.reloadResult = SonosResult.Err(SonosFailure.Timeout)
+        f.editor.submit(ids("cba"))
+        runCurrent()
+
+        assertThat(f.finished.single()).isEqualTo(SonosResult.Err(SonosFailure.Timeout))
+    }
+
+    @Test
+    fun `a closed editor sends nothing`() = test("abc") { f, speaker ->
+        f.editor.close()
+        f.editor.submit(ids("abcde"))
+        runCurrent()
+
+        assertThat(speaker.actions).isEmpty()
+        assertThat(f.finished).isEmpty()
+    }
+
+    @Test
+    fun `closing the editor in the middle of a plan stops the rest of it`() = test("abcdef") { f, speaker ->
+        f.playing = 1 // "b" stays, so the plan is edits and not a new load
+        val release = CompletableDeferred<Unit>()
+        speaker.gate = { n -> if (n == 1) release.await() }
+        f.editor.submit(ids("xbcdey")) // takes out "a" and "f" and puts "x" and "y": more than one command
+        runCurrent()
+
+        f.editor.close()
+        release.complete(Unit)
+        runCurrent()
+
+        assertThat(speaker.actions).hasSize(1)
+        assertThat(f.finished).isEmpty()
     }
 }

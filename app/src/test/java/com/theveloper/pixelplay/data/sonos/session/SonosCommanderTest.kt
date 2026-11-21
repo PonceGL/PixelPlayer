@@ -693,6 +693,24 @@ class SonosCommanderTest {
     }
 
     @Test
+    fun `a load that starts while a single batch is being inserted still ends the insertion as superseded`() = test { f ->
+        val release = CompletableDeferred<Unit>()
+        f.transport.gate = { _, n -> if (n == 1) release.await() }
+        val result = CompletableDeferred<SonosResult<Unit>>()
+        val progress = mutableListOf<Int>()
+        launch { result.complete(f.commander.insertTracks(tracks(3), position = 1, onProgress = { progress += it })) }
+        runCurrent()
+
+        launch { f.load(tracks(2)) }
+        runCurrent()
+        release.complete(Unit)
+        runCurrent()
+
+        assertThat(result.await()).isEqualTo(SonosResult.Err(SonosFailure.Superseded))
+        assertThat(progress).containsExactly(3) // what the speaker confirmed is still told
+    }
+
+    @Test
     fun `removing songs sends the first track and how many`() = test { f ->
         assertThat(f.commander.removeTracks(first = 4, count = 2)).isEqualTo(SonosResult.Ok(Unit))
 
