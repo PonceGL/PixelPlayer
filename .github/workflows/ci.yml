@@ -23,6 +23,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast: the format of the Kotlin files this change touches (the older code is not held to it until it is touched).
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install ktlint
+        run: scripts/ci/install-ktlint.sh "$HOME/.local/bin"
+
+      - name: Check the format of the changed Kotlin files
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          git fetch --no-tags origin "$BASE_REF"
+          # A push to main has nothing to compare with: the commit before it is the base.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            # A branch pushed for the first time has no commit before it.
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then base="HEAD~1"; fi
+          else
+            base="origin/$BASE_REF"
+          fi
+          scripts/format-check.sh "$base"
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 45
