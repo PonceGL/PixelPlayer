@@ -183,6 +183,11 @@ android {
 
     lint {
         checkReleaseBuilds = false
+        // The issues that were already there; lint fails only for new ones. Fix them gradually and regenerate the file.
+        baseline = file("lint-baseline.xml")
+        // Out-of-date dependencies are Dependabot's job (weekly), and these checks point at files by absolute path,
+        // which a baseline cannot hold from one machine to another.
+        disable += setOf("GradleDependency", "SimilarGradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
     }
 
     splits {
