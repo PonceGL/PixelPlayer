@@ -127,6 +127,21 @@ internal class SonosSessionEngine(
     private fun queueShiftAllowed(now: Long): Boolean =
         lastQueueEditAtMs?.let { now - it in 0..QUEUE_SHIFT_WINDOW_MS } == true
 
+    /** The volume and mute as a direct read of the speaker gave them. */
+    data class VolumeRead(val level: Int, val muted: Boolean)
+
+    /**
+     * Takes a direct read of the volume. Events are the source and are applied as they come, so a read only fills in
+     * what no event has told yet ([onlyIfUnknown]), unless the speaker cannot call back and the read is all there is.
+     */
+    fun noteVolumeRead(read: VolumeRead, onlyIfUnknown: Boolean) {
+        synchronized(lock) {
+            val current = mutableState.value
+            if (onlyIfUnknown && current.playback.volume != null) return
+            mutableState.value = current.copy(playback = current.playback.copy(volume = read.level, muted = read.muted))
+        }
+    }
+
     /** Asks for a full read. Requests made before the read starts are answered by that one read. */
     fun requestRead() {
         if (readPending.compareAndSet(false, true)) readRequests.trySend(Unit)

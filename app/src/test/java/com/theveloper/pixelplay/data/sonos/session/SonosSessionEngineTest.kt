@@ -233,6 +233,33 @@ class SonosSessionEngineTest {
     }
 
     @Test
+    fun `a volume read fills in a volume that no event has told yet, and does not overwrite one that did`() = test { f ->
+        started(f, snap())
+        assertThat(f.state.playback.volume).isNull()
+
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 12, muted = true), onlyIfUnknown = true)
+        assertThat(f.state.playback.volume).isEqualTo(12)
+        assertThat(f.state.playback.muted).isTrue()
+
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 30, muted = false), null))
+        runCurrent()
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 99, muted = true), onlyIfUnknown = true)
+        assertThat(f.state.playback.volume).isEqualTo(30)
+        assertThat(f.state.playback.muted).isFalse()
+    }
+
+    @Test
+    fun `a volume read of a speaker that cannot call back replaces what was known`() = test { f ->
+        started(f, snap())
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 30, muted = false), null))
+        runCurrent()
+
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 8, muted = false), onlyIfUnknown = false)
+
+        assertThat(f.state.playback.volume).isEqualTo(8)
+    }
+
+    @Test
     fun `volume events are applied and survive a full read`() = test { f ->
         started(f, snap())
 
