@@ -8,6 +8,13 @@ import com.theveloper.pixelplay.data.sonos.protocol.SonosService
 /** The volume of a speaker as it reports it: a level from 0 to 100 and whether it is muted. */
 internal data class SonosVolume(val level: Int, val muted: Boolean)
 
+/** What a speaker is told about its volume; the part of [SonosVolumeCommander] that [SonosVolumeControl] needs. */
+internal interface VolumeSink {
+    suspend fun setVolume(level: Int): SonosResult<Int>
+    suspend fun adjust(delta: Int): SonosResult<Int>
+    suspend fun setMuted(muted: Boolean): SonosResult<Unit>
+}
+
 /**
  * Everything the app tells a speaker about its volume. Separate from the commander of the queue on purpose: that one
  * works through one command at a time and a load of the queue takes seconds, and the volume must not wait behind it.
@@ -18,19 +25,19 @@ internal class SonosVolumeCommander(
     private val transport: SonosTransport,
     private val host: String,
     private val group: Boolean,
-) {
+) : VolumeSink {
 
     private val service get() = if (group) SonosService.GROUP_RENDERING_CONTROL else SonosService.RENDERING_CONTROL
 
     /** Sets the volume to [level], brought inside 0..100 (the speaker answers 402 to anything else). Gives the level sent. */
-    suspend fun setVolume(level: Int): SonosResult<Int> {
+    override suspend fun setVolume(level: Int): SonosResult<Int> {
         val clamped = level.coerceIn(MIN_LEVEL, MAX_LEVEL)
         val action = if (group) "SetGroupVolume" else "SetVolume"
         return send(action, "DesiredVolume" to clamped.toString()).map { clamped }
     }
 
     /** Changes the volume by [delta] points. The speaker keeps the result inside its range and says what it is now. */
-    suspend fun adjust(delta: Int): SonosResult<Int> {
+    override suspend fun adjust(delta: Int): SonosResult<Int> {
         if (group) {
             // A relative change of a group is made against a snapshot of the volumes of its rooms.
             send("SnapshotGroupVolume").let { if (it is SonosResult.Err) return it }
@@ -43,7 +50,7 @@ internal class SonosVolumeCommander(
         }
     }
 
-    suspend fun setMuted(muted: Boolean): SonosResult<Unit> {
+    override suspend fun setMuted(muted: Boolean): SonosResult<Unit> {
         val action = if (group) "SetGroupMute" else "SetMute"
         return send(action, "DesiredMute" to if (muted) "1" else "0").map { }
     }
