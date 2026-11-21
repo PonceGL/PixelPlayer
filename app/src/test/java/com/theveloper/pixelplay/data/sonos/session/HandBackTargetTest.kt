@@ -34,4 +34,21 @@ class HandBackTargetTest {
         assertThat(HandBackTarget.of(ids("abc"), songId = "b", shownIndex = 9)).isEqualTo(1)
         assertThat(HandBackTarget.of(ids("abc"), songId = "b", shownIndex = -1)).isEqualTo(1)
     }
+
+    @Test
+    fun `a queue edited on the speaker is the queue the phone gets`() {
+        assertThat(HandBackTarget.queueToRestore(speakerQueueSize = 3, restorePosition = true)).isEqualTo(QueueRestore.USE_SPEAKER_QUEUE)
+    }
+
+    @Test
+    fun `a queue the user emptied on the speaker empties the phone's queue too`() {
+        assertThat(HandBackTarget.queueToRestore(speakerQueueSize = 0, restorePosition = true)).isEqualTo(QueueRestore.CLEAR)
+    }
+
+    @Test
+    fun `without edits on the speaker, or without a place to go back to, the phone keeps its queue`() {
+        assertThat(HandBackTarget.queueToRestore(speakerQueueSize = null, restorePosition = true)).isEqualTo(QueueRestore.KEEP_PHONE_QUEUE)
+        assertThat(HandBackTarget.queueToRestore(speakerQueueSize = 3, restorePosition = false)).isEqualTo(QueueRestore.KEEP_PHONE_QUEUE)
+        assertThat(HandBackTarget.queueToRestore(speakerQueueSize = 0, restorePosition = false)).isEqualTo(QueueRestore.KEEP_PHONE_QUEUE)
+    }
 }
