@@ -1,0 +1,69 @@
+# CodeRabbit on pull requests. The same rules as .gemini/styleguide.md, so both reviewers check the same things.
+language: en-US
+tone_instructions: "Direct and concrete. Name the rule, say why it matters, give the fix. Say when unsure."
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    # Regular expressions, not anchored: main and every feature branch, so the parts of a big feature are
+    # reviewed when their pull request opens (stacked pull requests target feature/*).
+    base_branches:
+      - "^main$"
+      - "^feature/.*"
+    ignore_title_keywords:
+      - "WIP"
+      - "probe"
+
+  path_filters:
+    - "!docs/**"
+    - "!**/*.md"
+    - "!app/src/main/res/values-*/**"
+    - "!app/lint-baseline.xml"
+    - "!**/build/**"
+    - "!graphify-out/**"
+
+  path_instructions:
+    - path: "**/*.kt"
+      instructions: |
+        Review only the lines the pull request changes; old code in this repository breaks several of these rules,
+        do not report it unless the change touches it. Do not comment on formatting or import order (ktlint in CI).
+        Report as high severity: `!!` in production code; `lateinit` outside framework injection; `GlobalScope`;
+        `runBlocking` in production; `suspend` functions that are not main-safe or dispatchers hard-coded instead of
+        injected; a generic `catch (e: Exception)` in a coroutine that swallows `CancellationException`; a public
+        `MutableStateFlow` (expose `StateFlow`); mutable collections in public API; states or errors not modelled
+        with `sealed interface`; flows collected without the lifecycle (`collectAsStateWithLifecycle`,
+        `repeatOnLifecycle`); search or filter work that does not cancel the stale request; an `Activity` `Context`
+        in a static field or a singleton; listeners, observers, receivers or timers never unregistered;
+        blocking work on the main thread; secrets or tokens in `SharedPreferences`, unencrypted `DataStore` or
+        `BuildConfig`.
+        Report as medium severity: new or changed behaviour without a unit test (say which function or branch);
+        new public classes or functions without a short KDoc; a pull request that mixes unrelated work.
+    - path: "app/src/main/java/**/presentation/**/*.kt"
+      instructions: |
+        A ViewModel has no `Context`, no `R.string` and no UI framework types, and no business logic lives in an
+        `Activity` or `Fragment`. State that must survive process death goes in `SavedStateHandle`. Navigation
+        arguments are identifiers, not whole objects.
+        Compose: composables are stateless with hoisted state; the signature has `modifier: Modifier = Modifier` as
+        the first optional parameter and applies it to the root; no side effects in the body (use `LaunchedEffect`,
+        `DisposableEffect`, `SideEffect` with correct keys, and `rememberUpdatedState` for values that change
+        without restarting the effect); Lazy lists have a stable `key` (and `contentType` when items differ); never
+        pass a ViewModel to a child composable; business state lives in the ViewModel, `remember` is only UI state
+        and `rememberSaveable` when it must survive a configuration change; read frequently changing state
+        (animation, scroll) as late as possible; correct `contentDescription` (`null` only for decorative images).
+    - path: "**/AndroidManifest.xml"
+      instructions: |
+        New components are `android:exported="false"` unless there is a stated reason. Explicit intents for
+        sensitive data. `WebView` with JavaScript disabled unless the screen needs it.
+    - path: "app/src/test/**"
+      instructions: |
+        Tests check behaviour, not implementation, and use real code over mocks where practical. A bug fix has a
+        test that fails without the fix. Flag tests that assert on a mock instead of on a result.
+    - path: ".github/workflows/**"
+      instructions: |
+        Third-party actions pinned to a version (tag or SHA), minimal `permissions`, no secrets in logs, and no
+        step that needs a secret without a guard for pull requests that do not receive secrets.
