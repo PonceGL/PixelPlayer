@@ -78,7 +78,7 @@ class PlaybackStateHolder @Inject internal constructor(
     private var scope: CoroutineScope? = null
     private var onCastSeekBlocked: (() -> Unit)? = null
     private var onSonosShuffleBlocked: (() -> Unit)? = null
-    
+
     // MediaController
     var mediaController: MediaController? = null
         private set
@@ -93,6 +93,7 @@ class PlaybackStateHolder @Inject internal constructor(
     // True while the full player sheet (slider visible) is mounted. Set by the
     // sheet via DisposableEffect. Controls whether the position ticker runs at
     // slider-smooth resolution (250 ms) or mini-player resolution (1 s).
+    @Suppress("ktlint:standard:backing-property-naming") // written by setSliderUiMounted, no public twin
     private val _sliderUiMounted = MutableStateFlow(false)
     fun setSliderUiMounted(mounted: Boolean) {
         _sliderUiMounted.value = mounted
@@ -229,7 +230,7 @@ class PlaybackStateHolder @Inject internal constructor(
             dualPlayerEngine.masterPlayer
         }
     }
-    
+
     fun updateStablePlayerState(update: (StablePlayerState) -> StablePlayerState) {
         _stablePlayerState.update { current ->
             val updated = update(current)
@@ -394,7 +395,7 @@ class PlaybackStateHolder @Inject internal constructor(
 
         return activePositionOccurrenceToken
     }
-    
+
     /* -------------------------------------------------------------------------- */
     /*                               Playback Controls                            */
     /* -------------------------------------------------------------------------- */
@@ -529,7 +530,7 @@ class PlaybackStateHolder @Inject internal constructor(
                 else -> MediaStatus.REPEAT_MODE_REPEAT_OFF
             }
             castStateHolder.castPlayer?.setRepeatMode(newMode)
-            
+
             // Map remote mode back to local constant for persistence/UI
             val mappedLocalMode = when (newMode) {
                 MediaStatus.REPEAT_MODE_REPEAT_SINGLE -> Player.REPEAT_MODE_ONE
@@ -566,7 +567,7 @@ class PlaybackStateHolder @Inject internal constructor(
         } else {
              mediaController?.repeatMode = mode
         }
-        
+
         scope?.launch { userPreferencesRepository.setRepeatMode(mode) }
         _stablePlayerState.update { it.copy(repeatMode = mode) }
     }
@@ -574,7 +575,7 @@ class PlaybackStateHolder @Inject internal constructor(
     /* -------------------------------------------------------------------------- */
     /*                               Progress Updates                             */
     /* -------------------------------------------------------------------------- */
-    
+
     private var progressJob: kotlinx.coroutines.Job? = null
 
     /**
@@ -1152,5 +1153,4 @@ class PlaybackStateHolder @Inject internal constructor(
         onCastSeekBlocked = null
         onSonosShuffleBlocked = null
     }
-
 }

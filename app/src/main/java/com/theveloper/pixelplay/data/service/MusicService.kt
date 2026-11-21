@@ -164,7 +164,6 @@ suspend fun loadArtworkBytesViaCoil(context: Context, uri: Uri): ByteArray? {
     }
 }
 
-
 @UnstableApi
 @AndroidEntryPoint
 class MusicService : MediaLibraryService() {
@@ -899,7 +898,7 @@ class MusicService : MediaLibraryService() {
 
         super.onCreate()
         listeningStatsTracker.initialize(appScope)
-        
+
         // Ensure engine is ready (re-initialize if service was restarted)
         engine.initialize()
         replayGainProcessor.captureUserVolume(engine.masterPlayer.volume)
@@ -2046,7 +2045,8 @@ class MusicService : MediaLibraryService() {
         //   TRIM_MEMORY_RUNNING_LOW = 10
         // This single threshold covers all higher-severity levels too
         // (TRIM_MEMORY_BACKGROUND = 40, TRIM_MEMORY_COMPLETE = 80, etc.).
-        if (level >= 10 /* TRIM_MEMORY_RUNNING_LOW */) {
+        // 10 is TRIM_MEMORY_RUNNING_LOW.
+        if (level >= 10) {
             Timber.tag(TAG).d("onTrimMemory(level=%d): releasing widget bitmap caches", level)
             invalidateCachedWidgetArtwork()
             // Drop the stale PlayerInfo copy so its embedded ByteArray is GC-eligible.
@@ -2564,7 +2564,7 @@ class MusicService : MediaLibraryService() {
                 lightPlayPauseIcon = it.light.onPrimary.toArgb(),
                 lightPrevNextBackground = it.light.onPrimary.toArgb(),
                 lightPrevNextIcon = it.light.primary.toArgb(),
-                
+
                 darkSurfaceContainer = it.dark.surfaceContainer.toArgb(),
                 darkSurfaceContainerLowest = it.dark.surfaceContainerLowest.toArgb(),
                 darkSurfaceContainerLow = it.dark.surfaceContainerLow.toArgb(),
@@ -3092,7 +3092,7 @@ class MusicService : MediaLibraryService() {
         isManualShuffleEnabled = enabled
         sonosPlayer?.setShuffleByApp(enabled)
         session.player.shuffleModeEnabled = enabled
-        
+
         if (persistentShuffleEnabled) {
             serviceScope.launch {
                 userPreferencesRepository.setShuffleOn(enabled)
@@ -3382,7 +3382,7 @@ class MusicService : MediaLibraryService() {
         val player = engine.masterPlayer
         val currentItem = player.currentMediaItem ?: return
 
-        stopCountedPlay()  // reset previous
+        stopCountedPlay() // reset previous
 
         countedPlayTarget = count
         countedPlayCount = 1
