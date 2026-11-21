@@ -16,12 +16,12 @@ check() { # <name> <expected exit: 0 or nonzero> <actual exit>
   fi
 }
 
-git init -q "$repo"
-cp "$here/../.editorconfig" "$repo/.editorconfig"
+git init -q "$repo" || exit 1
+cp "$here/../.editorconfig" "$repo/.editorconfig" || exit 1
 cd "$repo" || exit 1
-git config user.email t@example.com
-git config user.name t
-mkdir -p src
+git config user.email t@example.com || exit 1
+git config user.name t || exit 1
+mkdir -p src || exit 1
 
 # The code that predates the rules: trailing spaces, on main.
 printf 'package a\n\nfun legacy() = 1   \n' > src/Legacy.kt
@@ -55,6 +55,13 @@ printf 'package a\n\nfun legacy() = 6\n\n\n\nfun more() = 7\n' > src/Legacy.kt
 git add -A && git commit -q -m "touch the dirty old file"
 "$here/format-check.sh" main > /dev/null 2>&1
 check "a touched old file that is still dirty (blank lines)" 1 $?
+
+# Names git would quote (a space, an accent) must be checked, not skipped.
+git checkout -q -b odd main || exit 1
+printf 'package a\n\nfun odd() = 8   \n' > "src/Canción rara.kt"
+git add -A && git commit -q -m "a file with a space and an accent in its name, dirty"
+"$here/format-check.sh" main > /dev/null 2>&1
+check "a dirty file whose name has a space and an accent" 1 $?
 
 "$here/format-check.sh" no-such-base > /dev/null 2>&1
 check "a base that does not exist" 1 $?

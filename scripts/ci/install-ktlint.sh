@@ -10,6 +10,11 @@ dir="${1:-$HOME/.local/bin}"
 
 mkdir -p "$dir"
 curl -sSfL -o "$dir/ktlint" "https://github.com/pinterest/ktlint/releases/download/$version/ktlint"
-echo "$sha256  $dir/ktlint" | shasum -a 256 -c -
+# macOS has shasum, a minimal Linux may have only sha256sum.
+if command -v sha256sum > /dev/null 2>&1; then
+  echo "$sha256  $dir/ktlint" | sha256sum -c -
+else
+  echo "$sha256  $dir/ktlint" | shasum -a 256 -c -
+fi
 chmod +x "$dir/ktlint"
 "$dir/ktlint" --version

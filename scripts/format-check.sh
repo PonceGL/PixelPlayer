@@ -21,10 +21,11 @@ if ! git rev-parse --verify --quiet "$base" > /dev/null; then
 fi
 
 # Added, copied, modified and renamed files; a deleted file has nothing to check. Three dots: from the common ancestor.
+# Null-terminated, so that a name with a space or an accent (which git would otherwise quote) is not skipped.
 files=()
-while IFS= read -r file; do
+while IFS= read -r -d '' file; do
   [ -f "$file" ] && files+=("$file")
-done < <(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- '*.kt' '*.kts')
+done < <(git diff -z --name-only --diff-filter=ACMR "$base"...HEAD -- '*.kt' '*.kts')
 
 if [ "${#files[@]}" -eq 0 ]; then
   echo "format-check: no Kotlin files changed against $base"
