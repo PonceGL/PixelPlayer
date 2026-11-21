@@ -160,7 +160,6 @@ import javax.annotation.concurrent.Immutable
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-
 @Immutable
 data class BottomNavItem(
     val label: String,
@@ -196,7 +195,9 @@ class MainActivity : ComponentActivity() {
     // The press of a volume key that the speaker took: its release must not reach the phone either.
     private var volumeKeyTaken = false
     // For handling shortcut navigation - using StateFlow so composables can observe changes
+    @Suppress("ktlint:standard:backing-property-naming") // legacy name, observed through the Flow
     private val _pendingPlaylistNavigation = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    @Suppress("ktlint:standard:backing-property-naming") // legacy name, observed through the Flow
     private val _pendingShuffleAll = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     private val requestAllFilesAccessLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
@@ -259,11 +260,11 @@ class MainActivity : ComponentActivity() {
                 else -> systemDarkTheme
             }
             val isSetupComplete by mainViewModel.isSetupComplete.collectAsStateWithLifecycle()
-            
+
             // Crash report dialog state
             var showCrashReportDialog by remember { mutableStateOf(false) }
             var crashLogData by remember { mutableStateOf<CrashLogData?>(null) }
-            
+
             // Permissions Logic
             val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
@@ -316,7 +317,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     Surface(
-                        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, 
+                        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha },
                         color = MaterialTheme.colorScheme.background
                     ) {
                         if (showSetupScreen == null) {
@@ -401,7 +402,7 @@ class MainActivity : ComponentActivity() {
                 playerViewModel.triggerShuffleAllFromTile()
                 intent.action = null // Clear action to prevent re-triggering
             }
-            
+
             // Handle playlist shortcut
             intent.action == MainActivityIntentContract.ACTION_OPEN_PLAYLIST -> {
                 intent.getStringExtra(MainActivityIntentContract.EXTRA_PLAYLIST_ID)?.let { playlistId ->
@@ -429,7 +430,7 @@ class MainActivity : ComponentActivity() {
                 }
                 clearExternalIntentPayload(intent)
             }
-            
+
             intent.action == "com.theveloper.pixelplay.ACTION_PLAY_SONG" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                      intent.getParcelableExtra("song", com.theveloper.pixelplay.data.model.Song::class.java)?.let { song ->
@@ -445,7 +446,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
     private fun resolveStreamUri(intent: Intent): android.net.Uri? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)?.let { return it }
@@ -555,14 +556,14 @@ class MainActivity : ComponentActivity() {
         val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsStateWithLifecycle()
         val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsStateWithLifecycle()
         val syncProgress by mainViewModel.syncProgress.collectAsStateWithLifecycle()
-        
+
         // isMediaControllerReady used below for playlist navigation gate
         val isMediaControllerReady by playerViewModel.isMediaControllerReady.collectAsStateWithLifecycle()
-        
+
         // Observe pending playlist navigation
         val pendingPlaylistNav by _pendingPlaylistNavigation.collectAsStateWithLifecycle()
         var processedPlaylistId by remember { mutableStateOf<String?>(null) }
-        
+
         LaunchedEffect(pendingPlaylistNav, isMediaControllerReady) {
             val playlistId = pendingPlaylistNav
             // Only process if we have a new playlist ID that hasn't been processed yet
@@ -830,7 +831,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
         ) {
-
                 Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 bottomBar = {
@@ -1114,7 +1114,7 @@ class MainActivity : ComponentActivity() {
             ),
             label = "SyncProgressAnimation"
         )
-        
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1133,7 +1133,7 @@ class MainActivity : ComponentActivity() {
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                
+
                 if (syncProgress.hasProgress) {
                     Spacer(modifier = Modifier.height(16.dp))
                     androidx.compose.material3.LinearWavyProgressIndicator(
@@ -1150,7 +1150,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
 
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onStart() {
@@ -1179,8 +1178,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
     }
-
-
 }
 
 /**
