@@ -14,7 +14,10 @@ import com.theveloper.pixelplay.data.media.MetadataEditError
 import com.theveloper.pixelplay.data.media.SongMetadataEditor
 import com.theveloper.pixelplay.data.model.Lyrics
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
+import com.theveloper.pixelplay.data.worker.SyncManager
+import com.theveloper.pixelplay.utils.splitByDelimiters
 import com.theveloper.pixelplay.utils.FileDeletionUtils
 import com.theveloper.pixelplay.utils.LyricsUtils
 import com.theveloper.pixelplay.utils.MediaItemBuilder
@@ -52,6 +55,7 @@ private data class PendingMetadataEdit(
     val song: Song,
     val title: String,
     val artist: String,
+    val artists: String?,
     val album: String,
     val albumArtist: String,
     val composer: String,
@@ -68,6 +72,7 @@ private data class PendingBatchMetadataEdit(
     val songs: List<Song>,
     val title: String?,
     val artist: String?,
+    val artists: String?,
     val album: String?,
     val albumArtist: String?,
     val composer: String?,
@@ -95,6 +100,8 @@ class MetadataEditStateHolder @Inject constructor(
     private val libraryStateHolder: LibraryStateHolder,
     private val multiSelectionStateHolder: MultiSelectionStateHolder,
     private val albumArtThemeDao: AlbumArtThemeDao,
+    private val syncManager: SyncManager,
+    private val userPreferencesRepository: UserPreferencesRepository,
     @ApplicationContext private val context: Context
 ) {
 
@@ -142,6 +149,10 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        // Delimiter-joined ARTISTS (plural) chip list from the multi-artist picker. Null means
+        // the edit never touched that picker (e.g. a batch edit of an unrelated field) - leaves
+        // the file's ARTISTS tag untouched instead of guessing one from newArtist.
+        newArtists: String? = null,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -194,9 +205,19 @@ class MetadataEditStateHolder @Inject constructor(
             )
         }
 
+        // null = never touched the multi-artist picker, leave the file's ARTISTS tag alone.
+        // Only the character delimiters apply here (not the word ones like "feat"/"with"):
+        // each chip is already a picker-confirmed, discrete artist name, not raw text to
+        // heuristically re-parse - splitting "Dance With the Dead" on "with" would be wrong.
+        val resolvedArtistsList = newArtists?.let {
+            val artistDelimiters = userPreferencesRepository.artistDelimitersFlow.first()
+            it.splitByDelimiters(artistDelimiters)
+        }
+
         val result = songMetadataEditor.editSongMetadata(
             newTitle = newTitle,
             newArtist = newArtist,
+            newArtists = resolvedArtistsList,
             newAlbum = newAlbum,
             newAlbumArtist = newAlbumArtist.trim().takeIf { it.isNotBlank() },
             newComposer = newComposer.trim().takeIf { it.isNotBlank() },
@@ -335,6 +356,7 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String?,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -360,6 +382,7 @@ class MetadataEditStateHolder @Inject constructor(
                         song = song,
                         title = newTitle,
                         artist = newArtist,
+                        artists = newArtists,
                         album = newAlbum,
                         albumArtist = newAlbumArtist,
                         composer = newComposer,
@@ -376,7 +399,7 @@ class MetadataEditStateHolder @Inject constructor(
                 }
             }
 
-            performMetadataEdit(song, newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
+            performMetadataEdit(song, newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics,
                 newTrackNumber, newDiscNumber, newReplayGainTrackGainDb, newReplayGainAlbumGainDb, coverArtUpdate, cb)
         }
     }
@@ -385,6 +408,7 @@ class MetadataEditStateHolder @Inject constructor(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -425,6 +449,7 @@ class MetadataEditStateHolder @Inject constructor(
                             songs = songs,
                             title = title,
                             artist = artist,
+                            artists = artists,
                             album = album,
                             albumArtist = albumArtist,
                             composer = composer,
@@ -443,7 +468,7 @@ class MetadataEditStateHolder @Inject constructor(
             }
 
             performBatchMetadataEdit(
-                songs, title, artist, album, albumArtist, composer, genre, lyrics,
+                songs, title, artist, artists, album, albumArtist, composer, genre, lyrics,
                 trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate, cb
             )
         }
@@ -515,6 +540,7 @@ class MetadataEditStateHolder @Inject constructor(
                     batchMetadata.songs,
                     batchMetadata.title,
                     batchMetadata.artist,
+                    batchMetadata.artists,
                     batchMetadata.album,
                     batchMetadata.albumArtist,
                     batchMetadata.composer,
@@ -564,7 +590,7 @@ class MetadataEditStateHolder @Inject constructor(
         }
         cb.scope.launch {
             performMetadataEdit(
-                pending.song, pending.title, pending.artist, pending.album,
+                pending.song, pending.title, pending.artist, pending.artists, pending.album,
                 pending.albumArtist, pending.composer, pending.genre, pending.lyrics,
                 pending.trackNumber, pending.discNumber,
                 pending.replayGainTrackGainDb, pending.replayGainAlbumGainDb, pending.coverArtUpdate,
@@ -598,6 +624,7 @@ class MetadataEditStateHolder @Inject constructor(
         song: Song,
         newTitle: String,
         newArtist: String,
+        newArtists: String?,
         newAlbum: String,
         newAlbumArtist: String,
         newComposer: String,
@@ -616,6 +643,7 @@ class MetadataEditStateHolder @Inject constructor(
             song = song,
             newTitle = newTitle,
             newArtist = newArtist,
+            newArtists = newArtists,
             newAlbum = newAlbum,
             newAlbumArtist = newAlbumArtist,
             newComposer = newComposer,
@@ -688,8 +716,13 @@ class MetadataEditStateHolder @Inject constructor(
                 }
             }
 
-            // No need for full library sync - file, MediaStore, and local DB are already updated
+            // Editing only patches songs.genre here (see updateSongArtistMetadata) - it does not
+            // re-resolve the persisted genres/song_genre_cross_ref tables the genre browsing UI
+            // reads from, unlike artist which is fully resolved inline. An incremental sync
+            // closes that gap; it's cheap because the edited file's MediaStore DATE_MODIFIED was
+            // just bumped, so the sync only reprocesses what actually changed.
             cb.sendToast(context.getString(R.string.metadata_edit_updated_successfully))
+            triggerPostEditSync(cb)
         } else {
             val errorMessage = result.getUserFriendlyErrorMessage()
             Log.e("PlayerViewModel", "METADATA_EDIT_VM: Failed - ${result.error}: $errorMessage")
@@ -697,10 +730,27 @@ class MetadataEditStateHolder @Inject constructor(
         }
     }
 
+    /**
+     * Triggers an incremental sync after a successful metadata edit and, once it finishes, shows
+     * the same "library sync finished" toast the manual rescan in Settings already uses. Awaits
+     * this specific sync's WorkRequest id, not the shared isSyncing flow - saving edits to two
+     * songs in quick succession replaces the first sync's work with a second one (same unique
+     * work name), and isSyncing can't tell them apart, so it could resolve on the wrong sync's
+     * true->false transition and fire the toast before this edit's sync actually finished.
+     */
+    private fun triggerPostEditSync(cb: MetadataEditCallbacks) {
+        val workId = syncManager.incrementalSync()
+        cb.scope.launch {
+            syncManager.awaitWorkFinished(workId)
+            cb.sendToast(context.getString(R.string.settings_toast_library_sync_finished))
+        }
+    }
+
     private suspend fun performBatchMetadataEdit(
         songs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -724,6 +774,7 @@ class MetadataEditStateHolder @Inject constructor(
                 song = song,
                 newTitle = title ?: song.title,
                 newArtist = artist ?: song.displayArtist,
+                newArtists = artists,
                 newAlbum = album ?: song.album,
                 newAlbumArtist = albumArtist ?: (song.albumArtist ?: ""),
                 newComposer = composer ?: "",
@@ -822,6 +873,9 @@ class MetadataEditStateHolder @Inject constructor(
             else -> context.getString(R.string.batch_edit_partial_success, successCount, songs.size)
         }
         cb.sendToast(message)
+        if (successCount > 0) {
+            triggerPostEditSync(cb)
+        }
     }
 
     private suspend fun performBatchEditGenre(songs: List<Song>, newGenre: String, cb: MetadataEditCallbacks) {
@@ -880,6 +934,9 @@ class MetadataEditStateHolder @Inject constructor(
             cb.sendToast(context.getString(R.string.metadata_edit_batch_genre_updated_all, successCount))
         } else {
             cb.sendToast(context.getString(R.string.metadata_edit_batch_genre_updated_partial, successCount, failCount))
+        }
+        if (successCount > 0) {
+            triggerPostEditSync(cb)
         }
     }
 

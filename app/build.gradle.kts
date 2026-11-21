@@ -151,6 +151,18 @@ android {
             matchingFallbacks += listOf("release")
             isDebuggable = false
         }
+
+        // Release-like build for day-to-day personal use during development: same
+        // minification/shrinking as release (so it's representative of real
+        // performance), but with its own applicationId/name so it installs
+        // side by side with the official release build and with debug.
+        create("personal") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            isDebuggable = false
+        }
     }
 
     compileOptions {
@@ -171,6 +183,11 @@ android {
 
     lint {
         checkReleaseBuilds = false
+        // The issues that were already there; lint fails only for new ones. Fix them gradually and regenerate the file.
+        baseline = file("lint-baseline.xml")
+        // Out-of-date dependencies are Dependabot's job (weekly), and these checks point at files by absolute path,
+        // which a baseline cannot hold from one machine to another.
+        disable += setOf("GradleDependency", "SimilarGradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
     }
 
     splits {
@@ -370,7 +387,9 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.truth)
-    androidTestImplementation(libs.mockk)
+    // Android-specific artifact: plain io.mockk:mockk can't mock classes on ART
+    // (needs a JVM instrumentation agent that isn't available on-device).
+    androidTestImplementation(libs.mockk.android)
     androidTestImplementation(libs.worktesting)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)

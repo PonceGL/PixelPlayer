@@ -14,32 +14,40 @@ import kotlinx.coroutines.flow.combine
 
 private val SONG_SEARCH_QUERY_TOKEN_REGEX = Regex("""[\p{L}\p{N}]+""")
 private const val EMPTY_SONG_SEARCH_MATCH_QUERY = "pixelplayemptyquery*"
+private const val MAX_SONG_SEARCH_QUERY_TOKENS = 6
 
-private fun buildSongTitleSearchMatchQuery(query: String): String {
-    val tokens = SONG_SEARCH_QUERY_TOKEN_REGEX
+private fun tokenizeSongSearchQuery(query: String): List<String> =
+    SONG_SEARCH_QUERY_TOKEN_REGEX
         .findAll(query)
         .map { it.value.trim() }
         .filter { it.isNotEmpty() }
-        .take(6)
+        .take(MAX_SONG_SEARCH_QUERY_TOKENS)
         .toList()
 
+/**
+ * Builds an FTS4 MATCH expression requiring every token to match as a prefix
+ * within [column] (or anywhere, if [column] is null).
+ *
+ * Tokens are joined with a plain space, i.e. FTS's *implicit* AND, rather than
+ * the literal "AND" keyword: that keyword requires SQLite to be compiled with
+ * SQLITE_ENABLE_FTS3_PARENTHESIS, which not every Android build has. Without
+ * it, "AND" is parsed as an ordinary search term instead of a boolean
+ * operator, so a query like "que* AND ganas*" would only match rows that
+ * literally contain the word "and" - silently breaking every multi-word
+ * search on devices without that extension.
+ */
+private fun buildFtsMatchQuery(tokens: List<String>, column: String? = null): String {
     if (tokens.isEmpty()) return EMPTY_SONG_SEARCH_MATCH_QUERY
-
-    return tokens.joinToString(separator = " AND ") { "title:${it}*" }
+    return tokens.joinToString(separator = " ") { token ->
+        if (column != null) "$column:$token*" else "$token*"
+    }
 }
 
-private fun buildSongSearchMatchQuery(query: String): String {
-    val tokens = SONG_SEARCH_QUERY_TOKEN_REGEX
-        .findAll(query)
-        .map { it.value.trim() }
-        .filter { it.isNotEmpty() }
-        .take(6)
-        .toList()
+internal fun buildSongTitleSearchMatchQuery(query: String): String =
+    buildFtsMatchQuery(tokenizeSongSearchQuery(query), column = "title")
 
-    if (tokens.isEmpty()) return EMPTY_SONG_SEARCH_MATCH_QUERY
-
-    return tokens.joinToString(separator = " AND ") { "${it}*" }
-}
+internal fun buildSongSearchMatchQuery(query: String): String =
+    buildFtsMatchQuery(tokenizeSongSearchQuery(query))
 
 private const val SONG_DETAIL_PROJECTION = """
     songs.id AS id,
@@ -61,6 +69,7 @@ private const val SONG_DETAIL_PROJECTION = """
     songs.disc_number AS disc_number,
     songs.year AS year,
     songs.date_added AS date_added,
+    songs.metadata_date_added AS metadata_date_added,
     songs.mime_type AS mime_type,
     songs.bitrate AS bitrate,
     songs.sample_rate AS sample_rate,
@@ -76,7 +85,7 @@ private const val SONG_LIST_PROJECTION = """
     id, title, artist_name, artist_id, album_artist, album_name, album_id,
     content_uri_string, album_art_uri_string, duration, genre, file_path,
     parent_directory_path, is_favorite, NULL AS lyrics, track_number, disc_number,
-    year, date_added, mime_type, bitrate, sample_rate, telegram_chat_id,
+    year, date_added, metadata_date_added, mime_type, bitrate, sample_rate, telegram_chat_id,
     telegram_file_id, artists_json, source_type
 """
 
@@ -141,6 +150,15 @@ interface MusicDao {
 
     @Query("SELECT * FROM artists WHERE id IN (:artistIds)")
     suspend fun getArtistsByIds(artistIds: List<Long>): List<ArtistEntity>
+
+    // Genre ids are deterministic (see genreIdFromMatchKey) so, unlike artists, an id
+    // collision always means the row is already correct - a plain ignore-on-conflict
+    // insert needs no update-merge pass.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertGenres(genres: List<GenreEntity>)
+
+    @Query("SELECT * FROM genres")
+    suspend fun getAllGenresListRaw(): List<GenreEntity>
 
     @Transaction
     suspend fun insertSongs(songs: List<SongEntity>) {
@@ -219,6 +237,12 @@ interface MusicDao {
     @Query("DELETE FROM artists")
     suspend fun clearAllArtists()
 
+    @Query("DELETE FROM genres")
+    suspend fun clearAllGenres()
+
+    @Query("DELETE FROM song_genre_cross_ref")
+    suspend fun clearAllSongGenreCrossRefs()
+
     // --- Incremental Sync Operations ---
     @Query("SELECT id FROM songs")
     suspend fun getAllSongIds(): List<Long>
@@ -231,6 +255,9 @@ interface MusicDao {
 
     @Query("DELETE FROM song_artist_cross_ref WHERE song_id IN (:songIds)")
     suspend fun deleteCrossRefsBySongIds(songIds: List<Long>)
+
+    @Query("DELETE FROM song_genre_cross_ref WHERE song_id IN (:songIds)")
+    suspend fun deleteGenreCrossRefsBySongIds(songIds: List<Long>)
 
     @Query("DELETE FROM favorites WHERE songId IN (:songIds)")
     suspend fun deleteFavoritesBySongIds(songIds: List<Long>)
@@ -352,7 +379,9 @@ interface MusicDao {
         albums: List<AlbumEntity>,
         artists: List<ArtistEntity>,
         crossRefs: List<SongArtistCrossRef>,
-        deletedSongIds: List<Long>
+        deletedSongIds: List<Long>,
+        genres: List<GenreEntity> = emptyList(),
+        genreCrossRefs: List<SongGenreCrossRef> = emptyList()
     ) {
         // Protect cloud songs from deletion during generic media scan
         // Only allow explicit deletions if the list is non-empty.
@@ -379,14 +408,20 @@ interface MusicDao {
         val updatedSongIds = songs.map { it.id }
         updatedSongIds.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             deleteCrossRefsBySongIds(chunk)
+            deleteGenreCrossRefsBySongIds(chunk)
         }
         crossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             insertSongArtistCrossRefs(chunk)
         }
+        insertGenres(genres)
+        genreCrossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
+            insertSongGenreCrossRefs(chunk)
+        }
 
-        // Clean up orphaned albums and artists
+        // Clean up orphaned albums, artists, and genres
         deleteOrphanedAlbums()
         deleteOrphanedArtists()
+        deleteOrphanedGenres()
     }
 
     // --- Directory Helper ---
@@ -687,8 +722,8 @@ interface MusicDao {
             CASE WHEN :sortOrder = 'song_artist_desc' THEN artist_name END COLLATE NOCASE DESC,
             CASE WHEN :sortOrder = 'song_album' THEN album_name END COLLATE NOCASE ASC,
             CASE WHEN :sortOrder = 'song_album_desc' THEN album_name END COLLATE NOCASE DESC,
-            CASE WHEN :sortOrder = 'song_date_added' THEN date_added END DESC,
-            CASE WHEN :sortOrder = 'song_date_added_asc' THEN date_added END ASC,
+            CASE WHEN :sortOrder = 'song_date_added' THEN COALESCE(metadata_date_added, date_added) END DESC,
+            CASE WHEN :sortOrder = 'song_date_added_asc' THEN COALESCE(metadata_date_added, date_added) END ASC,
             CASE WHEN :sortOrder = 'song_duration' THEN duration END DESC,
             CASE WHEN :sortOrder = 'song_duration_asc' THEN duration END ASC,
             title COLLATE NOCASE ASC,
@@ -762,8 +797,8 @@ interface MusicDao {
             CASE WHEN :sortOrder = 'song_artist_desc' THEN artist_name END COLLATE NOCASE DESC,
             CASE WHEN :sortOrder = 'song_album' THEN album_name END COLLATE NOCASE ASC,
             CASE WHEN :sortOrder = 'song_album_desc' THEN album_name END COLLATE NOCASE DESC,
-            CASE WHEN :sortOrder = 'song_date_added' THEN date_added END DESC,
-            CASE WHEN :sortOrder = 'song_date_added_asc' THEN date_added END ASC,
+            CASE WHEN :sortOrder = 'song_date_added' THEN COALESCE(metadata_date_added, date_added) END DESC,
+            CASE WHEN :sortOrder = 'song_date_added_asc' THEN COALESCE(metadata_date_added, date_added) END ASC,
             CASE WHEN :sortOrder = 'song_duration' THEN duration END DESC,
             CASE WHEN :sortOrder = 'song_duration_asc' THEN duration END ASC,
 
@@ -801,8 +836,8 @@ interface MusicDao {
             CASE WHEN :sortOrder = 'song_artist_desc' THEN artist_name END COLLATE NOCASE DESC,
             CASE WHEN :sortOrder = 'song_album' THEN album_name END COLLATE NOCASE ASC,
             CASE WHEN :sortOrder = 'song_album_desc' THEN album_name END COLLATE NOCASE DESC,
-            CASE WHEN :sortOrder = 'song_date_added' THEN date_added END DESC,
-            CASE WHEN :sortOrder = 'song_date_added_asc' THEN date_added END ASC,
+            CASE WHEN :sortOrder = 'song_date_added' THEN COALESCE(metadata_date_added, date_added) END DESC,
+            CASE WHEN :sortOrder = 'song_date_added_asc' THEN COALESCE(metadata_date_added, date_added) END ASC,
             CASE WHEN :sortOrder = 'song_duration' THEN duration END DESC,
             CASE WHEN :sortOrder = 'song_duration_asc' THEN duration END ASC,
             title COLLATE NOCASE ASC,
@@ -1557,6 +1592,12 @@ interface MusicDao {
     // SQLite LIKE is case-insensitive for ASCII letters by default, which is sufficient
     // for genre names. All six arms use LIKE so that "rock" matches "Rock", "Rock,Pop",
     // "Rock, Pop", "Pop,Rock", "Pop, Rock", and "Pop,Rock,Jazz".
+    //
+    // Legacy fallback only: excludes songs that already have a persisted genre (via
+    // song_genre_cross_ref) - those are matched by getSongsByPersistedGenreId instead,
+    // which is case/accent-insensitive and respects configured delimiters. This query
+    // stays as the source of genre browsing for songs no sync path has migrated yet
+    // (non-local sources; see SyncWorker's local-scan-only scope for genre persistence).
     @Query("""
         SELECT * FROM songs
         WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
@@ -1568,6 +1609,7 @@ interface MusicDao {
             OR genre LIKE :genreMiddleWithSpace
             OR genre LIKE :genreMiddle
         )
+        AND NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.song_id = songs.id)
         ORDER BY title ASC
     """)
     fun getSongsByGenreContaining(
@@ -1596,16 +1638,68 @@ interface MusicDao {
     @Query("SELECT DISTINCT genre FROM songs WHERE genre IS NOT NULL AND genre != '' ORDER BY genre ASC")
     fun getUniqueGenres(): Flow<List<String>>
 
+    // Legacy fallback only - see getSongsByGenreContaining's note above.
     @Query("""
         SELECT DISTINCT genre FROM songs
         WHERE genre IS NOT NULL AND genre != ''
         AND (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
+        AND NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.song_id = songs.id)
         ORDER BY genre ASC
     """)
     fun getUniqueGenres(
         allowedParentDirs: List<String>,
         applyDirectoryFilter: Boolean
     ): Flow<List<String>>
+
+    // --- Persisted genre queries (GenreEntity / song_genre_cross_ref) ---
+
+    @Query("""
+        SELECT genres.* FROM genres
+        WHERE EXISTS (
+            SELECT 1 FROM song_genre_cross_ref
+            INNER JOIN songs ON songs.id = song_genre_cross_ref.song_id
+            WHERE song_genre_cross_ref.genre_id = genres.id
+            AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+        )
+        ORDER BY genres.name ASC
+    """)
+    fun getGenresFiltered(
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<List<GenreEntity>>
+
+    // :genreId is expected to be the slugified form of a genre's match_key (spaces/slashes
+    // -> "_", see MusicRepositoryImpl's Genre.id scheme) - callers should pass genre.id, not
+    // genre.name. match_key is already accent/case-folded (see genreMatchKey's
+    // withoutDiacritics()); a caller passing the raw display name instead (e.g. "Cumbia
+    // Norteña Mexicana") would still have its accents, and SQLite's LOWER() does not fold
+    // those - "norteña" != "nortena" - so genre.id is the only representation guaranteed to
+    // match here. The REPLACE pair on both sides is defense in depth for a caller that still
+    // passes a space-separated (but otherwise already-folded) string.
+    @Query("""
+        SELECT songs.* FROM songs
+        INNER JOIN song_genre_cross_ref ON song_genre_cross_ref.song_id = songs.id
+        INNER JOIN genres ON genres.id = song_genre_cross_ref.genre_id
+        WHERE LOWER(REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_')) = LOWER(REPLACE(REPLACE(:genreId, ' ', '_'), '/', '_'))
+        AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+        ORDER BY songs.title ASC
+    """)
+    fun getSongsByPersistedGenreId(
+        genreId: String,
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<List<SongEntity>>
+
+    // Resolves a genre id back to its persisted raw display name (with original accents/casing).
+    // Needed by MusicRepositoryImpl.getMusicByGenre's legacy LIKE-based fallback, which matches
+    // literal, un-normalized text in songs no sync path has migrated to the persisted table yet
+    // - that fallback can't use the id (it wouldn't appear in un-migrated raw genre text).
+    @Query("""
+        SELECT genres.name FROM genres
+        WHERE LOWER(REPLACE(REPLACE(genres.match_key, ' ', '_'), '/', '_')) = LOWER(REPLACE(REPLACE(:genreId, ' ', '_'), '/', '_'))
+        LIMIT 1
+    """)
+    suspend fun getGenreNameById(genreId: String): String?
 
     @Query("""
         SELECT EXISTS(
@@ -1629,6 +1723,9 @@ interface MusicDao {
 
     @Query("DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM song_artist_cross_ref WHERE song_artist_cross_ref.artist_id = artists.id)")
     suspend fun deleteOrphanedArtists()
+
+    @Query("DELETE FROM genres WHERE NOT EXISTS (SELECT 1 FROM song_genre_cross_ref WHERE song_genre_cross_ref.genre_id = genres.id)")
+    suspend fun deleteOrphanedGenres()
 
     // --- Favorite Operations ---
     @Query("UPDATE songs SET is_favorite = :isFavorite WHERE id = :songId")
@@ -1751,6 +1848,9 @@ interface MusicDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSongArtistCrossRefs(crossRefs: List<SongArtistCrossRef>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSongGenreCrossRefs(crossRefs: List<SongGenreCrossRef>)
 
     @Query("SELECT * FROM song_artist_cross_ref")
     fun getAllSongArtistCrossRefs(): Flow<List<SongArtistCrossRef>>
@@ -1914,22 +2014,30 @@ interface MusicDao {
         songs: List<SongEntity>,
         albums: List<AlbumEntity>,
         artists: List<ArtistEntity>,
-        crossRefs: List<SongArtistCrossRef>
+        crossRefs: List<SongArtistCrossRef>,
+        genres: List<GenreEntity> = emptyList(),
+        genreCrossRefs: List<SongGenreCrossRef> = emptyList()
     ) {
         // Save current cloud songs before clearing to prevent accidental data loss
         // Only clear if we have new songs to insert, or we are explicitly asked to REBUILD everything.
         // We handle this logic at the worker/repository level to be more precise.
 
         clearAllSongArtistCrossRefs()
+        clearAllSongGenreCrossRefs()
         clearAllSongs()
         clearAllAlbums()
         clearAllArtists()
+        clearAllGenres()
 
         insertArtists(artists)
         insertAlbums(albums)
         insertSongs(songs)
         crossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
             insertSongArtistCrossRefs(chunk)
+        }
+        insertGenres(genres)
+        genreCrossRefs.chunked(CROSS_REF_BATCH_SIZE).forEach { chunk ->
+            insertSongGenreCrossRefs(chunk)
         }
     }
 

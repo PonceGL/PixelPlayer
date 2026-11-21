@@ -152,7 +152,7 @@ class GenreDetailViewModel @Inject constructor(
                             darkColorHex = "#616161", onDarkColorHex = "#FFFFFF"
                         )
 
-                    val songs = musicRepository.getMusicByGenre(genre.name).first()
+                    val songs = musicRepository.getMusicByGenre(genre.id).first()
                     val artists = musicRepository.getArtists().first()
                     artistMap = artists.associate { it.name.trim().lowercase() to it.imageUrl }
 

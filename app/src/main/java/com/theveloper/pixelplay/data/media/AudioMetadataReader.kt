@@ -27,7 +27,22 @@ data class AudioMetadata(
     val sampleRate: Int?,
     val artwork: AudioMetadataArtwork?,
     val replayGainTrackGainDb: Float? = null,
-    val replayGainAlbumGainDb: Float? = null
+    val replayGainAlbumGainDb: Float? = null,
+    val metadataDateAddedMillis: Long? = null,
+    /**
+     * Artist names already split by the file's own ARTISTS (plural) tag
+     * (MusicBrainz Picard convention), if present. Empty when the file has
+     * no such tag - callers fall back to splitting [artist] heuristically.
+     */
+    val artistsFromTag: List<String> = emptyList(),
+    /**
+     * Genre names already unambiguous as separate physical GENRE tag values
+     * (no plural "GENRES" convention exists, unlike ARTISTS - multiple
+     * physical GENRE entries are themselves the multi-value signal). Empty
+     * when the file has a single GENRE value - callers fall back to
+     * splitting [genre] heuristically.
+     */
+    val genresFromTag: List<String> = emptyList()
 )
 
 data class AudioMetadataArtwork(
@@ -38,6 +53,18 @@ data class AudioMetadataArtwork(
 object AudioMetadataReader {
 
     private const val TAG = "AudioMetadataReader"
+
+    /** See [MetadataDateAddedParser] for why the key differs by container. */
+    private const val DATE_ADDED_VORBIS_KEY = "DATE_ADDED"
+    private const val DATE_ADDED_DESCRIPTION_KEY = "Date Added"
+
+    /**
+     * Picard keeps the same tag name "ARTISTS" across containers, unlike
+     * DATE_ADDED above - inferred from AlbumArtist/ALBUMARTIST matching
+     * exactly in real Picard-tagged files; no direct sample confirms it for
+     * an ID3v2 TXXX:ARTISTS frame specifically (none of our test files have one).
+     */
+    private const val ARTISTS_TAG_KEY = "ARTISTS"
 
     /**
      * Per-file diagnostic logging (TagLib property maps, parsed fields, fallback hits)
@@ -83,12 +110,20 @@ object AudioMetadataReader {
                 if (VERBOSE) Log.w(TAG, "TagLib propertyMap keys for ${file.name}: ${propertyMap.keys}")
 
                 val title = propertyMap["TITLE"]?.firstOrNull()?.takeIf { it.isNotBlank() }
-                val artist = propertyMap["ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+                // Some files carry more than one physical ARTIST field (e.g. two
+                // "ARTIST=" Vorbis comments); taking only the first silently drops
+                // the rest, so join every non-blank value instead.
+                val artist = joinMultiValue(propertyMap["ARTIST"])
+                val artistsFromTag = resolveArtistsFromTagPropertyMap(propertyMap)
                 val albumArtist = propertyMap["ALBUMARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["ALBUM ARTIST"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["BAND"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                 val album = propertyMap["ALBUM"]?.firstOrNull()?.takeIf { it.isNotBlank() }
-                val genre = propertyMap["GENRE"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+                // Some files carry more than one physical GENRE field (e.g. two
+                // "GENRE=" Vorbis comments); taking only the first silently drops
+                // the rest, same fix as ARTIST above.
+                val genre = joinMultiValue(propertyMap["GENRE"])
+                val genresFromTag = resolveGenresFromTagPropertyMap(propertyMap)
                 val composer = propertyMap["COMPOSER"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                     ?: propertyMap["TCOM"]?.firstOrNull()?.takeIf { it.isNotBlank() }
                 val lyrics = propertyMap["LYRICS"]?.firstOrNull()?.takeIf { it.isNotBlank() }
@@ -109,6 +144,7 @@ object AudioMetadataReader {
                     propertyMap = propertyMap,
                     keys = listOf("REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_ALBUM_GAIN_DB", "R128_ALBUM_GAIN")
                 )
+                val metadataDateAddedMillis = MetadataDateAddedParser.parse(propertyMap)
 
                 if (VERBOSE) Log.w(TAG, "TagLib result for ${file.name}: title=$title, artist=$artist, album=$album, genre=$genre")
 
@@ -152,7 +188,10 @@ object AudioMetadataReader {
                     sampleRate = sampleRate ?: fallback?.sampleRate,
                     artwork = artwork ?: fallback?.artwork,
                     replayGainTrackGainDb = replayGainTrackGainDb ?: fallback?.replayGainTrackGainDb,
-                    replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb
+                    replayGainAlbumGainDb = replayGainAlbumGainDb ?: fallback?.replayGainAlbumGainDb,
+                    metadataDateAddedMillis = metadataDateAddedMillis ?: fallback?.metadataDateAddedMillis,
+                    artistsFromTag = artistsFromTag.ifEmpty { fallback?.artistsFromTag ?: emptyList() },
+                    genresFromTag = genresFromTag.ifEmpty { fallback?.genresFromTag ?: emptyList() }
                 )
             }
         } catch (error: Exception) {
@@ -195,6 +234,16 @@ object AudioMetadataReader {
                 ?.substringBefore('/')?.toIntOrNull()
             val year = tag?.getFirst(FieldKey.YEAR)?.takeIf { it.isNotBlank() }
                 ?.take(4)?.toIntOrNull()
+            val metadataDateAddedMillis = tag?.let {
+                CustomTextTagReader.read(it, DATE_ADDED_VORBIS_KEY, DATE_ADDED_DESCRIPTION_KEY)
+            }?.let(MetadataDateAddedParser::parse)
+            val artistsFromTag = tag?.let {
+                CustomTextTagReader.readAll(it, ARTISTS_TAG_KEY, ARTISTS_TAG_KEY)
+            } ?: emptyList()
+            val genresFromTag = tag?.getAll(FieldKey.GENRE)
+                ?.filter { it.isNotBlank() }
+                ?.takeIf { it.size > 1 }
+                ?: emptyList()
 
             val durationMs = header?.trackLength?.takeIf { it > 0 }?.let { it * 1000L }
             val bitrate = header?.bitRateAsNumber?.takeIf { it > 0 }?.toInt()?.let { it * 1000 }
@@ -231,12 +280,54 @@ object AudioMetadataReader {
                 year = year,
                 bitrate = bitrate,
                 sampleRate = sampleRate,
-                artwork = artwork
+                artwork = artwork,
+                metadataDateAddedMillis = metadataDateAddedMillis,
+                artistsFromTag = artistsFromTag,
+                genresFromTag = genresFromTag
             )
         } catch (e: Exception) {
             Log.e(TAG, "JAudioTagger fallback FAILED for: ${file.name}", e)
             null
         }
+    }
+
+    /** Joins every non-blank value of a possibly multi-valued property field. */
+    internal fun joinMultiValue(values: Array<String>?): String? =
+        values?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }?.joinToString("; ")
+
+    /**
+     * ARTISTS is a true multi-value Vorbis field (confirmed on real FLAC files -
+     * TagLib already hands back separate array elements, no delimiter to
+     * split). Not confirmed for MP3/M4A via this native path specifically, so
+     * [CustomTextTagReader.splitMultiValue] runs over every element regardless:
+     * a no-op for an already-clean name, a real split for a single "; "/NUL
+     * joined element if that is what this path returns for those containers.
+     *
+     * No ARTISTS tag, but ARTIST itself was multiple physical values: that is
+     * just as unambiguous a signal (separate tag entries, no delimiter
+     * character to misinterpret), so treat it the same way instead of joining
+     * it into one string that only round-trips correctly if ";" is still one
+     * of the user's configured delimiters.
+     */
+    internal fun resolveArtistsFromTagPropertyMap(propertyMap: Map<String, Array<String>>): List<String> {
+        val artistsFromTagValues = propertyMap[ARTISTS_TAG_KEY]
+            ?.flatMap(CustomTextTagReader::splitMultiValue)
+            ?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+        val artistValues = propertyMap["ARTIST"]?.filter { it.isNotBlank() } ?: emptyList()
+        return artistsFromTagValues ?: artistValues.takeIf { it.size > 1 } ?: emptyList()
+    }
+
+    /**
+     * Unlike ARTISTS, there is no plural "GENRES" tag convention to check first -
+     * multiple physical GENRE values are themselves the multi-value signal, just
+     * as unambiguous as multi-value ARTIST without an ARTISTS tag (see above). A
+     * single GENRE value stays ambiguous (may still be a delimited "Rock, Pop"
+     * string) and is left to the caller's delimiter-based split.
+     */
+    internal fun resolveGenresFromTagPropertyMap(propertyMap: Map<String, Array<String>>): List<String> {
+        val genreValues = propertyMap["GENRE"]?.filter { it.isNotBlank() } ?: emptyList()
+        return genreValues.takeIf { it.size > 1 } ?: emptyList()
     }
 
     private fun extractReplayGainDb(

@@ -23,7 +23,7 @@ import com.theveloper.pixelplay.utils.buildLocalAudioSelection
 import com.theveloper.pixelplay.utils.normalizeMetadataText
 import com.theveloper.pixelplay.utils.normalizeMetadataTextOrEmpty
 import com.theveloper.pixelplay.utils.extractArtistsFromTitle
-import com.theveloper.pixelplay.utils.splitArtistsByDelimiters
+import com.theveloper.pixelplay.utils.splitByDelimiters
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -212,7 +212,7 @@ class MediaStoreSongRepository @Inject constructor(
                     val rawTitle = cursor.getString(titleCol).normalizeMetadataTextOrEmpty()
 
                     // Split artist field by both character and word delimiters
-                    val splitArtists = rawArtist.splitArtistsByDelimiters(artistDelimiters, wordDelimiters)
+                    val splitArtists = rawArtist.splitByDelimiters(artistDelimiters, wordDelimiters)
                     val allArtistNames = splitArtists.toMutableList()
 
                     // Extract featured artists from title (e.g., "Song (feat. Artist)")

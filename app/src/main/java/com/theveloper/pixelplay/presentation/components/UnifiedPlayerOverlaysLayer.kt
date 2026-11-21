@@ -185,7 +185,8 @@ internal fun UnifiedPlayerSongInfoLayer(
     onDismissSongInfo: () -> Unit,
     onNavigateToAlbum: (Song) -> Unit,
     onNavigateToArtist: (Song) -> Unit,
-    onNavigateToGenre: (Song) -> Unit
+    onNavigateToGenre: (Song) -> Unit,
+    onNavigateToGenreByName: (String) -> Unit
 ) {
     selectedSongForInfo?.let { staticSong ->
         val context = LocalContext.current
@@ -238,11 +239,13 @@ internal fun UnifiedPlayerSongInfoLayer(
                 onNavigateToAlbum = { onNavigateToAlbum(liveSong) },
                 onNavigateToArtist = { onNavigateToArtist(liveSong) },
                 onNavigateToGenre = { onNavigateToGenre(liveSong) },
-                onEditSong = { title, artist, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                onNavigateToGenreByName = onNavigateToGenreByName,
+                onEditSong = { title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                     playerViewModel.editSongMetadata(
                         liveSong,
                         title,
                         artist,
+                        artists,
                         album,
                         albumArtist,
                         composer,
@@ -303,6 +306,7 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
     onNavigateToAlbum: (Song) -> Unit,
     onNavigateToArtist: (Song) -> Unit,
     onNavigateToGenre: (Song) -> Unit,
+    onNavigateToGenreByName: (String) -> Unit,
     queuePredictiveBackProgress: Animatable<Float, AnimationVector1D>,
     queuePredictiveBackSwipeEdge: State<Int?>
 ) {
@@ -449,7 +453,8 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
                 onDismissSongInfo = { onSelectedSongForInfoChange(null) },
                 onNavigateToAlbum = onNavigateToAlbum,
                 onNavigateToArtist = onNavigateToArtist,
-                onNavigateToGenre = onNavigateToGenre
+                onNavigateToGenre = onNavigateToGenre,
+                onNavigateToGenreByName = onNavigateToGenreByName
             )
         }
     }

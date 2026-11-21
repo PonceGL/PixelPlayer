@@ -6,9 +6,24 @@ import java.nio.charset.Charset
 import java.text.Normalizer
 
 private val WINDOWS_1252: Charset = Charset.forName("windows-1252")
+private val COMBINING_DIACRITICAL_MARKS = Regex("\\p{Mn}+")
 
 fun Color.toHexString(): String {
     return String.format("#%08X", this.toArgb())
+}
+
+/**
+ * Strips diacritics (accents, tildes, etc.) so accent-insensitive matching can be done
+ * with a plain [String.contains]. Decomposes to NFD (splitting each accented character
+ * into its base letter + combining mark, e.g. "é" -> "e" + U+0301) then drops every
+ * combining mark (Unicode category Mn). Case is untouched — combine with `ignoreCase`
+ * at the call site if needed.
+ *
+ * Example: "Qué ganas".foldDiacritics() == "Que ganas"
+ */
+fun String.foldDiacritics(): String {
+    val decomposed = Normalizer.normalize(this, Normalizer.Form.NFD)
+    return COMBINING_DIACRITICAL_MARKS.replace(decomposed, "")
 }
 
 /**
@@ -63,25 +78,27 @@ private const val ESCAPE_PLACEHOLDER = "\u0000ESCAPED\u0000"
 val DEFAULT_WORD_DELIMITERS = listOf("featuring", "feat.", "feat", "ft.", "ft", "vs.", "vs", "versus", "with", "prod.", "prod")
 
 /**
- * Splits an artist string by the given character delimiters and word delimiters,
- * respecting escaped delimiters.
+ * Splits a multi-value tag string (artist, genre, ...) by the given character delimiters
+ * and word delimiters, respecting escaped delimiters. Domain-agnostic: callers that need a
+ * domain-specific default (e.g. artist's "feat."/"ft.") pass it explicitly — this function
+ * carries none, so reusing it for a new tag never inherits an unrelated domain's defaults.
  *
  * @param delimiters List of character delimiter strings to split by (e.g., ["/", ";", ","])
  * @param wordDelimiters List of word-based delimiters to split by (e.g., ["feat.", "ft.", "vs."])
  *        These are matched case-insensitively with surrounding whitespace.
  *        The single-letter "x" is handled specially — only matched when surrounded by spaces.
- * @return List of individual artist names, trimmed and with escaped delimiters restored.
+ * @return List of individual values, trimmed and with escaped delimiters restored.
  *         Returns a single-element list with the original string if no splitting occurs.
  *
  * Examples:
- * - "Artist1/Artist2".splitArtistsByDelimiters(listOf("/")) -> ["Artist1", "Artist2"]
- * - "AC\\DC".splitArtistsByDelimiters(listOf("/")) -> ["AC/DC"] (escaped)
- * - "Drake feat. Rihanna".splitArtistsByDelimiters(listOf(), listOf("feat.")) -> ["Drake", "Rihanna"]
- * - "Marshmello x Bastille".splitArtistsByDelimiters(listOf(), listOf("x")) -> ["Marshmello", "Bastille"]
+ * - "Artist1/Artist2".splitByDelimiters(listOf("/")) -> ["Artist1", "Artist2"]
+ * - "AC\\DC".splitByDelimiters(listOf("/")) -> ["AC/DC"] (escaped)
+ * - "Drake feat. Rihanna".splitByDelimiters(listOf(), listOf("feat.")) -> ["Drake", "Rihanna"]
+ * - "Marshmello x Bastille".splitByDelimiters(listOf(), listOf("x")) -> ["Marshmello", "Bastille"]
  */
-fun String.splitArtistsByDelimiters(
+fun String.splitByDelimiters(
     delimiters: List<String>,
-    wordDelimiters: List<String> = DEFAULT_WORD_DELIMITERS
+    wordDelimiters: List<String> = emptyList()
 ): List<String> {
     if ((delimiters.isEmpty() && wordDelimiters.isEmpty()) || this.isBlank()) {
         return listOf(this.trim()).filter { it.isNotEmpty() }
@@ -181,7 +198,7 @@ fun String.extractArtistsFromTitle(
     bracketPattern.findAll(this).forEach { match ->
         val artistString = match.groupValues[1]
         // Split the extracted artist string by delimiters (handles "Artist1 & Artist2" inside parens)
-        val artists = artistString.splitArtistsByDelimiters(delimiters, wordDelimiters)
+        val artists = artistString.splitByDelimiters(delimiters, wordDelimiters)
         extractedArtists.addAll(artists)
         cleanedTitle = cleanedTitle.replace(match.value, "")
     }

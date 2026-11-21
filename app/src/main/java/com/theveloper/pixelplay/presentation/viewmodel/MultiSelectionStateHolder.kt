@@ -463,7 +463,7 @@ class MultiSelectionStateHolder @Inject constructor(
     suspend fun getSongsForGenres(genres: List<Genre>): List<Song> {
         return withContext(Dispatchers.IO) {
             genres.flatMap { genre ->
-                musicRepository.getMusicByGenre(genre.name).first()
+                musicRepository.getMusicByGenre(genre.id).first()
             }.distinctBy { it.id }
         }
     }

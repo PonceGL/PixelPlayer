@@ -26,6 +26,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImagePainter
 
+import com.theveloper.pixelplay.presentation.components.EditMultipleSongsSheet
 import com.theveloper.pixelplay.presentation.components.MultiSelectionBottomSheet
 import com.theveloper.pixelplay.presentation.components.AlbumMultiSelectionOptionSheet
 import com.theveloper.pixelplay.presentation.components.PlaylistMultiSelectionBottomSheet
@@ -118,6 +119,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusModifier
 import androidx.compose.ui.focus.focusRequester
@@ -183,6 +185,7 @@ fun SearchScreen(
     val isSongSelectionMode by multiSelectionState.isSelectionMode.collectAsStateWithLifecycle()
     val selectedSongIds by multiSelectionState.selectedSongIds.collectAsStateWithLifecycle()
     var showMultiSelectionSheet by remember { mutableStateOf(false) }
+    var showBatchEditSheet by remember { mutableStateOf(false) }
 
     // Multi-selection state for albums
     var selectedAlbums by remember { mutableStateOf<List<Album>>(emptyList()) }
@@ -236,19 +239,29 @@ fun SearchScreen(
     }.collectAsStateWithLifecycle(initialValue = SearchUiSlice())
     val currentFilter = searchUiState.selectedSearchFilter
     val genres by playerViewModel.genres.collectAsStateWithLifecycle()
+    val genreDelimiters by playerViewModel.genreDelimiters.collectAsStateWithLifecycle()
+    val libraryArtists by playerViewModel.artists.collectAsStateWithLifecycle()
+    val artistDelimiters by playerViewModel.artistDelimiters.collectAsStateWithLifecycle()
     val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchInputFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val releaseSearchInputFocus = remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
 
     LaunchedEffect(Unit) {
         onSearchBarActiveChange(false)
     }
 
     LaunchedEffect(playerViewModel, keyboardController) {
-        playerViewModel.searchNavDoubleTapEvents.collect {
+        playerViewModel.searchTabReselectedEvents.collect {
             delay(40L)
             searchInputFocusRequester.requestFocus()
             keyboardController?.show()
@@ -407,7 +420,10 @@ fun SearchScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ),
-                    onClick = { navController.navigateSafely(Screen.Settings.route) }
+                    onClick = {
+                        releaseSearchInputFocus()
+                        navController.navigateSafely(Screen.Settings.route)
+                    }
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.rounded_settings_24),
@@ -455,6 +471,7 @@ fun SearchScreen(
                                     Timber.tag("SearchScreen")
                                         .d("Genre clicked: ${genre.name} (ID: ${genre.id})")
                                     val encodedGenreId = java.net.URLEncoder.encode(genre.id, "UTF-8")
+                                    releaseSearchInputFocus()
                                     navController.navigateSafely(Screen.GenreDetail.createRoute(encodedGenreId))
                                 },
                                 playerViewModel = playerViewModel,
@@ -581,6 +598,7 @@ fun SearchScreen(
                                         searchQuery = searchQuery,
                                         playerViewModel = playerViewModel,
                                         onItemSelected = {
+                                            releaseSearchInputFocus()
                                             if (searchQuery.isNotBlank()) {
                                                 playerViewModel.onSearchQuerySubmitted(searchQuery)
                                             }
@@ -730,17 +748,16 @@ fun SearchScreen(
                     )
                     showSongInfoBottomSheet = false
                 },
-                onNavigateToGenre = {
-                    currentSong.genre?.let {
-                        navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")))
-                    }
+                onNavigateToGenreByName = { genreName ->
+                    navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")))
                     showSongInfoBottomSheet = false
                 },
-                onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                     playerViewModel.editSongMetadata(
                         currentSong,
                         newTitle,
                         newArtist,
+                        newArtists,
                         newAlbum,
                         newAlbumArtist,
                         newComposer,
@@ -805,6 +822,40 @@ fun SearchScreen(
             },
             onBatchEdit = {
                 showMultiSelectionSheet = false
+                showBatchEditSheet = true
+            }
+        )
+    }
+
+    // Batch Edit Sheet (from multi-selection)
+    if (showBatchEditSheet && selectedSongs.isNotEmpty()) {
+        val existingGenreNames = genres.filter { it.id != "unknown" }.map { it.name }
+        val existingArtistNames = libraryArtists.map { it.name }
+        EditMultipleSongsSheet(
+            visible = showBatchEditSheet,
+            songs = selectedSongs,
+            existingGenres = existingGenreNames,
+            genreDelimiters = genreDelimiters,
+            existingArtistNames = existingArtistNames,
+            artistDelimiters = artistDelimiters,
+            onDismiss = { showBatchEditSheet = false },
+            onSave = { songs, title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                playerViewModel.saveBatchMetadata(
+                    songs = songs,
+                    title = title,
+                    artist = artist,
+                    artists = artists,
+                    album = album,
+                    albumArtist = albumArtist,
+                    composer = composer,
+                    genre = genre,
+                    lyrics = lyrics,
+                    trackNumber = trackNumber,
+                    discNumber = discNumber,
+                    replayGainTrackGainDb = replayGainTrackGainDb,
+                    replayGainAlbumGainDb = replayGainAlbumGainDb,
+                    coverArtUpdate = coverArtUpdate
+                )
             }
         )
     }

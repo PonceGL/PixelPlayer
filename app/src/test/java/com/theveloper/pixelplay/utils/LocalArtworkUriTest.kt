@@ -3,7 +3,7 @@ package com.theveloper.pixelplay.utils
 import com.google.common.truth.Truth.assertThat
 import com.theveloper.pixelplay.data.database.AlbumEntity
 import com.theveloper.pixelplay.data.database.toAlbum
-import org.junit.Test
+import org.junit.jupiter.api.Test
 
 class LocalArtworkUriTest {
 
@@ -65,6 +65,31 @@ class LocalArtworkUriTest {
         )
 
         assertThat(songId).isEqualTo(77L)
+    }
+
+    @Test
+    fun parseSongIdFromVolatileArtworkUri_readsSharedArtworkUri() {
+        val songId = LocalArtworkUri.parseSongIdFromVolatileArtworkUri(
+            "content://com.theveloper.pixelplay.artwork/song/99?t=1234"
+        )
+
+        assertThat(songId).isEqualTo(99L)
+    }
+
+    @Test
+    fun parseSongIdFromVolatileArtworkUri_readsSharedArtworkUriWhateverItsCase() {
+        val songId = LocalArtworkUri.parseSongIdFromVolatileArtworkUri(
+            "CONTENT://com.theveloper.pixelplay.ARTWORK/SONG/99?t=1"
+        )
+
+        assertThat(songId).isEqualTo(99L)
+    }
+
+    @Test
+    fun parseSongIdFromVolatileArtworkUri_hasNoSongForAnAddressItDoesNotKnow() {
+        assertThat(LocalArtworkUri.parseSongIdFromVolatileArtworkUri("https://example.com/cover.jpg")).isNull()
+        assertThat(LocalArtworkUri.parseSongIdFromVolatileArtworkUri("content://com.theveloper.pixelplay.artwork/song/abc")).isNull()
+        assertThat(LocalArtworkUri.parseSongIdFromVolatileArtworkUri(null)).isNull()
     }
 
     @Test

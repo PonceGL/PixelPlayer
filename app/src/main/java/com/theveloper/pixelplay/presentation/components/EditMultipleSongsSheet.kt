@@ -36,6 +36,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.media.CoverArtUpdate
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.worker.buildDisplayArtistText
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.compose.ui.graphics.ImageBitmap
@@ -71,11 +72,16 @@ private fun <T> List<T?>.toMixedValueField(): MixedValueField<T> {
 fun EditMultipleSongsSheet(
     visible: Boolean,
     songs: List<Song>,
+    existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -90,10 +96,14 @@ fun EditMultipleSongsSheet(
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
+    // Writing real file tags for a whole batch takes a few seconds with no other signal that
+    // anything is happening - hoisted here (not just in the content composable) so it also
+    // blocks the Dialog's own back-button/outside-tap dismiss, not just the in-sheet buttons.
+    var isSaving by remember { mutableStateOf(false) }
 
     if (transitionState.currentState || transitionState.targetState) {
         Dialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { if (!isSaving) onDismiss() },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
                 decorFitsSystemWindows = false
@@ -106,8 +116,31 @@ fun EditMultipleSongsSheet(
             ) {
                 EditMultipleSongsContent(
                     songs = songs,
+                    existingGenres = existingGenres,
+                    genreDelimiters = genreDelimiters,
+                    existingArtistNames = existingArtistNames,
+                    artistDelimiters = artistDelimiters,
+                    isSaving = isSaving,
                     onDismiss = onDismiss,
-                    onSave = onSave
+                    onSave = { songs, title, artist, artists, album, albumArtist, composer, genre, lyrics, trackNumber, discNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                        isSaving = true
+                        onSave(
+                            songs,
+                            title,
+                            artist,
+                            artists,
+                            album,
+                            albumArtist,
+                            composer,
+                            genre,
+                            lyrics,
+                            trackNumber,
+                            discNumber,
+                            replayGainTrackGainDb,
+                            replayGainAlbumGainDb,
+                            coverArtUpdate
+                        )
+                    }
                 )
             }
         }
@@ -118,11 +151,17 @@ fun EditMultipleSongsSheet(
 @Composable
 private fun EditMultipleSongsContent(
     songs: List<Song>,
+    existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onSave: (
         selectedSongs: List<Song>,
         title: String?,
         artist: String?,
+        artists: String?,
         album: String?,
         albumArtist: String?,
         composer: String?,
@@ -137,7 +176,9 @@ private fun EditMultipleSongsContent(
 ) {
     // Initialize mixed value fields
     val titleField = remember(songs) { songs.map { it.title }.toMixedValueField() }
-    val artistField = remember(songs) { songs.map { it.displayArtist }.toMixedValueField() }
+    val artistsField = remember(songs) {
+        songs.map { it.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { a -> a.name } }.toMixedValueField()
+    }
     val albumField = remember(songs) { songs.map { it.album }.toMixedValueField() }
     val albumArtistField = remember(songs) { songs.map { it.albumArtist }.toMixedValueField() }
     val genreField = remember(songs) { songs.map { it.genre }.toMixedValueField() }
@@ -148,6 +189,7 @@ private fun EditMultipleSongsContent(
     // Editable state
     var title by remember { mutableStateOf<String?>(null) }
     var artist by remember { mutableStateOf<String?>(null) }
+    var artists by remember { mutableStateOf<String?>(null) }
     var album by remember { mutableStateOf<String?>(null) }
     var albumArtist by remember { mutableStateOf<String?>(null) }
     var composer by remember { mutableStateOf<String?>(null) }
@@ -295,16 +337,23 @@ private fun EditMultipleSongsContent(
                     )
                 }
 
-                // Artist field
+                // Artist field (homologado con género: sheet de chips que además arma el
+                // singular vía buildDisplayArtistText - ver EditSongSheet para el mismo patrón)
                 item {
-                    BatchEditField(
-                        value = artist ?: "",
-                        onValueChange = { artist = it.ifBlank { null } },
+                    TagChipAutocompleteField(
+                        value = artists ?: "",
+                        onValueChange = { artists = it.ifBlank { null } },
+                        existingValues = existingArtistNames,
+                        delimiters = artistDelimiters,
+                        // Must be one of `delimiters` (or the join/split round-trip silently
+                        // breaks) - see the equivalent comment in EditSongSheet.kt.
+                        joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
+                        onTagsChanged = { tags -> artist = tags.takeIf { it.isNotEmpty() }?.let(::buildDisplayArtistText) },
                         label = stringResource(R.string.edit_song_field_artist),
-                        placeholder = if (artistField.isMixed)
+                        placeholder = if (artistsField.isMixed)
                             stringResource(R.string.batch_edit_mixed_values)
                         else
-                            artistField.value ?: "",
+                            artistsField.value ?: "",
                         icon = Icons.Rounded.Person,
                         tint = MaterialTheme.colorScheme.primary,
                         textFieldColors = textFieldColors,
@@ -348,9 +397,11 @@ private fun EditMultipleSongsContent(
 
                 // Genre field
                 item {
-                    BatchEditField(
+                    TagChipAutocompleteField(
                         value = genre ?: "",
                         onValueChange = { genre = it.ifBlank { null } },
+                        existingValues = existingGenres,
+                        delimiters = genreDelimiters,
                         label = stringResource(R.string.edit_song_field_genre),
                         placeholder = if (genreField.isMixed)
                             stringResource(R.string.batch_edit_mixed_values)
@@ -428,6 +479,7 @@ private fun EditMultipleSongsContent(
                     content = {
                         FilledTonalButton(
                             onClick = onDismiss,
+                            enabled = !isSaving,
                             modifier = Modifier.height(48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -443,6 +495,7 @@ private fun EditMultipleSongsContent(
                                     songs,
                                     title,
                                     artist,
+                                    artists,
                                     album,
                                     albumArtist,
                                     composer,
@@ -455,9 +508,18 @@ private fun EditMultipleSongsContent(
                                     coverArtUpdate
                                 )
                             },
+                            enabled = !isSaving,
                             modifier = Modifier.height(48.dp)
                         ) {
-                            Text(stringResource(R.string.common_save))
+                            if (isSaving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = LocalContentColor.current
+                                )
+                            } else {
+                                Text(stringResource(R.string.common_save))
+                            }
                         }
                     }
                 )

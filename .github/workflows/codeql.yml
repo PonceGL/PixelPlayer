@@ -1,10 +1,12 @@
 name: "CodeQL Advanced"
 
+# Slow: it runs when main moves, every week and by hand, not on every pull request (the CI covers those).
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: [ main ]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
   schedule:
     - cron: '25 15 * * 0'

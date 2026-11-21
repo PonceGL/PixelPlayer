@@ -31,6 +31,13 @@ data class Song(
     val discNumber: Int? = null,
     val year: Int = 0,
     val dateAdded: Long = 0,
+    /**
+     * "Date added" read from a custom tag embedded in the file itself (community
+     * convention: survives moving the library between devices, unlike [dateAdded]
+     * which comes from MediaStore/filesystem and resets on copy). Null when the
+     * file carries no such tag - sorting falls back to [dateAdded] in that case.
+     */
+    val metadataDateAdded: Long? = null,
     val dateModified: Long = 0,
     val mimeType: String?,
     val bitrate: Int?,

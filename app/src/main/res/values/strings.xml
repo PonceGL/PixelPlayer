@@ -80,6 +80,8 @@
     <string name="common_select_all">Select All</string>
     <string name="common_clear">Clear</string>
     <string name="common_error_unknown">Unknown error</string>
+    <string name="tag_chip_remove">Remove %1$s</string>
+    <string name="tag_chip_input_placeholder">Type or pick from the list…</string>
 
     <!-- Common Actions & Labels -->
     <string name="common_save">Save</string>
