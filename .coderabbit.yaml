@@ -21,8 +21,13 @@ reviews:
 
   path_filters:
     - "!docs/**"
-    - "!**/*.md"
-    - "!app/src/main/res/values-*/**"
+    - "!README.md"
+    - "!CHANGELOG.md"
+    - "!CONTRIBUTING.md"
+    - "!THIRD_PARTY_NOTICES.md"
+    - "!app/performance_analysis.md"
+    # Translations only (values-night holds the theme, which must be reviewed).
+    - "!app/src/main/res/values-*/strings*.xml"
     - "!app/lint-baseline.xml"
     - "!**/build/**"
     - "!graphify-out/**"
