@@ -132,6 +132,8 @@ internal class SonosCommander(
             }
             inserted += count
             onProgress(inserted)
+            // A load that began while this batch waited for the speaker ends the insertion, also when it was the last batch.
+            if (loads.get() != load) return SonosResult.Err(SonosFailure.Superseded)
         }
         return SonosResult.Ok(Unit)
     }
