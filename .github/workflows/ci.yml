@@ -23,13 +23,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  # Fast: the format of the Kotlin files this change touches (the older code is not held to it until it is touched).
+  format:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install ktlint
+        run: scripts/ci/install-ktlint.sh "$HOME/.local/bin"
+
+      - name: Check the format of the changed Kotlin files
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          git fetch --no-tags origin "$BASE_REF"
+          # A push to main has nothing to compare with: the commit before it is the base.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            # A branch pushed for the first time has no commit before it.
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then base="HEAD~1"; fi
+          else
+            base="origin/$BASE_REF"
+          fi
+          scripts/format-check.sh "$base"
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Sonar needs the history to know which lines are new.
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -40,14 +75,31 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+      # Runs the unit tests with JaCoCo and writes app/build/reports/coverage/test/debug/report.xml.
+      - name: Unit tests with coverage
+        run: ./gradlew :app:createDebugUnitTestCoverageReport --stacktrace
 
       - name: Lint (new issues only; the known ones are in app/lint-baseline.xml)
         run: ./gradlew :app:lintDebug --stacktrace
 
       - name: Build the debug APK
         run: ./gradlew :app:assembleDebug -Ppixelplay.enableAbiSplits=true --stacktrace
+
+      # Sends the sources, the compiled classes and the coverage to SonarQube Cloud (settings: sonar-project.properties).
+      # Skipped when there is no token: pull requests from forks and from Dependabot do not get the secrets.
+      - name: SonarQube Cloud analysis
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v8.5.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Upload the coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report
+          path: app/build/reports/coverage/test/debug/report.xml
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload the reports when something failed
         if: failure()
