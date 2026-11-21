@@ -1,11 +1,9 @@
 name: Build Phone APK (Release)
 
+# Heavy build: by hand, or when a version is tagged (v1.2.3). Not on every push or pull request.
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [ master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 permissions:
