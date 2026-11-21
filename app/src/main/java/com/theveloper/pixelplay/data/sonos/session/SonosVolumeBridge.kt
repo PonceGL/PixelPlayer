@@ -5,11 +5,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
@@ -21,10 +18,8 @@ internal class SonosVolumeBridge @Inject constructor() {
 
     private val current = MutableStateFlow<SonosVolumeControl?>(null)
 
-    /** Whether there is a speaker volume to show and to change. */
-    val isAttached: StateFlow<Boolean> get() = attachedState
-
-    private val attachedState = MutableStateFlow(false)
+    /** Whether there is a speaker volume to show and to change. Read from the control itself, so it cannot disagree with it. */
+    val isAttached: Boolean get() = current.value != null
 
     /** The volume of the speaker as it has to be shown, null when there is none. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -32,13 +27,11 @@ internal class SonosVolumeBridge @Inject constructor() {
 
     fun attach(control: SonosVolumeControl) {
         current.value = control
-        attachedState.value = true
     }
 
     /** Lets go of [control]; a newer one that has taken its place stays. */
     fun detach(control: SonosVolumeControl) {
         current.update { if (it === control) null else it }
-        attachedState.value = current.value != null
     }
 
     /** False when there is no speaker volume to give the order to. */

@@ -24,6 +24,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -32,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.sonos.session.SonosVolume
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
 import com.theveloper.pixelplay.data.sonos.session.indicatorVisible
@@ -45,6 +49,9 @@ internal fun SonosVolumeIndicator(keys: SonosVolumeKeys, bridge: SonosVolumeBrid
     val visible by remember(keys) { indicatorVisible(keys.requests, SonosVolumeKeys.INDICATOR_MS) }
         .collectAsStateWithLifecycle(initialValue = false)
     val volume by bridge.volume.collectAsStateWithLifecycle(initialValue = null)
+    // When the session ends the volume is gone at once; the last one keeps the pill drawn while it fades out.
+    var lastVolume by remember { mutableStateOf<SonosVolume?>(null) }
+    LaunchedEffect(volume) { volume?.let { lastVolume = it } }
 
     Box(
         modifier = Modifier
@@ -58,7 +65,7 @@ internal fun SonosVolumeIndicator(keys: SonosVolumeKeys, bridge: SonosVolumeBrid
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
         ) {
-            val shown = volume ?: return@AnimatedVisibility
+            val shown = volume ?: lastVolume ?: return@AnimatedVisibility
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,

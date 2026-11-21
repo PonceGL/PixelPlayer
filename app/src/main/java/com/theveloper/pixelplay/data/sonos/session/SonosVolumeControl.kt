@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.sonos.session
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,7 @@ internal class SonosVolumeControl(
     private var lastAbsoluteAtMs: Long? = null
     private var senderRunning = false
     private var settleToken = 0L
+    private var settleJob: Job? = null
 
     private sealed interface Work {
         data object Unmute : Work
@@ -121,7 +123,9 @@ internal class SonosVolumeControl(
     /** After the margin, whatever the speaker says is what is shown, also when it said nothing new. */
     private fun scheduleSettle() {
         val token = ++settleToken
-        scope.launch {
+        // Only the last one matters: a slider dragged for a second would leave dozens of sleeping coroutines.
+        settleJob?.cancel()
+        settleJob = scope.launch {
             delay(ECHO_MS + 1)
             synchronized(lock) {
                 if (token == settleToken && !busy()) {

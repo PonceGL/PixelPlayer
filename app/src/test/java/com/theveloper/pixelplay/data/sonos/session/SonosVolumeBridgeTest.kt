@@ -24,7 +24,7 @@ class SonosVolumeBridgeTest {
     fun `with no session nothing is handled and no volume is shown`() = runTest {
         val bridge = SonosVolumeBridge()
 
-        assertThat(bridge.isAttached.value).isFalse()
+        assertThat(bridge.isAttached).isFalse()
         assertThat(bridge.setLevel(40)).isFalse()
         assertThat(bridge.adjust(5)).isFalse()
         assertThat(bridge.toggleMute()).isFalse()
@@ -41,7 +41,7 @@ class SonosVolumeBridgeTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { bridge.volume.collect { seen += it } }
         runCurrent()
 
-        assertThat(bridge.isAttached.value).isTrue()
+        assertThat(bridge.isAttached).isTrue()
         assertThat(bridge.adjust(5)).isTrue()
         advanceTimeBy(100)
         runCurrent()
@@ -62,8 +62,8 @@ class SonosVolumeBridgeTest {
         bridge.attach(second)
         bridge.detach(first)
 
-        assertThat(bridge.isAttached.value).isTrue()
+        assertThat(bridge.isAttached).isTrue()
         bridge.detach(second)
-        assertThat(bridge.isAttached.value).isFalse()
+        assertThat(bridge.isAttached).isFalse()
     }
 }

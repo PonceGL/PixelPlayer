@@ -57,7 +57,7 @@ internal class SonosVolumeKeys @Inject constructor(
     val requests: SharedFlow<Unit> = mutableRequests.asSharedFlow()
 
     /** True when the key was taken and the phone must not do its own volume. */
-    fun onKey(up: Boolean): Boolean = when (val action = volumeKeyAction(session.state.value, bridge.isAttached.value, up)) {
+    fun onKey(up: Boolean): Boolean = when (val action = volumeKeyAction(session.state.value, bridge.isAttached, up)) {
         VolumeKeyAction.Phone -> false
         is VolumeKeyAction.Change -> bridge.adjust(action.delta).also { if (it) mutableRequests.tryEmit(Unit) }
     }
