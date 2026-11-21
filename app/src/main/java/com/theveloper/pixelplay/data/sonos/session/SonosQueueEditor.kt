@@ -6,6 +6,7 @@ import com.theveloper.pixelplay.data.sonos.net.SonosResult
 import com.theveloper.pixelplay.data.sonos.net.safeName
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -49,20 +50,26 @@ internal class SonosQueueEditor<T>(
     private val generations = AtomicLong()
     private val requests = Channel<Request<T>>(Channel.CONFLATED)
 
-    init {
-        scope.launch {
-            for (request in requests) {
-                try {
-                    run(request)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    // One request that cannot be done must not end the editor: the next one may.
-                    Timber.tag(LOG_TAG).e("A queue edit failed: %s", error.javaClass.simpleName)
-                    onFinished(SonosResult.Err(SonosFailure.Network(error.javaClass.simpleName)))
-                }
+    /** The loop that does the requests, one at a time. Kept so that [close] can end it. */
+    private val worker: Job = scope.launch {
+        for (request in requests) {
+            try {
+                run(request)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // One request that cannot be done must not end the editor: the next one may.
+                Timber.tag(LOG_TAG).e("A queue edit failed: %s", error.javaClass.simpleName)
+                onFinished(SonosResult.Err(SonosFailure.Network(error.javaClass.simpleName)))
             }
         }
+    }
+
+    /** Ends the editor: what is in progress stops at its next command and nothing more is accepted. */
+    fun close() {
+        generations.incrementAndGet()
+        requests.close()
+        worker.cancel()
     }
 
     fun submit(queue: List<T>) {
@@ -85,8 +92,8 @@ internal class SonosQueueEditor<T>(
                         return
                     }
                     is SonosResult.Ok -> if (!read.value) {
-                        // Entries that are not ours: nothing of it can be kept.
-                        finish(request, listOf(QueueEdit.Reload), wanted, startedAt = System.nanoTime())?.let { return }
+                        // Entries that are not ours: nothing of it can be kept. If loading again fails, the user is told.
+                        finish(request, listOf(QueueEdit.Reload), wanted, startedAt = System.nanoTime())?.let { onFinished(SonosResult.Err(it)) }
                         return
                     }
                 }

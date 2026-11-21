@@ -237,9 +237,12 @@ class SonosPlayerTest {
     @Test
     fun `the playing song is followed to its new place when the queue changes`() = test { f ->
         f.player.remove(0, 1)
+        settle()
 
         assertThat(f.player.ids()).containsExactly("b", "c", "d").inOrder()
         assertThat(f.player.songIdAt(0)).isEqualTo("b")
+        // Only the song taken out is touched on the speaker: no new load, no seek, nothing that would cut what plays.
+        assertThat(f.transport.actions).containsExactly("RemoveTrackRangeFromQueue")
     }
 
     @Test
@@ -317,6 +320,15 @@ class SonosPlayerTest {
         settle()
 
         assertThat(f.transport.actions).contains("SetPlayMode")
+    }
+
+    @Test
+    fun `an edit after the player was released does not reach the speaker`() = test { f ->
+        f.player.handle("handleRelease", emptyList())
+        f.player.add(4, "e")
+        settle()
+
+        assertThat(f.transport.actions).isEmpty()
     }
 
     @Test
