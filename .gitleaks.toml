@@ -1,0 +1,19 @@
+# Secrets scan for commits (see lefthook.yml). Starts from gitleaks' own rules.
+title = "PixelPlayer"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and public protocol constants that look like keys but are not secrets"
+paths = [
+  '''(^|/)src/(test|androidTest)/''',
+  # Public constants of the Netease and QQ Music protocols (not credentials).
+  '''data/network/netease/NeteaseEncryption\.kt''',
+  '''data/remote/qqmusic/QQMusicSecurity\.kt''',
+  # A map of genre names to icon names that matches the "key ->" pattern.
+  '''search/components/GenreiconProvider\.kt''',
+  # Generated, local-only files.
+  '''(^|/)build/''',
+  '''(^|/)graphify-out/''',
+]
