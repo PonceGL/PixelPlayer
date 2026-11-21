@@ -1,0 +1,24 @@
+# Gemini Code Assist on pull requests. The rules it checks are in .gemini/styleguide.md.
+have_fun: false
+
+# Not worth reviewing: documentation, translations, the lint baseline, generated and build output.
+ignore_patterns:
+  - "docs/**"
+  - "README.md"
+  - "CHANGELOG.md"
+  - "CONTRIBUTING.md"
+  - "THIRD_PARTY_NOTICES.md"
+  - "app/performance_analysis.md"
+  # Translations only (values-night holds the theme, which must be reviewed).
+  - "app/src/main/res/values-*/strings*.xml"
+  - "app/lint-baseline.xml"
+  - "**/build/**"
+  - "graphify-out/**"
+
+code_review:
+  # LOW, MEDIUM, HIGH or CRITICAL. Style-guide violations arrive at least at this level.
+  comment_severity_threshold: MEDIUM
+  max_review_comments: -1
+  pull_request_opened:
+    summary: true
+    code_review: true
