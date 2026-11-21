@@ -64,6 +64,8 @@ import com.theveloper.pixelplay.R
 import java.net.URLEncoder
 import timber.log.Timber
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.worker.buildDisplayArtistText
+import androidx.compose.material.icons.rounded.Group
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -99,10 +101,15 @@ private fun formatReplayGainForInput(gainDb: Float?): String {
 fun EditSongSheet(
     visible: Boolean,
     song: Song,
+    existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
         artist: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
@@ -133,6 +140,10 @@ fun EditSongSheet(
             ) {
                 EditSongContent(
                     song = song,
+                    existingGenres = existingGenres,
+                    genreDelimiters = genreDelimiters,
+                    existingArtistNames = existingArtistNames,
+                    artistDelimiters = artistDelimiters,
                     onDismiss = onDismiss,
                     onSave = onSave
                 )
@@ -145,10 +156,15 @@ fun EditSongSheet(
 @Composable
 private fun EditSongContent(
     song: Song,
+    existingGenres: List<String> = emptyList(),
+    genreDelimiters: List<String> = emptyList(),
+    existingArtistNames: List<String> = emptyList(),
+    artistDelimiters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (
         title: String,
         artist: String,
+        artists: String?,
         album: String,
         albumArtist: String,
         composer: String,
@@ -163,6 +179,14 @@ private fun EditSongContent(
 ) {
     var title by remember { mutableStateOf(song.title) }
     var artist by remember { mutableStateOf(song.displayArtist) }
+    var artists by remember {
+        mutableStateOf(song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name })
+    }
+    // Whether the artist picker sheet actually committed a change this session - only then do we
+    // write ARTISTS to the file. Otherwise a title/genre/lyrics-only edit would silently freeze
+    // whatever artists are currently shown (e.g. ones derived from the title) into the file,
+    // where ARTISTS then outranks that heuristic on every future rescan.
+    var artistsTouched by remember { mutableStateOf(false) }
     var album by remember { mutableStateOf(song.album) }
     var albumArtist by remember { mutableStateOf(song.albumArtist ?: "") }
     var composer by remember { mutableStateOf("") }
@@ -190,6 +214,8 @@ private fun EditSongContent(
     LaunchedEffect(song) {
         title = song.title
         artist = song.displayArtist
+        artists = song.artists.joinToString(artistDelimiters.firstOrNull() ?: "; ") { it.name }
+        artistsTouched = false
         album = song.album
         albumArtist = song.albumArtist ?: ""
         composer = ""
@@ -379,26 +405,29 @@ private fun EditSongContent(
                 }
             }
 
-            // --- Campo de Artista ---
+            // --- Campo de Artista (homologado con género: botón que abre el sheet de chips) ---
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        modifier = Modifier.padding(start = 4.dp),
-                        text = stringResource(R.string.edit_song_field_artist),
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    OutlinedTextField(
-                        value = artist,
-                        colors = textFieldColors,
-                        shape = textFieldShape,
-                        onValueChange = { artist = it },
-                        placeholder = { Text(stringResource(R.string.edit_song_field_artist)) },
-                        leadingIcon = { Icon(Icons.Rounded.Person, tint = MaterialTheme.colorScheme.primary, contentDescription = stringResource(R.string.edit_song_field_artist)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
+                TagChipAutocompleteField(
+                    value = artists,
+                    onValueChange = { artists = it },
+                    existingValues = existingArtistNames,
+                    delimiters = artistDelimiters,
+                    // Must be one of `delimiters` (or the join/split round-trip silently breaks):
+                    // the default TagChipAutocompleteField join ", " isn't in
+                    // DEFAULT_ARTIST_DELIMITERS ([";"]), unlike genre where "," already is.
+                    joinDelimiter = "${artistDelimiters.firstOrNull() ?: ";"} ",
+                    onTagsChanged = { tags ->
+                        artist = buildDisplayArtistText(tags)
+                        artistsTouched = true
+                    },
+                    label = stringResource(R.string.edit_song_field_artist),
+                    placeholder = stringResource(R.string.edit_song_field_artist),
+                    icon = Icons.Rounded.Group,
+                    tint = MaterialTheme.colorScheme.primary,
+                    textFieldColors = textFieldColors,
+                    textFieldShape = textFieldShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // --- Campo de Álbum ---
@@ -447,24 +476,19 @@ private fun EditSongContent(
 
             // --- Campo de Género ---
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        modifier = Modifier.padding(start = 4.dp),
-                        text = stringResource(R.string.edit_song_field_genre),
-                        color = MaterialTheme.colorScheme.secondary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    OutlinedTextField(
-                        value = genre,
-                        colors = textFieldColors,
-                        shape = textFieldShape,
-                        onValueChange = { genre = it },
-                        placeholder = { Text(stringResource(R.string.edit_song_field_genre)) },
-                        leadingIcon = { Icon(Icons.Rounded.Category, tint = MaterialTheme.colorScheme.secondary, contentDescription = stringResource(R.string.edit_song_field_genre)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
+                TagChipAutocompleteField(
+                    value = genre,
+                    onValueChange = { genre = it },
+                    existingValues = existingGenres,
+                    delimiters = genreDelimiters,
+                    label = stringResource(R.string.edit_song_field_genre),
+                    placeholder = stringResource(R.string.edit_song_field_genre),
+                    icon = Icons.Rounded.Category,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    textFieldColors = textFieldColors,
+                    textFieldShape = textFieldShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // --- Campo de Compositor ---
@@ -673,6 +697,7 @@ private fun EditSongContent(
                                 onSave(
                                     title.trim(),
                                     artist.trim(),
+                                    if (artistsTouched) artists.trim() else null,
                                     album.trim(),
                                     albumArtist.trim(),
                                     composer.trim(),

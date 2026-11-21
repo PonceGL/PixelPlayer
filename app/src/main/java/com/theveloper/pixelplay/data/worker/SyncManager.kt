@@ -18,10 +18,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import com.theveloper.pixelplay.data.observer.MediaStoreObserver
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Job
@@ -229,13 +231,23 @@ class SyncManager @Inject constructor(
      * Performs an incremental sync, only processing files that have changed
      * since the last sync. Much faster for large libraries with few changes.
      * This is the recommended sync method for pull-to-refresh actions.
+     *
+     * Returns the enqueued request's id so a caller that needs to know when THIS specific sync
+     * finishes (not just "some" sync under the shared unique work name) can await it via
+     * [awaitWorkFinished] - the shared [isSyncing] flow can't tell this request apart from a
+     * concurrent one that [ExistingWorkPolicy.REPLACE] cancelled and replaced under the same name.
      */
-    fun incrementalSync() {
+    fun incrementalSync(): UUID {
         Log.i(TAG, "Incremental sync requested - Scheduling incremental worker")
-        enqueueSyncWork(
-            request = SyncWorker.incrementalSyncWork(runMaintenance = false),
-            policy = ExistingWorkPolicy.REPLACE
-        )
+        val request = SyncWorker.incrementalSyncWork(runMaintenance = false)
+        enqueueSyncWork(request = request, policy = ExistingWorkPolicy.REPLACE)
+        return request.id
+    }
+
+    /** Suspends until the work identified by [id] reaches a terminal state (or is no longer
+     *  tracked by WorkManager at all, e.g. pruned after completion). */
+    suspend fun awaitWorkFinished(id: UUID) {
+        workManager.getWorkInfoByIdFlow(id).first { it == null || it.state.isFinished }
     }
 
     /**

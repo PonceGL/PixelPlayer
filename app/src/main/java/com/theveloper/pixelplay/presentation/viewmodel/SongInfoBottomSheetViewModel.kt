@@ -17,6 +17,8 @@ import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.database.toArtist
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
+import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferState
 import com.theveloper.pixelplay.data.service.wear.PhoneWatchTransferStateStore
 import com.theveloper.pixelplay.data.service.wear.WearPhoneTransferSender
@@ -47,6 +49,8 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     private val wearPhoneTransferSender: WearPhoneTransferSender,
     private val transferStateStore: PhoneWatchTransferStateStore,
     private val musicDao: MusicDao,
+    private val musicRepository: MusicRepository,
+    private val userPreferencesRepository: UserPreferencesRepository,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -76,6 +80,10 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     private val _isWatchAvailabilityResolved = MutableStateFlow(false)
     val isWatchAvailabilityResolved: StateFlow<Boolean> = _isWatchAvailabilityResolved.asStateFlow()
     private val _isRefreshingWatchAvailability = MutableStateFlow(false)
+
+    /** Whether any watch has ever been paired with PixelPlay installed — see PlaylistViewModel's
+     *  identical field for the full explanation. */
+    val isAnyWatchPaired: StateFlow<Boolean> = transferStateStore.isAnyWatchPaired
 
     private val _isRequestingToWatch = MutableStateFlow(false)
     val watchTransfers: StateFlow<Map<String, PhoneWatchTransferState>> = transferStateStore.transfers
@@ -107,6 +115,47 @@ class SongInfoBottomSheetViewModel @Inject constructor(
     )
 
     val audioMeta: StateFlow<AudioMeta?> = _audioMeta.asStateFlow()
+
+    /**
+     * Existing genre names for the edit sheet's autocomplete, so retyping "Latin" instead of
+     * reusing an existing "Latn" (or any other near-duplicate) doesn't silently fragment the
+     * genre into two. "Unknown" is a synthetic placeholder (see MusicRepositoryImpl), not a
+     * real genre to type into a tag, so it is excluded here.
+     */
+    val existingGenreNames: StateFlow<List<String>> = musicRepository.getGenres()
+        .map { genres -> genres.filter { it.id != "unknown" }.map { it.name } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = emptyList()
+        )
+
+    /** Character delimiters the user configured for splitting a multi-genre tag - the same set
+     *  the local scan uses, so the edit sheet's chip input confirms a chip on the same characters. */
+    val genreDelimiters: StateFlow<List<String>> = userPreferencesRepository.genreDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS
+        )
+
+    /** Existing artist names for the edit sheet's multi-artist picker - same rationale as
+     *  [existingGenreNames]: reuse an already-known name instead of creating a near-duplicate. */
+    val existingArtistNames: StateFlow<List<String>> = musicRepository.getArtists()
+        .map { artists -> artists.map { it.name } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = emptyList()
+        )
+
+    /** Character delimiters configured for splitting a multi-artist tag - see [genreDelimiters]. */
+    val artistDelimiters: StateFlow<List<String>> = userPreferencesRepository.artistDelimitersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000L),
+            initialValue = UserPreferencesRepository.DEFAULT_ARTIST_DELIMITERS
+        )
 
     fun loadArtistsForSong(song: Song) {
         val refs = song.artists
@@ -172,6 +221,9 @@ class SongInfoBottomSheetViewModel @Inject constructor(
                     wearPhoneTransferSender.refreshWatchLibraryState()
                 }
             }
+        }
+        viewModelScope.launch {
+            wearPhoneTransferSender.refreshWatchPairingState()
         }
     }
 

@@ -2,6 +2,9 @@ package com.theveloper.pixelplay.presentation.navigation
 
 import DelimiterConfigScreen
 import com.theveloper.pixelplay.presentation.screens.WordDelimiterConfigScreen
+import com.theveloper.pixelplay.presentation.screens.GenreSettingsScreen
+import com.theveloper.pixelplay.presentation.screens.GenreDelimiterConfigScreen
+import com.theveloper.pixelplay.presentation.screens.GenreWordDelimiterConfigScreen
 import android.annotation.SuppressLint
 import androidx.annotation.OptIn
 import androidx.compose.animation.EnterTransition
@@ -446,6 +449,27 @@ fun AppNavigation(
             ) {
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
                     WordDelimiterConfigScreen(navController = navController)
+                }
+            }
+            composable(
+                Screen.GenreSettings.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    GenreSettingsScreen(navController = navController)
+                }
+            }
+            composable(
+                Screen.GenreDelimiterConfig.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    GenreDelimiterConfigScreen(navController = navController)
+                }
+            }
+            composable(
+                Screen.GenreWordDelimiterConfig.route,
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel, animatedVisibilityScope = this) {
+                    GenreWordDelimiterConfigScreen(navController = navController)
                 }
             }
             composable(

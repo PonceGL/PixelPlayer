@@ -6,6 +6,7 @@ import com.theveloper.pixelplay.data.database.SearchHistoryDao
 import com.theveloper.pixelplay.data.database.SongEntity // Necesario para datos de prueba
 import com.theveloper.pixelplay.data.database.AlbumEntity
 import com.theveloper.pixelplay.data.database.ArtistEntity
+import com.theveloper.pixelplay.data.database.GenreEntity
 import com.theveloper.pixelplay.data.model.Song // Para verificar el mapeo
 import com.theveloper.pixelplay.data.preferences.PlaylistPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
@@ -99,7 +100,13 @@ class MusicRepositoryImplTest {
         }
         every { mockMusicDao.getArtists(any(), eq(false)) } returns flowOf(dummyArtists)
 
-
+        // Persisted-genre defaults: empty by default so existing legacy-only genre tests
+        // are unaffected unless a test overrides them to exercise the merge explicitly.
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns flowOf(emptyList())
+        every { mockMusicDao.getSongsByPersistedGenreId(any(), any(), any()) } returns flowOf(emptyList())
+        // No persisted entry by default - getMusicByGenre falls back to genreId.replace("_", " ")
+        // for the legacy-fallback pattern, same as before this existed for ids with no underscore.
+        coEvery { mockMusicDao.getGenreNameById(any()) } returns null
 
         musicRepository = MusicRepositoryImpl(
             context = mockContext,
@@ -319,6 +326,77 @@ class MusicRepositoryImplTest {
     }
 
     @Test
+    fun `getGenres includes genres read from the persisted genres table`() = runTest(testDispatcher) {
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns
+            flowOf(listOf(GenreEntity(id = -1L, name = "Jazz", matchKey = "jazz")))
+        every { mockMusicDao.getUniqueGenres(any(), any()) } returns flowOf(emptyList())
+        every { mockMusicDao.hasUnknownGenre(any(), any()) } returns flowOf(false)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals("jazz", result.first().id)
+        assertEquals("Jazz", result.first().name)
+    }
+
+    @Test
+    fun `getGenres merges persisted and legacy genres without duplicating a matching id`() = runTest(testDispatcher) {
+        every { mockMusicDao.getGenresFiltered(any(), any()) } returns
+            flowOf(listOf(GenreEntity(id = -1L, name = "Rock", matchKey = "rock")))
+        // A song some other sync path never migrated still has the raw string "Rock".
+        every { mockMusicDao.getUniqueGenres(any(), any()) } returns flowOf(listOf("Rock"))
+        every { mockMusicDao.hasUnknownGenre(any(), any()) } returns flowOf(false)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals("rock", result.first().id)
+    }
+
+    @Test
+    fun `getMusicByGenre includes songs from the persisted genre table`() = runTest(testDispatcher) {
+        val persistedSong = createSongEntity(
+            id = 5L,
+            title = "Persisted Song",
+            artistName = "Artist 1",
+            genre = "Jazz",
+            filePath = "/music/persisted.mp3",
+            parentDirectoryPath = "/music"
+        )
+        every { mockMusicDao.getSongsByPersistedGenreId(eq("jazz"), any(), eq(true)) } returns
+            flowOf(listOf(persistedSong))
+        every {
+            mockMusicDao.getSongsByGenreContaining(any(), any(), any(), any(), any(), any(), any(), eq(true))
+        } returns flowOf(emptyList())
+
+        val result = musicRepository.getMusicByGenre("jazz").first()
+
+        assertEquals(1, result.size)
+        assertEquals("Persisted Song", result.first().title)
+    }
+
+    @Test
+    fun `getMusicByGenre merges persisted and legacy song matches without duplicates`() = runTest(testDispatcher) {
+        val persistedSong = createSongEntity(
+            id = 5L, title = "Persisted Song", artistName = "Artist 1",
+            genre = "Jazz", filePath = "/music/persisted.mp3", parentDirectoryPath = "/music"
+        )
+        val legacySong = createSongEntity(
+            id = 6L, title = "Legacy Song", artistName = "Artist 1",
+            genre = "Jazz", filePath = "/music/legacy.mp3", parentDirectoryPath = "/music"
+        )
+        every { mockMusicDao.getSongsByPersistedGenreId(eq("jazz"), any(), eq(true)) } returns
+            flowOf(listOf(persistedSong))
+        every {
+            mockMusicDao.getSongsByGenreContaining(any(), any(), any(), any(), any(), any(), any(), eq(true))
+        } returns flowOf(listOf(legacySong))
+
+        val result = musicRepository.getMusicByGenre("jazz").first()
+
+        assertEquals(setOf("Persisted Song", "Legacy Song"), result.map { it.title }.toSet())
+    }
+
+    @Test
     fun `getMusicByGenre includes compact comma separated genre matches`() = runTest(testDispatcher) {
         val matchingSong = createSongEntity(
             id = 1L,
@@ -345,6 +423,53 @@ class MusicRepositoryImplTest {
 
         assertEquals(1, result.size)
         assertEquals("Song A", result.first().title)
+    }
+
+    /**
+     * Regression test for a real bug found on-device: an accented, multi-word genre's id
+     * (e.g. "cumbia_nortena_mexicana", accent-folded by genreMatchKey) can never be compared
+     * against its accented display name ("Cumbia Norteña Mexicana") in SQL, since SQLite's
+     * LOWER() doesn't fold diacritics. getMusicByGenre must resolve the raw display name via
+     * getGenreNameById for the legacy-fallback query instead of reusing the id's text directly.
+     */
+    @Test
+    fun `getMusicByGenre resolves the persisted display name for the legacy fallback pattern`() = runTest(testDispatcher) {
+        val persistedSong = createSongEntity(
+            id = 5L, title = "Persisted Song", artistName = "Artist 1",
+            genre = "Cumbia Norteña Mexicana", filePath = "/music/persisted.mp3", parentDirectoryPath = "/music"
+        )
+        every { mockMusicDao.getSongsByPersistedGenreId(eq("cumbia_nortena_mexicana"), any(), eq(true)) } returns
+            flowOf(listOf(persistedSong))
+        coEvery { mockMusicDao.getGenreNameById(eq("cumbia_nortena_mexicana")) } returns "Cumbia Norteña Mexicana"
+        every {
+            mockMusicDao.getSongsByGenreContaining(
+                eq("Cumbia Norteña Mexicana"), any(), any(), any(), any(), any(), any(), eq(true)
+            )
+        } returns flowOf(emptyList())
+
+        val result = musicRepository.getMusicByGenre("cumbia_nortena_mexicana").first()
+
+        assertEquals(1, result.size)
+        assertEquals("Persisted Song", result.first().title)
+    }
+
+    @Test
+    fun `getMusicByGenre falls back to a literal name for an id with no persisted entry`() = runTest(testDispatcher) {
+        val legacySong = createSongEntity(
+            id = 6L, title = "Legacy Song", artistName = "Artist 1",
+            genre = "Hip Hop", filePath = "/music/legacy.mp3", parentDirectoryPath = "/music"
+        )
+        coEvery { mockMusicDao.getGenreNameById(eq("hip_hop")) } returns null
+        every {
+            mockMusicDao.getSongsByGenreContaining(
+                eq("hip hop"), any(), any(), any(), any(), any(), any(), eq(true)
+            )
+        } returns flowOf(listOf(legacySong))
+
+        val result = musicRepository.getMusicByGenre("hip_hop").first()
+
+        assertEquals(1, result.size)
+        assertEquals("Legacy Song", result.first().title)
     }
 
     @Nested
