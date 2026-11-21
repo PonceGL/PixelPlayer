@@ -1156,7 +1156,7 @@ private fun CollapsibleCastTopBar(
             .heightIn(min = 0.dp, max = maxHeight)
             .clipToBounds()
     ) {
-        //Ch
+        // Ch
 //        Box(
 //            modifier = Modifier
 //                .align(Alignment.BottomStart)
@@ -1300,7 +1300,7 @@ private fun ActiveDeviceHero(
     Card(
         shape = heroShape,
         colors = CardDefaults.cardColors(
-            containerColor = if (device.isRemote) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
