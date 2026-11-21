@@ -175,6 +175,12 @@ class UserPreferencesRepository @Inject constructor(
         val ARTIST_SETTINGS_RESCAN_REQUIRED =
             booleanPreferencesKey("artist_settings_rescan_required")
 
+        // Multi-genre
+        val GENRE_DELIMITERS = stringPreferencesKey("genre_delimiters")
+        val GENRE_WORD_DELIMITERS = stringPreferencesKey("genre_word_delimiters")
+        val GENRE_SETTINGS_RESCAN_REQUIRED =
+            booleanPreferencesKey("genre_settings_rescan_required")
+
         // Equalizer
         val EQUALIZER_ENABLED = booleanPreferencesKey("equalizer_enabled")
         val EQUALIZER_PRESET = stringPreferencesKey("equalizer_preset")
@@ -219,6 +225,11 @@ class UserPreferencesRepository @Inject constructor(
             longPreferencesKey("advanced_performance_diagnostics_started_at_epoch_ms")
         val ADVANCED_PERFORMANCE_DIAGNOSTICS_EXPIRES_AT =
             longPreferencesKey("advanced_performance_diagnostics_expires_at_epoch_ms")
+        // Wear OS performance toggles (synced to the watch via WearPerformanceSettingsPublisher)
+        val WEAR_SHOW_ALBUM_ART = booleanPreferencesKey("wear_show_album_art")
+        val WEAR_DYNAMIC_COLOR_THEMING = booleanPreferencesKey("wear_dynamic_color_theming")
+        val WEAR_PLAY_BUTTON_ANIMATION = booleanPreferencesKey("wear_play_button_animation")
+
         val IMMERSIVE_LYRICS_ENABLED = booleanPreferencesKey("immersive_lyrics_enabled")
         val IMMERSIVE_LYRICS_TIMEOUT = longPreferencesKey("immersive_lyrics_timeout")
         val USE_ANIMATED_LYRICS = booleanPreferencesKey("use_animated_lyrics")
@@ -1064,6 +1075,40 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         dataStore.edit { it[PreferencesKeys.ARTIST_SETTINGS_RESCAN_REQUIRED] = false }
     }
 
+    // ─── Multi-genre settings ───────────────────────────────────────────────
+
+    val genreDelimitersFlow: Flow<List<String>> =
+        pref { decodeJsonPref(it, PreferencesKeys.GENRE_DELIMITERS, DEFAULT_GENRE_DELIMITERS) }
+
+    suspend fun setGenreDelimiters(delimiters: List<String>) {
+        if (delimiters.isEmpty()) return
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GENRE_DELIMITERS] = json.encodeToString(delimiters)
+            preferences[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = true
+        }
+    }
+
+    suspend fun resetGenreDelimitersToDefault() = setGenreDelimiters(DEFAULT_GENRE_DELIMITERS)
+
+    val genreWordDelimitersFlow: Flow<List<String>> =
+        pref { decodeJsonPref(it, PreferencesKeys.GENRE_WORD_DELIMITERS, DEFAULT_GENRE_WORD_DELIMITERS) }
+
+    suspend fun setGenreWordDelimiters(delimiters: List<String>) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GENRE_WORD_DELIMITERS] = json.encodeToString(delimiters)
+            preferences[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = true
+        }
+    }
+
+    suspend fun resetGenreWordDelimitersToDefault() = setGenreWordDelimiters(DEFAULT_GENRE_WORD_DELIMITERS)
+
+    val genreSettingsRescanRequiredFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] ?: false }
+
+    suspend fun clearGenreSettingsRescanRequired() {
+        dataStore.edit { it[PreferencesKeys.GENRE_SETTINGS_RESCAN_REQUIRED] = false }
+    }
+
     // ─── Lyrics ───────────────────────────────────────────────────────────────
 
     /**
@@ -1244,6 +1289,32 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
         dataStore.edit { it[PreferencesKeys.HAPTICS_ENABLED] = enabled }
     }
 
+    // ─── Wear OS performance toggles ────────────────────────────────────────────
+    // Only take effect during standalone local playback on the watch (no phone connected) —
+    // remote-controller mode never decodes anything heavy on the watch, so there's nothing to
+    // save there. All three default to true, preserving today's behavior.
+
+    val wearShowAlbumArtFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.WEAR_SHOW_ALBUM_ART] ?: true }
+
+    suspend fun setWearShowAlbumArt(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.WEAR_SHOW_ALBUM_ART] = enabled }
+    }
+
+    val wearDynamicColorThemingFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.WEAR_DYNAMIC_COLOR_THEMING] ?: true }
+
+    suspend fun setWearDynamicColorTheming(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.WEAR_DYNAMIC_COLOR_THEMING] = enabled }
+    }
+
+    val wearPlayButtonAnimationFlow: Flow<Boolean> =
+        pref { it[PreferencesKeys.WEAR_PLAY_BUTTON_ANIMATION] ?: true }
+
+    suspend fun setWearPlayButtonAnimation(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.WEAR_PLAY_BUTTON_ANIMATION] = enabled }
+    }
+
     // ─── Backup / restore ─────────────────────────────────────────────────────
 
     val advancedPerformanceDiagnosticsSettingsFlow: Flow<AdvancedPerformanceDiagnosticsSettings> =
@@ -1374,6 +1445,17 @@ suspend fun markDirectoryRulesVersionApplied(version: Int) {
             "featuring", "feat.", "feat", "ft.", "ft",
             "vs.", "vs", "versus", "with", "prod.", "prod"
         )
+
+        /**
+         * Default character delimiter for splitting multi-genre tags. "," matches the
+         * behavior already in production before configurable delimiters existed (genre
+         * was always split on a literal comma) - changing this default would silently
+         * regress already-migrated libraries.
+         */
+        val DEFAULT_GENRE_DELIMITERS = listOf(",")
+
+        /** No word-based genre delimiter has an obvious universal default, unlike "feat." for artists. */
+        val DEFAULT_GENRE_WORD_DELIMITERS = emptyList<String>()
 
         const val DEFAULT_ALBUM_ART_CACHE_LIMIT_MB = 200
     }

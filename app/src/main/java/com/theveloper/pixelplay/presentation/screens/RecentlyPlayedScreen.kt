@@ -312,17 +312,16 @@ fun RecentlyPlayedScreen(
                     navController.navigateSafely(Screen.ArtistDetail.createRoute(artistId))
                     showSongInfoBottomSheet = false
                 },
-                onNavigateToGenre = {
-                    song.genre?.let {
-                        navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(it, "UTF-8")))
-                    }
+                onNavigateToGenreByName = { genreName ->
+                    navController.navigateSafely(Screen.GenreDetail.createRoute(java.net.URLEncoder.encode(genreName, "UTF-8")))
                     showSongInfoBottomSheet = false
                 },
-                onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+                onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                     playerViewModel.editSongMetadata(
                         song,
                         newTitle,
                         newArtist,
+                        newArtists,
                         newAlbum,
                         newAlbumArtist,
                         newComposer,

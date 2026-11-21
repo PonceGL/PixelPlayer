@@ -73,6 +73,7 @@ fun DailyMixSection(
     onNavigateToAlbum: (Song) -> Unit = {},
     onNavigateToArtist: (Song) -> Unit = {},
     onNavigateToGenre: (Song) -> Unit = {},
+    onNavigateToGenreByName: (String) -> Unit = {},
 ) {
     val playlistViewModel: PlaylistViewModel = hiltViewModel()
     val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
@@ -142,11 +143,16 @@ fun DailyMixSection(
                 onNavigateToGenre(song)
                 showSongInfoSheet = false
             },
-            onEditSong = { newTitle, newArtist, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
+            onNavigateToGenreByName = { genreName ->
+                onNavigateToGenreByName(genreName)
+                showSongInfoSheet = false
+            },
+            onEditSong = { newTitle, newArtist, newArtists, newAlbum, newAlbumArtist, newComposer, newGenre, newLyrics, newTrackNumber, newDiscNumber, replayGainTrackGainDb, replayGainAlbumGainDb, coverArtUpdate ->
                 playerViewModel.editSongMetadata(
                     song,
                     newTitle,
                     newArtist,
+                    newArtists,
                     newAlbum,
                     newAlbumArtist,
                     newComposer,

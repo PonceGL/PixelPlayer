@@ -40,6 +40,151 @@ class UserPreferencesRepositoryTest {
     }
 
     @Test
+    fun `default genre delimiter is a literal comma`() {
+        assertEquals(listOf(","), UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS)
+    }
+
+    @Test
+    fun `default genre word delimiters is empty`() {
+        assertEquals(emptyList<String>(), UserPreferencesRepository.DEFAULT_GENRE_WORD_DELIMITERS)
+    }
+
+    @Test
+    fun `genreDelimitersFlow returns the default when nothing is stored`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            assertEquals(
+                UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS,
+                repository.genreDelimitersFlow.first()
+            )
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `setGenreDelimiters persists custom delimiters and marks a rescan required`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            assertEquals(false, repository.genreSettingsRescanRequiredFlow.first())
+
+            repository.setGenreDelimiters(listOf(";", "/"))
+
+            assertEquals(listOf(";", "/"), repository.genreDelimitersFlow.first())
+            assertTrue(repository.genreSettingsRescanRequiredFlow.first())
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `setGenreDelimiters with an empty list is a no-op`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            repository.setGenreDelimiters(emptyList())
+
+            assertEquals(
+                UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS,
+                repository.genreDelimitersFlow.first()
+            )
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `resetGenreDelimitersToDefault restores the default after a custom value`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            repository.setGenreDelimiters(listOf(";"))
+            repository.resetGenreDelimitersToDefault()
+
+            assertEquals(
+                UserPreferencesRepository.DEFAULT_GENRE_DELIMITERS,
+                repository.genreDelimitersFlow.first()
+            )
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `setGenreWordDelimiters persists custom values and marks a rescan required`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            repository.setGenreWordDelimiters(listOf("and"))
+
+            assertEquals(listOf("and"), repository.genreWordDelimitersFlow.first())
+            assertTrue(repository.genreSettingsRescanRequiredFlow.first())
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `clearGenreSettingsRescanRequired resets the flag back to false`() = runTest {
+        val tempDir = Files.createTempDirectory("user-preferences-repository-test")
+        try {
+            val repository = UserPreferencesRepository(
+                dataStore = PreferenceDataStoreFactory.create(
+                    scope = backgroundScope,
+                    produceFile = { tempDir.resolve("settings.preferences_pb").toFile() }
+                ),
+                json = Json
+            )
+
+            repository.setGenreDelimiters(listOf(";"))
+            assertTrue(repository.genreSettingsRescanRequiredFlow.first())
+
+            repository.clearGenreSettingsRescanRequired()
+
+            assertEquals(false, repository.genreSettingsRescanRequiredFlow.first())
+        } finally {
+            tempDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `clearPreferencesExceptKeys preserves initial setup completion`() = runTest {
         val tempDir = Files.createTempDirectory("user-preferences-repository-test")
         try {

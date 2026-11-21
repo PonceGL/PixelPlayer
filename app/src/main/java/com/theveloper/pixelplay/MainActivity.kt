@@ -644,7 +644,10 @@ class MainActivity : ComponentActivity() {
                 Screen.RecentlyPlayed.route,
                 Screen.DeviceCapabilities.route,
                 Screen.EasterEgg.route,
-                Screen.WordDelimiterConfig.route
+                Screen.WordDelimiterConfig.route,
+                Screen.GenreSettings.route,
+                Screen.GenreDelimiterConfig.route,
+                Screen.GenreWordDelimiterConfig.route
             )
         }
         val shouldHideNavigationBar by remember(currentRoute, isSearchBarActive) {
@@ -843,8 +846,8 @@ class MainActivity : ComponentActivity() {
                                 .height(navBarOccupiedHeight)
                                 .clipToBounds()
                         ) {
-                            val onSearchIconDoubleTap = remember(playerViewModel) {
-                                { playerViewModel.onSearchNavIconDoubleTapped() }
+                            val onSearchTabReselected = remember(playerViewModel) {
+                                { playerViewModel.onSearchTabReselected() }
                             }
 
                             Surface(
@@ -902,7 +905,7 @@ class MainActivity : ComponentActivity() {
                                     navBarStyle = navBarStyle,
                                     compactMode = navBarCompactMode,
                                     bottomBarPadding = bottomBarPadding,
-                                    onSearchIconDoubleTap = onSearchIconDoubleTap,
+                                    onSearchTabReselected = onSearchTabReselected,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }

@@ -2,7 +2,6 @@ package com.theveloper.pixelplay.presentation.components
 
 import com.theveloper.pixelplay.presentation.navigation.navigateToTopLevelSafely
 
-import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -15,11 +14,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -32,8 +28,6 @@ import com.theveloper.pixelplay.data.preferences.NavBarStyle
 import com.theveloper.pixelplay.presentation.components.scoped.CustomNavigationBarItem
 import com.theveloper.pixelplay.presentation.navigation.Screen
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 internal val NavBarContentHeight = 90.dp // Altura del contenido de la barra de navegación
 internal val NavBarCompactContentHeight = 64.dp
@@ -87,6 +81,22 @@ internal fun resolveNavBarOccupiedHeight(
     compactMode: Boolean
 ): Dp = resolveNavBarContentHeight(compactMode) + systemNavBarInset
 
+internal sealed interface BottomNavTapAction {
+    data object Navigate : BottomNavTapAction
+    data object FocusSearchInput : BottomNavTapAction
+    data object None : BottomNavTapAction
+}
+
+internal fun resolveBottomNavTapAction(
+    tappedRoute: String,
+    currentRoute: String?
+): BottomNavTapAction = when {
+    currentRoute == null -> BottomNavTapAction.None
+    tappedRoute != currentRoute -> BottomNavTapAction.Navigate
+    tappedRoute == Screen.Search.route -> BottomNavTapAction.FocusSearchInput
+    else -> BottomNavTapAction.None
+}
+
 @Composable
 private fun PlayerInternalNavigationItemsRow(
     navController: NavHostController,
@@ -96,7 +106,7 @@ private fun PlayerInternalNavigationItemsRow(
     navBarStyle: String,
     compactMode: Boolean,
     bottomBarPadding: Dp,
-    onSearchIconDoubleTap: () -> Unit
+    onSearchTabReselected: () -> Unit
 ) {
     val navBarInsetPadding = sanitizeNavigationBarBottomInset(
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -106,8 +116,7 @@ private fun PlayerInternalNavigationItemsRow(
     // e.g. FULL_WIDTH→DEFAULT where bottomBarPadding starts at 0 and animates to systemNavBarInset.
     val innerRowPadding = (navBarInsetPadding - bottomBarPadding).coerceAtLeast(0.dp)
     val latestCurrentRoute by rememberUpdatedState(currentRoute)
-    val latestOnSearchIconDoubleTap by rememberUpdatedState(onSearchIconDoubleTap)
-    val latestNavigationEnabled by rememberUpdatedState(currentRoute != null)
+    val latestOnSearchTabReselected by rememberUpdatedState(onSearchTabReselected)
 
     val rowModifier = if (navBarStyle == NavBarStyle.FULL_WIDTH) {
         modifier
@@ -123,8 +132,6 @@ private fun PlayerInternalNavigationItemsRow(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val scope = rememberCoroutineScope()
-        var lastSearchTapTimestamp by remember { mutableStateOf(0L) }
         navItems.forEach { item ->
             val isSelected = currentRoute != null && currentRoute == item.screen.route
             val selectedColor = MaterialTheme.colorScheme.primary
@@ -160,45 +167,13 @@ private fun PlayerInternalNavigationItemsRow(
                     { Text(localizedLabel) }
                 }
             }
-            val onClickLambda: () -> Unit = remember(item.screen.route, navController, scope) {
-                click@{
-                    if (!latestNavigationEnabled) {
-                        lastSearchTapTimestamp = 0L
-                        return@click
-                    }
-
+            val onClickLambda: () -> Unit = remember(item.screen.route, navController) {
+                {
                     val itemRoute = item.screen.route
-                    val isSearchTab = itemRoute == Screen.Search.route
-                    val isAlreadySelected = latestCurrentRoute == itemRoute
-
-                    if (isSearchTab) {
-                        val now = SystemClock.elapsedRealtime()
-                        val isDoubleTap = now - lastSearchTapTimestamp <= 350L
-                        lastSearchTapTimestamp = now
-
-                        if (!isAlreadySelected) {
-                            if (!navController.navigateToTopLevelSafely(itemRoute)) {
-                                lastSearchTapTimestamp = 0L
-                                return@click
-                            }
-                        }
-
-                        if (isDoubleTap) {
-                            lastSearchTapTimestamp = 0L
-                            if (isAlreadySelected) {
-                                latestOnSearchIconDoubleTap()
-                            } else {
-                                scope.launch {
-                                    delay(160L)
-                                    latestOnSearchIconDoubleTap()
-                                }
-                            }
-                        }
-                    } else if (!isAlreadySelected) {
-                        lastSearchTapTimestamp = 0L
-                        navController.navigateToTopLevelSafely(itemRoute)
-                    } else {
-                        lastSearchTapTimestamp = 0L
+                    when (resolveBottomNavTapAction(itemRoute, latestCurrentRoute)) {
+                        BottomNavTapAction.Navigate -> navController.navigateToTopLevelSafely(itemRoute)
+                        BottomNavTapAction.FocusSearchInput -> latestOnSearchTabReselected()
+                        BottomNavTapAction.None -> Unit
                     }
                 }
             }
@@ -232,7 +207,7 @@ fun PlayerInternalNavigationBar(
     navBarStyle: String,
     compactMode: Boolean,
     bottomBarPadding: Dp = 0.dp,
-    onSearchIconDoubleTap: () -> Unit = {}
+    onSearchTabReselected: () -> Unit = {}
 ) {
     PlayerInternalNavigationItemsRow(
         navController = navController,
@@ -241,7 +216,7 @@ fun PlayerInternalNavigationBar(
         navBarStyle = navBarStyle,
         compactMode = compactMode,
         bottomBarPadding = bottomBarPadding,
-        onSearchIconDoubleTap = onSearchIconDoubleTap,
+        onSearchTabReselected = onSearchTabReselected,
         modifier = modifier
     )
 }

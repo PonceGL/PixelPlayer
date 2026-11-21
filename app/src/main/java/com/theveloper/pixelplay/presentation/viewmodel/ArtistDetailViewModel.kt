@@ -39,7 +39,16 @@ data class ArtistDetailUiState(
     val effectiveImageUrl: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null
-)
+) {
+    /**
+     * Every song across every album, in the same order the screen displays them
+     * (album sections, then track order within each). Tapping a song builds its
+     * playback queue from this list so playback continues into the next album
+     * instead of stopping at the end of the tapped song's own album.
+     */
+    val songsInAlbumOrder: List<Song>
+        get() = albumSections.flatMap { it.songs }
+}
 
 @Immutable
 data class ArtistAlbumSection(

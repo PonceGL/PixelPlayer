@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
-import org.junit.Test
+import org.junit.jupiter.api.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LyricsStateHolderTest {
@@ -56,6 +56,7 @@ class LyricsStateHolderTest {
             songMetadataEditor = songMetadataEditor
         )
         val scope = TestScope(StandardTestDispatcher())
+        holder.ioDispatcher = StandardTestDispatcher(scope.testScheduler)
         val callback = RecordingLyricsLoadCallback()
         val state = MutableStateFlow(StablePlayerState())
         val song = testSong(albumArtUriString = "content://art/song_art_1.jpg").copy(
