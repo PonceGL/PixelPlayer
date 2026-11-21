@@ -65,7 +65,7 @@ PixelPlayer is a local music player for Android, written in Kotlin with Jetpack 
 - **Files and metadata.** A song can be missing, deleted or have a null artist, album or duration: show a default,
   never fail. Respect scoped storage and the audio permission.
 - **User-visible text.** Text shown to the user comes from string resources, never from a literal in code. A new
-  string is added to `values/` and to every locale the project ships (12 at the moment).
+  string is added to `values/` and to each of the 11 translations the project ships.
 - **Local network (Sonos/UPnP).** Every network call has a timeout and an error path, never runs on the main thread
   and never uses a fixed IP address.
 

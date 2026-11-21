@@ -64,7 +64,7 @@ reviews:
         the main thread, build `MediaItem`s lazily. Files and metadata: a song can be missing, deleted or have a
         null artist, album or duration, so show a default and never fail; respect scoped storage and the audio
         permission. User-visible text comes from string resources, never a literal in code, and a new string is
-        added to `values/` and to every locale the project ships (12 at the moment). Local network (Sonos/UPnP):
+        added to `values/` and to each of the 11 translations the project ships. Local network (Sonos/UPnP):
         every call has a timeout and an error path, never runs on the main thread and never uses a fixed IP.
     - path: "**/AndroidManifest.xml"
       instructions: |
