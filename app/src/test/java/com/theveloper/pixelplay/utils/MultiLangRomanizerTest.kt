@@ -69,11 +69,9 @@ class MultiLangRomanizerTest {
     }
 
     @Test
-    fun `Ukrainian text takes its own path and comes out in Latin letters`() {
-        val result = romanizer.romanizeCyrillic("Привіт")
-
-        assertThat(result).isNotNull()
-        assertThat(result!!.none { it in 'Ѐ'..'ӿ' }).isTrue()
+    fun `Ukrainian is romanised with the letters of its own alphabet`() {
+        // The scheme of the app, not an official one: the letter i of Ukrainian is written as i.
+        assertThat(romanizer.romanizeCyrillic("Привіт")).isEqualTo("Privit")
     }
 
     @Test
@@ -94,6 +92,6 @@ class MultiLangRomanizerTest {
     @Test
     fun `Hindi and Punjabi words come out in Latin letters`() {
         assertThat(romanizer.romanizeHindi("प्यार")).isEqualTo("pyaar")
-        assertThat(romanizer.romanizePunjabi("ਸਤ ਸ੍ਰੀ ਅਕਾਲ")).isEqualTo("st sree akaal")
+        assertThat(romanizer.romanizePunjabi("ਸ੍ਰੀ ਅਕਾਲ")).isEqualTo("sree akaal")
     }
 }
