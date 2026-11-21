@@ -1,7 +1,7 @@
 package com.theveloper.pixelplay.utils
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 class AudioMetaUtilsTest {
 
@@ -11,13 +11,7 @@ class AudioMetaUtilsTest {
         assertEquals("m4a", AudioMetaUtils.mimeTypeToFormat("audio/m4a"))
         assertEquals("m4a", AudioMetaUtils.mimeTypeToFormat("audio/x-m4a"))
         assertEquals("m4a", AudioMetaUtils.mimeTypeToFormat("audio/mp4a-latm"))
-        @Test
-    fun mimeTypeToFormat_mapsUniversalFormats() {
-        assertEquals("aiff", AudioMetaUtils.mimeTypeToFormat("audio/x-aiff"))
-        assertEquals("ac3", AudioMetaUtils.mimeTypeToFormat("audio/ac3"))
-        assertEquals("dts", AudioMetaUtils.mimeTypeToFormat("audio/vnd.dts"))
     }
-}
 
     @Test
     fun mimeTypeToFormat_mapsSamsungFormats() {
@@ -30,18 +24,29 @@ class AudioMetaUtilsTest {
         assertEquals("qcelp", AudioMetaUtils.mimeTypeToFormat("audio/x-qcelp"))
         assertEquals("ima", AudioMetaUtils.mimeTypeToFormat("audio/x-ima-adpcm"))
         assertEquals("ima", AudioMetaUtils.mimeTypeToFormat("audio/ima-adpcm"))
-        @Test
-    fun mimeTypeToFormat_mapsUniversalFormats() {
-        assertEquals("aiff", AudioMetaUtils.mimeTypeToFormat("audio/x-aiff"))
-        assertEquals("ac3", AudioMetaUtils.mimeTypeToFormat("audio/ac3"))
-        assertEquals("dts", AudioMetaUtils.mimeTypeToFormat("audio/vnd.dts"))
     }
-}
+
     @Test
     fun mimeTypeToFormat_mapsUniversalFormats() {
         assertEquals("aiff", AudioMetaUtils.mimeTypeToFormat("audio/x-aiff"))
         assertEquals("ac3", AudioMetaUtils.mimeTypeToFormat("audio/ac3"))
         assertEquals("dts", AudioMetaUtils.mimeTypeToFormat("audio/vnd.dts"))
     }
-}
 
+    @Test
+    fun mimeTypeToFormat_ignoresCaseAndParameters() {
+        assertEquals("flac", AudioMetaUtils.mimeTypeToFormat(" Audio/FLAC; codecs=flac "))
+    }
+
+    @Test
+    fun mimeTypeToFormat_hasNoFormatForNothing() {
+        assertEquals("-", AudioMetaUtils.mimeTypeToFormat(null))
+        assertEquals("-", AudioMetaUtils.mimeTypeToFormat("  "))
+        assertEquals("-", AudioMetaUtils.mimeTypeToFormat("video/mp4"))
+    }
+
+    @Test
+    fun mimeTypeToFormat_namesAnUnknownAudioTypeByItsSubtype() {
+        assertEquals("x-weird", AudioMetaUtils.mimeTypeToFormat("audio/x-weird"))
+    }
+}
