@@ -286,8 +286,12 @@ internal class SonosSessionController(
         (volume.read() as? SonosResult.Ok)?.let { engine.noteVolumeRead(SonosSessionEngine.VolumeRead(it.value.level, it.value.muted), onlyIfUnknown = true) }
         while (true) {
             delay(VOLUME_POLL_MS)
-            if (engine.state.value.callbackReachable) continue
-            (volume.read() as? SonosResult.Ok)?.let { engine.noteVolumeRead(SonosSessionEngine.VolumeRead(it.value.level, it.value.muted), onlyIfUnknown = false) }
+            if (!shouldPollVolume(engine.state.value.callbackReachable, engine.volumeEventsApplied)) continue
+            // An event that arrives while the read is on its way is newer than the read.
+            val eventsWhenStarted = engine.volumeEventsApplied
+            (volume.read() as? SonosResult.Ok)?.let {
+                engine.noteVolumeRead(SonosSessionEngine.VolumeRead(it.value.level, it.value.muted), onlyIfUnknown = false, eventsWhenStarted = eventsWhenStarted)
+            }
         }
     }
 
@@ -340,3 +344,10 @@ internal class SonosSessionController(
         private const val TAG = "SonosSession"
     }
 }
+
+/**
+ * Whether the volume has to be looked at now and then: when the speaker cannot call back, and also when it can but has
+ * never told its volume by event (the subscription of the volume may have failed while the one of the transport works).
+ */
+internal fun shouldPollVolume(callbackReachable: Boolean, volumeEventsApplied: Int): Boolean =
+    !callbackReachable || volumeEventsApplied == 0

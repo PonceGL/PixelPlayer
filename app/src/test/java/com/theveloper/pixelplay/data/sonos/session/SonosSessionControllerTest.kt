@@ -834,4 +834,14 @@ class SonosSessionControllerTest {
 
         assertThat(handBack?.repeat).isEqualTo(RepeatMode.ONE)
     }
+
+    @Test
+    fun `the volume is looked at now and then unless events of both kinds arrive`() {
+        // No callbacks at all, or callbacks but no volume event ever (that subscription failed): look at it.
+        assertThat(shouldPollVolume(callbackReachable = false, volumeEventsApplied = 0)).isTrue()
+        assertThat(shouldPollVolume(callbackReachable = false, volumeEventsApplied = 5)).isTrue()
+        assertThat(shouldPollVolume(callbackReachable = true, volumeEventsApplied = 0)).isTrue()
+        // Callbacks, and the speaker has told its volume by event: nothing to look at.
+        assertThat(shouldPollVolume(callbackReachable = true, volumeEventsApplied = 1)).isFalse()
+    }
 }

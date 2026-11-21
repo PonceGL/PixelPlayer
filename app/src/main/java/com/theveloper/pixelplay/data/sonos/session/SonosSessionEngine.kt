@@ -130,15 +130,25 @@ internal class SonosSessionEngine(
     /** The volume and mute as a direct read of the speaker gave them. */
     data class VolumeRead(val level: Int, val muted: Boolean)
 
+    /** How many volume events were applied: a read that began before the last one is older than it. */
+    @Volatile
+    var volumeEventsApplied: Int = 0
+        private set
+
     /**
      * Takes a direct read of the volume. Events are the source and are applied as they come, so a read only fills in
-     * what no event has told yet ([onlyIfUnknown]), unless the speaker cannot call back and the read is all there is.
+     * what no event has told yet ([onlyIfUnknown], field by field), unless the speaker cannot call back and the read is
+     * all there is. A read that began when [eventsWhenStarted] events had been applied, and was overtaken by another
+     * since, is older than that event and also only fills in.
      */
-    fun noteVolumeRead(read: VolumeRead, onlyIfUnknown: Boolean) {
+    fun noteVolumeRead(read: VolumeRead, onlyIfUnknown: Boolean, eventsWhenStarted: Int? = null) {
         synchronized(lock) {
             val current = mutableState.value
-            if (onlyIfUnknown && current.playback.volume != null) return
-            mutableState.value = current.copy(playback = current.playback.copy(volume = read.level, muted = read.muted))
+            val overtaken = eventsWhenStarted != null && eventsWhenStarted != volumeEventsApplied
+            val fillOnly = onlyIfUnknown || overtaken
+            val volume = if (fillOnly) current.playback.volume ?: read.level else read.level
+            val muted = if (fillOnly) current.playback.muted ?: read.muted else read.muted
+            mutableState.value = current.copy(playback = current.playback.copy(volume = volume, muted = muted))
         }
     }
 
@@ -236,6 +246,7 @@ internal class SonosSessionEngine(
 
     /** Volume does not make an unfinished read of the transport out of date, so it is not counted. */
     private fun applyRendering(change: RenderingChange) {
+        volumeEventsApplied++
         val current = mutableState.value
         mutableState.value = current.copy(
             playback = SonosStateReducer.reduce(current.playback, change),

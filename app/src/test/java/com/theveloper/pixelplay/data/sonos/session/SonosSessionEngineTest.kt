@@ -947,4 +947,41 @@ class SonosSessionEngineTest {
 
         assertThat(f.reads).hasSize(3)
     }
+
+    @Test
+    fun `a volume read completes the field an event left unknown, and keeps the one the event gave`() = test { f ->
+        started(f, snap())
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 30, muted = null), null))
+        runCurrent()
+
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 12, muted = true), onlyIfUnknown = true)
+
+        assertThat(f.state.playback.volume).isEqualTo(30)
+        assertThat(f.state.playback.muted).isTrue()
+    }
+
+    @Test
+    fun `a read that began before a volume event does not overwrite it`() = test { f ->
+        started(f, snap())
+        val before = f.engine.volumeEventsApplied
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 30, muted = false), null))
+        runCurrent()
+
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 8, muted = true), onlyIfUnknown = false, eventsWhenStarted = before)
+
+        assertThat(f.state.playback.volume).isEqualTo(30)
+        assertThat(f.state.playback.muted).isFalse()
+    }
+
+    @Test
+    fun `a read that no event overtook replaces what was known`() = test { f ->
+        started(f, snap())
+        f.emit(SonosEvent.Rendering(RenderingChange(volume = 30, muted = false), null))
+        runCurrent()
+        val before = f.engine.volumeEventsApplied
+
+        f.engine.noteVolumeRead(SonosSessionEngine.VolumeRead(level = 8, muted = true), onlyIfUnknown = false, eventsWhenStarted = before)
+
+        assertThat(f.state.playback.volume).isEqualTo(8)
+    }
 }
