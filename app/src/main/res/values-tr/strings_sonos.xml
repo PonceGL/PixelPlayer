@@ -30,4 +30,6 @@
     <string name="sonos_toast_shuffle_unavailable">Hoparlör sırayı hâlâ yüklüyor. Birazdan tekrar deneyin.</string>
     <string name="sonos_toast_speaker_lost">Hoparlör yanıt vermiyor. Oynatma telefona döndü, duraklatıldı.</string>
     <string name="sonos_toast_taken_over">Başka bir cihaz hoparlörü devraldı. Müziğin telefona döndü, duraklatıldı.</string>
+    <string name="sonos_action_mute">Hoparlörü sessize al</string>
+    <string name="sonos_action_unmute">Hoparlörün sesini aç</string>
 </resources>

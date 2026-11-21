@@ -6,6 +6,8 @@ import com.theveloper.pixelplay.data.sonos.model.SonosDevice
 import com.theveloper.pixelplay.data.sonos.net.SonosFailure
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
+import com.theveloper.pixelplay.data.sonos.session.SonosVolume
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
 import com.theveloper.pixelplay.data.sonos.session.DiscoveryUpdate
 import com.theveloper.pixelplay.data.sonos.session.SpeakerDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,8 +15,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Runs the speaker search while the device sheet is open and exposes it as a single screen state. */
@@ -22,10 +26,23 @@ import kotlinx.coroutines.launch
 internal class SonosDevicesViewModel @Inject constructor(
     private val discovery: SpeakerDiscovery,
     private val session: SonosSessionHolder,
+    private val volumeBridge: SonosVolumeBridge,
 ) : ViewModel() {
 
     /** The connection with a speaker, as the sheet shows it. */
     val connection: StateFlow<SonosConnection> = session.state
+
+    /** The volume of the speaker of the session, as it has to be shown; null when there is none. */
+    val volume: StateFlow<SonosVolume?> = volumeBridge.volume
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(VOLUME_SUBSCRIPTION_MS), null)
+
+    fun setVolume(level: Int) {
+        volumeBridge.setLevel(level)
+    }
+
+    fun toggleMute() {
+        volumeBridge.toggleMute()
+    }
 
     private val _state = MutableStateFlow<SonosSearchState>(SonosSearchState.Idle)
     val state: StateFlow<SonosSearchState> = _state.asStateFlow()
@@ -99,5 +116,6 @@ internal class SonosDevicesViewModel @Inject constructor(
 
     private companion object {
         val PERMISSION_RETRY_DELAYS_MS = longArrayOf(2_000, 4_000, 8_000)
+        const val VOLUME_SUBSCRIPTION_MS = 5_000L
     }
 }

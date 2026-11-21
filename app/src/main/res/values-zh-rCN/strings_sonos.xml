@@ -29,4 +29,6 @@
     <string name="sonos_toast_shuffle_unavailable">扬声器仍在加载播放队列，请稍后再试。</string>
     <string name="sonos_toast_speaker_lost">扬声器无响应。播放已回到手机，处于暂停状态。</string>
     <string name="sonos_toast_taken_over">其他设备接管了扬声器。音乐已回到手机，处于暂停状态。</string>
+    <string name="sonos_action_mute">扬声器静音</string>
+    <string name="sonos_action_unmute">取消扬声器静音</string>
 </resources>

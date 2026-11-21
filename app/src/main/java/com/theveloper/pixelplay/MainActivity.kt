@@ -20,6 +20,10 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import com.theveloper.pixelplay.presentation.components.SonosVolumeIndicator
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
+import android.view.KeyEvent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -185,6 +189,12 @@ class MainActivity : ComponentActivity() {
     lateinit var themePreferencesRepository: ThemePreferencesRepository
     @Inject
     lateinit var syncManager: SyncManager
+    @Inject
+    internal lateinit var sonosVolumeKeys: SonosVolumeKeys
+    @Inject
+    internal lateinit var sonosVolumeBridge: SonosVolumeBridge
+    // The press of a volume key that the speaker took: its release must not reach the phone either.
+    private var volumeKeyTaken = false
     // For handling shortcut navigation - using StateFlow so composables can observe changes
     private val _pendingPlaylistNavigation = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val _pendingShuffleAll = kotlinx.coroutines.flow.MutableStateFlow(false)
@@ -336,6 +346,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        SonosVolumeIndicator(sonosVolumeKeys, sonosVolumeBridge)
+
                         // Show crash report dialog if needed
                         if (showCrashReportDialog && crashLogData != null) {
                             CrashReportDialog(
@@ -352,6 +364,26 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIntent(intent)
+    }
+
+    /**
+     * With the app in front and a speaker playing, the volume keys change the speaker's volume (and show it); in any
+     * other case they are the phone's, as always. Away from the app the system keeps them for itself.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            volumeKeyTaken = sonosVolumeKeys.onKey(up = keyCode == KeyEvent.KEYCODE_VOLUME_UP)
+            if (volumeKeyTaken) return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if ((keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) && volumeKeyTaken) {
+            volumeKeyTaken = false
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onNewIntent(intent: Intent) {

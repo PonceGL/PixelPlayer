@@ -62,6 +62,8 @@ import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.BluetoothDisabled
 import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.Wifi
@@ -198,6 +200,7 @@ fun CastBottomSheet(
     val sonosViewModel: SonosDevicesViewModel = hiltViewModel()
     val sonosState by sonosViewModel.state.collectAsStateWithLifecycle()
     val sonosConnection by sonosViewModel.connection.collectAsStateWithLifecycle()
+    val sonosVolume by sonosViewModel.volume.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val requiredPermissions = remember {
@@ -353,15 +356,17 @@ fun CastBottomSheet(
             isRemote = true,
             icon = Icons.Rounded.Speaker,
             isConnecting = sonosActive.isConnecting,
-            volume = 0f,
-            volumeRange = 0f..1f,
+            volume = (sonosVolume?.level ?: 0).toFloat(),
+            volumeRange = 0f..100f,
             connectionLabel = when {
                 sonosActive.isConnecting -> stringResource(R.string.cast_connecting)
                 isPlaying -> stringResource(R.string.cast_playing)
                 else -> stringResource(R.string.cast_paused)
             },
-            // The speaker's own volume arrives with its volume control; the phone's must not be shown as if it were.
-            hasVolume = false,
+            // The speaker's own volume, never the phone's: it is shown once the speaker has said what it is.
+            hasVolume = sonosVolume != null,
+            canMute = sonosVolume != null,
+            muted = sonosVolume?.muted == true,
         )
     } else if (isRemoteSession) {
         val remoteRoute = checkNotNull(activeRoute)
@@ -471,8 +476,11 @@ fun CastBottomSheet(
                             if (sonosActive != null) playerViewModel.disconnectSonos() else playerViewModel.disconnect()
                             onDismiss()
                         },
+                        onToggleMute = { sonosViewModel.toggleMute() },
                         onVolumeChange = { value ->
-                            if (uiState.activeDevice.isRemote) {
+                            if (sonosActive != null) {
+                                sonosViewModel.setVolume(value.toInt())
+                            } else if (uiState.activeDevice.isRemote) {
                                 playerViewModel.setRouteVolume(value.toInt())
                             } else {
                                 playerViewModel.setTrackVolume(value)
@@ -537,6 +545,8 @@ private data class ActiveDeviceUi(
     val volumeRange: ClosedFloatingPointRange<Float>,
     val connectionLabel: String,
     val hasVolume: Boolean = true,
+    val canMute: Boolean = false,
+    val muted: Boolean = false,
 )
 
 private data class CastSheetUiState(
@@ -680,6 +690,7 @@ private fun CastSheetContent(
     onSelectDevice: (String) -> Unit,
     onDisconnect: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onToggleMute: () -> Unit = {},
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
@@ -773,6 +784,7 @@ private fun CastSheetContent(
                         allConnectivityOff = allConnectivityOff,
                         onDisconnect = onDisconnect,
                         onVolumeChange = onVolumeChange,
+                        onToggleMute = onToggleMute,
                         onTurnOnWifi = onTurnOnWifi,
                         onOpenBluetoothSettings = onOpenBluetoothSettings,
                         onRefresh = onRefresh,
@@ -867,6 +879,7 @@ private fun CastControlsTabContent(
     allConnectivityOff: Boolean,
     onDisconnect: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onToggleMute: () -> Unit = {},
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
@@ -881,7 +894,8 @@ private fun CastControlsTabContent(
         ActiveDeviceHero(
             device = state.activeDevice,
             onDisconnect = onDisconnect,
-            onVolumeChange = onVolumeChange
+            onVolumeChange = onVolumeChange,
+            onToggleMute = onToggleMute
         )
 
         Column(
@@ -1414,7 +1428,8 @@ private fun DeviceSectionHeader(
 private fun ActiveDeviceHero(
     device: ActiveDeviceUi,
     onDisconnect: () -> Unit,
-    onVolumeChange: (Float) -> Unit
+    onVolumeChange: (Float) -> Unit,
+    onToggleMute: () -> Unit = {}
 ) {
     var sliderValue by remember(device.id, device.volume) { mutableFloatStateOf(device.volume) }
     LaunchedEffect(device.volume) { sliderValue = device.volume }
@@ -1555,11 +1570,22 @@ private fun ActiveDeviceHero(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
-                    Text(
-                        text = buildVolumeLabel(sliderValue, device.volumeRange.endInclusive),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (device.muted) "" else buildVolumeLabel(sliderValue, device.volumeRange.endInclusive),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        if (device.canMute) {
+                            IconButton(onClick = onToggleMute) {
+                                Icon(
+                                    imageVector = if (device.muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                                    contentDescription = stringResource(if (device.muted) R.string.sonos_action_unmute else R.string.sonos_action_mute),
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
                 }
                 val interactionSource = remember { MutableInteractionSource() }
                 Slider(

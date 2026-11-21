@@ -31,4 +31,6 @@
     <string name="sonos_toast_shuffle_unavailable">El altavoz sigue cargando la cola. Inténtalo de nuevo en un momento.</string>
     <string name="sonos_toast_speaker_lost">El altavoz dejó de responder. La reproducción volvió al teléfono, en pausa.</string>
     <string name="sonos_toast_taken_over">Otro dispositivo tomó el altavoz. Tu música volvió al teléfono, en pausa.</string>
+    <string name="sonos_action_mute">Silenciar el altavoz</string>
+    <string name="sonos_action_unmute">Quitar el silencio del altavoz</string>
 </resources>
