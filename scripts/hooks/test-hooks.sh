@@ -43,16 +43,15 @@ message_case rejected "co-author trailer in lowercase" "feat: add the thing\n\nc
 message_case rejected "claude session trailer" "feat: add the thing\n\nClaude-Session: https://claude.ai/code/session_1\n"
 message_case accepted "co-author mentioned in the text, not a trailer" "docs: say why there is no Co-Authored-By trailer\n"
 
-# expect_size <accepted|rejected> <name> <bytes> [allowlist the file]
+# size_case <accepted|rejected> <name> <bytes> [allow]: checks a file of <bytes>; with "allow" it is in the allowlist.
+# The allowlist is a temporary one: the tracked list is never touched.
 size_case() {
   local expected="$1" name="$2" bytes="$3" allow="${4:-}" file="$work/blob.bin"
   head -c "$bytes" /dev/zero > "$file"
   count=$((count + 1))
-  local list="$here/large-files-allowlist.txt" saved
-  saved="$(cat "$list")"
-  if [ -n "$allow" ]; then printf '%s\n' "$file" >> "$list"; fi
-  if "$here/large-files-check.sh" "$file" > /dev/null 2>&1; then actual=accepted; else actual=rejected; fi
-  printf '%s' "$saved" > "$list"
+  : > "$work/allowlist.txt"
+  if [ -n "$allow" ]; then printf '%s\n' "$file" >> "$work/allowlist.txt"; fi
+  if LARGE_FILES_ALLOWLIST="$work/allowlist.txt" "$here/large-files-check.sh" "$file" > /dev/null 2>&1; then actual=accepted; else actual=rejected; fi
   if [ "$actual" != "$expected" ]; then
     printf 'FAIL  %s: expected %s, got %s\n' "$name" "$expected" "$actual"
     failures=$((failures + 1))
@@ -63,6 +62,31 @@ size_case accepted "a small file" 1000
 size_case accepted "exactly 1 MB" 1048576
 size_case rejected "1 byte over 1 MB" 1048577
 size_case accepted "a big file that is in the allowlist" 2000000 allow
+
+# A name that starts with a hyphen must not be taken for an option by the allowlist search.
+hyphen_case() {
+  local expected="$1" name="$2" allow="${3:-}"
+  head -c 2000000 /dev/zero > "$work/-odd name.bin"
+  count=$((count + 1))
+  : > "$work/allowlist.txt"
+  if [ -n "$allow" ]; then printf '%s\n' '-odd name.bin' >> "$work/allowlist.txt"; fi
+  if (cd "$work" && LARGE_FILES_ALLOWLIST="$work/allowlist.txt" "$here/large-files-check.sh" '-odd name.bin' > /dev/null 2>&1); then actual=accepted; else actual=rejected; fi
+  if [ "$actual" != "$expected" ]; then
+    printf 'FAIL  %s: expected %s, got %s\n' "$name" "$expected" "$actual"
+    failures=$((failures + 1))
+  fi
+}
+
+hyphen_case accepted "a big file with a hyphen at the start that is in the allowlist" allow
+hyphen_case rejected "a big file with a hyphen at the start that is not in the allowlist"
+
+# With no allowlist file at all, the check still works and creates nothing.
+count=$((count + 1))
+head -c 2000000 /dev/zero > "$work/big.bin"
+if LARGE_FILES_ALLOWLIST="$work/no-such-list.txt" "$here/large-files-check.sh" "$work/big.bin" > /dev/null 2>&1 || [ -e "$work/no-such-list.txt" ]; then
+  printf 'FAIL  with no allowlist file a big file must be refused and nothing created\n'
+  failures=$((failures + 1))
+fi
 
 count=$((count + 1))
 if "$here/large-files-check.sh" "$work/does-not-exist" > /dev/null 2>&1; then :; else
