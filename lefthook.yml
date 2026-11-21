@@ -10,6 +10,9 @@ pre-commit:
       run: scripts/hooks/large-files-check.sh {staged_files}
     secrets:
       run: gitleaks git --staged --redact --no-banner --config .gitleaks.toml
+    format:
+      glob: "*.{kt,kts}"
+      run: ktlint --relative {staged_files}
 
 commit-msg:
   commands:

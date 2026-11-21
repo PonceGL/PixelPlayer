@@ -1,0 +1,31 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_size = 4
+max_line_length = off
+ktlint_code_style = intellij_idea
+
+# The codebase predates ktlint. These rules are off so that touching a file does not rewrite it:
+# layout and naming choices the code does not follow (and several are fine here, like PascalCase composables).
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_indent = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+ktlint_standard_function-naming = disabled
+ktlint_standard_function-expression-body = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_wrapping = disabled
+ktlint_standard_multiline-if-else = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_spacing-between-declarations-with-comments = disabled
+ktlint_standard_spacing-between-declarations-with-annotations = disabled
+ktlint_standard_property-naming = disabled
+ktlint_standard_no-wildcard-imports = disabled
+ktlint_standard_import-ordering = disabled
