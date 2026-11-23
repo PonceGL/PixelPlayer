@@ -138,7 +138,6 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            signingConfig = signingConfigs.getByName("debug")
             // JaCoCo coverage of the unit tests (task createDebugUnitTestCoverageReport); Sonar reads its XML.
             enableUnitTestCoverage = true
         }
