@@ -22,6 +22,12 @@ object AppVersion {
         return countOutput?.trim()?.toIntOrNull()?.takeIf { it > 0 }
     }
 
+    /**
+     * Picks the version code in this order: a positive [explicit] value, then [commitCount], then [fallback].
+     *
+     * [explicit] is trimmed and ignored unless it parses as a positive integer. [commitCount] is taken as it
+     * comes and must already be the trusted count from [commitCount]. [fallback] is used as given.
+     */
     fun resolve(explicit: String?, commitCount: Int?, fallback: Int): Resolved {
         explicit?.trim()?.toIntOrNull()?.takeIf { it > 0 }?.let { return Resolved(it, Source.EXPLICIT) }
         commitCount?.let { return Resolved(it, Source.GIT) }

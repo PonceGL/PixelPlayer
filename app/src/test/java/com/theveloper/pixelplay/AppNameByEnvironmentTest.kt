@@ -13,14 +13,20 @@ class AppNameByEnvironmentTest {
 
     private val appNamePattern = Regex("""<string\s+name="app_name"[^>]*>([^<]*)</string>""")
 
-    /** Every `app_name` an environment declares, keyed by the file that declares it. */
-    private fun appNames(environment: String): Map<String, String> =
-        File("src/$environment/res").walk()
+    /**
+     * Every `app_name` an environment declares, keyed by the file that declares it (with `/` as the separator,
+     * whatever the system). Gradle runs unit tests from the module folder, but a runner started at the project
+     * root is tolerated too.
+     */
+    private fun appNames(environment: String): Map<String, String> {
+        val dir = File("src/$environment/res").takeIf { it.exists() } ?: File("app/src/$environment/res")
+        return dir.walk()
             .filter { it.name == "strings.xml" }
             .mapNotNull { file ->
-                appNamePattern.find(file.readText())?.let { file.path to it.groupValues[1] }
+                appNamePattern.find(file.readText())?.let { file.invariantSeparatorsPath to it.groupValues[1] }
             }
             .toMap()
+    }
 
     @Test
     fun `debug names are the app name with the DEV prefix`() {
@@ -42,7 +48,9 @@ class AppNameByEnvironmentTest {
     fun `the main name carries no environment prefix`() {
         val names = appNames("main")
 
-        assertThat(names["src/main/res/values/strings.xml"]).isEqualTo("PixelPlayer")
+        val mainName = names.filterKeys { it.endsWith("src/main/res/values/strings.xml") }.values.firstOrNull()
+
+        assertThat(mainName).isEqualTo("PixelPlayer")
     }
 
     @Test
