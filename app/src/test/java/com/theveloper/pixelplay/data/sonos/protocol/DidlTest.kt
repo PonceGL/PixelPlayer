@@ -90,4 +90,18 @@ class DidlTest {
 
         assertThat(Didl.parse(didl)).isNull()
     }
+
+    @Test
+    fun `a list of items gives the address of each one in order, null for one without`() {
+        val didl = "<DIDL-Lite><item id=\"1\"><res>http://a</res></item><item id=\"2\"/><item id=\"3\"><res> http://c </res></item></DIDL-Lite>"
+
+        assertThat(Didl.parseResources(didl)).containsExactly("http://a", null, "http://c").inOrder()
+    }
+
+    @Test
+    fun `a list of items that cannot be read is not an empty list`() {
+        assertThat(Didl.parseResources("<not xml")).isNull()
+        assertThat(Didl.parseResources(null)).isNull()
+        assertThat(Didl.parseResources("<DIDL-Lite></DIDL-Lite>")).isEmpty()
+    }
 }

@@ -54,7 +54,7 @@ class SensitiveTextTest {
         }
         assertThat(SonosFailure.Network("x").safeName()).isEqualTo("Network")
         assertThat(SonosFailure.Timeout.safeName()).isEqualTo("Timeout")
-        assertThat(SonosFailure.Upnp("Play", UpnpErrorKind.NotCoordinator).safeName()).isEqualTo("Upnp")
+        assertThat(SonosFailure.Upnp("Play", UpnpErrorKind.NotCoordinator).safeName()).isEqualTo("Upnp(NotCoordinator)")
     }
 
     @Test

@@ -179,6 +179,60 @@ class SonosSessionEngineTest {
     }
 
     @Test
+    fun `after our own queue edit, the same song under a new track number keeps its position`() = test { f ->
+        started(f, snap(uri = "u1", number = 3, total = 5, positionMs = 10_000))
+        advanceTimeBy(2_000)
+        f.speaker = SonosResult.Err(SonosFailure.Timeout) // only the event speaks
+
+        f.engine.noteQueueEdit(f.scope.currentTime)
+        f.av(AvTransportChange(currentTrackNumber = 2, numberOfTracks = 4))
+        runCurrent()
+
+        assertThat(f.state.playback.currentTrackNumber).isEqualTo(2)
+        assertThat(f.state.playback.numberOfTracks).isEqualTo(4)
+        assertThat(f.positionNow()).isEqualTo(12_000)
+        assertThat(f.reads).hasSize(1)
+    }
+
+    @Test
+    fun `without an edit of ours, the same song under a new track number is a new song`() = test { f ->
+        started(f, snap(uri = "u1", number = 3, total = 5, positionMs = 10_000))
+        advanceTimeBy(2_000)
+
+        f.av(AvTransportChange(currentTrackNumber = 4))
+        runCurrent()
+
+        assertThat(f.reads).hasSize(2)
+        assertThat(f.state.lastChange).isEqualTo(ChangeOrigin.EXTERNAL)
+    }
+
+    @Test
+    fun `an edit of ours does not hide a really different song`() = test { f ->
+        started(f, snap(uri = "u1", number = 3, total = 5, positionMs = 10_000))
+        advanceTimeBy(2_000)
+        f.speaker = SonosResult.Ok(snap(uri = "u9", number = 3, positionMs = 300))
+
+        f.engine.noteQueueEdit(f.scope.currentTime)
+        f.av(AvTransportChange(currentTrackUri = "u9", currentTrackNumber = 3))
+        runCurrent()
+
+        assertThat(f.reads).hasSize(2)
+        assertThat(f.positionNow()).isEqualTo(300)
+    }
+
+    @Test
+    fun `the allowance for a queue edit ends after a few seconds`() = test { f ->
+        started(f, snap(uri = "u1", number = 3, total = 5, positionMs = 10_000))
+        f.engine.noteQueueEdit(f.scope.currentTime)
+        advanceTimeBy(3_100)
+
+        f.av(AvTransportChange(currentTrackNumber = 4))
+        runCurrent()
+
+        assertThat(f.reads).hasSize(2)
+    }
+
+    @Test
     fun `volume events are applied and survive a full read`() = test { f ->
         started(f, snap())
 

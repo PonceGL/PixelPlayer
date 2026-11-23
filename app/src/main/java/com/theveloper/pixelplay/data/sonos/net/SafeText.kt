@@ -1,7 +1,11 @@
 package com.theveloper.pixelplay.data.sonos.net
 
 /** Only the kind of failure, never what the network said: that can hold the address of the speaker. */
-internal fun SonosFailure.safeName(): String = this::class.simpleName ?: "SonosFailure"
+internal fun SonosFailure.safeName(): String = when (this) {
+    // Which refusal it was helps to tell a speaker that disagrees with us from one that is busy; it holds no address.
+    is SonosFailure.Upnp -> "Upnp(${kind::class.simpleName ?: "?"}${(kind as? com.theveloper.pixelplay.data.sonos.protocol.UpnpErrorKind.Other)?.code?.let { ", $it" }.orEmpty()})"
+    else -> this::class.simpleName ?: "SonosFailure"
+}
 
 private val PRIVATE_RANGES = listOf(
     (10 to 0) to 8, // 10.0.0.0/8

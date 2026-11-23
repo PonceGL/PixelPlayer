@@ -29,7 +29,7 @@
     <string name="sonos_error_permission">Доступ к локальной сети для PixelPlayer отключён. Разрешите его в настройках приложения и нажмите, чтобы повторить.</string>
     <string name="sonos_toast_command_failed">Колонка не ответила</string>
     <string name="sonos_toast_queue_incomplete">Не удалось отправить некоторые песни на колонку</string>
-    <string name="sonos_toast_shuffle_unavailable">Перемешивание недоступно при воспроизведении на колонке</string>
+    <string name="sonos_toast_shuffle_unavailable">Колонка ещё загружает очередь. Повторите чуть позже.</string>
     <string name="sonos_toast_speaker_lost">Колонка не отвечает. Воспроизведение вернулось на телефон и приостановлено.</string>
     <string name="sonos_toast_taken_over">Колонку заняло другое устройство. Музыка вернулась на телефон и приостановлена.</string>
 </resources>

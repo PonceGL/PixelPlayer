@@ -104,7 +104,7 @@ android {
         applicationId = "com.theveloper.pixelplay"
         minSdk = 30
         targetSdk = 37
-        versionCode = (project.findProperty("APP_VERSION_CODE") as? String)?.toInt() ?: 1
+        versionCode = appVersionCode()
         versionName = (project.findProperty("APP_VERSION_NAME") as? String) ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -118,6 +118,15 @@ android {
     }
 
     signingConfigs {
+        // One debug key for the whole project, kept in the repo on purpose: it is public and only signs debug
+        // builds, so any machine (or contributor) signs them the same and they install over each other.
+        // Never use it for release: anyone could sign an APK that installs over yours.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             storeFile = file("$rootDir/vz-pixelplay.jks")
             storePassword = keystoreProperties.getProperty("storePassword") ?: "dummyPassword"

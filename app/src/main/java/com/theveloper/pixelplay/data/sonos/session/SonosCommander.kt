@@ -34,10 +34,14 @@ internal class SonosCommander(
     private val coordinatorUdn: SonosUdn,
     private val now: () -> Long,
     private val recordCommand: (atMs: Long) -> Unit,
+    private val recordQueueEdit: (atMs: Long) -> Unit = recordCommand,
 ) {
 
     private val order = Mutex()
     private val loads = AtomicLong()
+
+    /** How many songs go in one command; it goes down when the speaker refuses a batch and stays down. */
+    @Volatile private var batchSize = MAX_BATCH
 
     /**
      * Replaces the speaker's queue with [tracks] and starts the song at [startIndex] at [startPositionMs]. Only
@@ -95,6 +99,95 @@ internal class SonosCommander(
         return SonosResult.Ok(result)
     }
 
+    /**
+     * Puts [tracks] in the speaker's queue starting at track number [position] (1 is the front, 0 the end), in batches.
+     * The song that plays is not touched. Songs that went in stay if a batch fails; [onProgress] says how many have
+     * gone in after each batch. A load that starts meanwhile ends this with [SonosFailure.Superseded].
+     */
+    suspend fun insertTracks(tracks: List<TrackMetadata>, position: Int, onProgress: (inserted: Int) -> Unit = {}): SonosResult<Unit> {
+        if (tracks.isEmpty()) return SonosResult.Ok(Unit)
+        val load = loads.get()
+        var inserted = 0
+        while (inserted < tracks.size) {
+            val count = minOf(batchSize, tracks.size - inserted)
+            val batch = tracks.subList(inserted, inserted + count)
+            val result = send(
+                "AddMultipleURIsToQueue",
+                "UpdateID" to "0",
+                "NumberOfURIs" to count.toString(),
+                "EnqueuedURIs" to batch.joinToString(" ") { it.resourceUrl },
+                "EnqueuedURIsMetaData" to batch.joinToString(" ") { Didl.build(it) },
+                "ContainerURI" to "",
+                "ContainerMetaData" to "",
+                "DesiredFirstTrackNumberEnqueued" to (if (position == 0) 0 else position + inserted).toString(),
+                "EnqueueAsNext" to "0",
+                load = load,
+                edit = true,
+            )
+            if (result is SonosResult.Err) {
+                val refused = (result.failure as? SonosFailure.Upnp)?.kind == UpnpErrorKind.InvalidArguments
+                if (!refused || count == 1) return result
+                batchSize = maxOf(1, count / 2)
+                continue
+            }
+            inserted += count
+            onProgress(inserted)
+            // A load that began while this batch waited for the speaker ends the insertion, also when it was the last batch.
+            if (loads.get() != load) return SonosResult.Err(SonosFailure.Superseded)
+        }
+        return SonosResult.Ok(Unit)
+    }
+
+    /** Takes [count] songs out of the queue from track number [first]. If the one that plays is among them, the speaker goes on to the next. */
+    suspend fun removeTracks(first: Int, count: Int): SonosResult<Unit> {
+        if (count <= 0) return SonosResult.Ok(Unit)
+        return send(
+            "RemoveTrackRangeFromQueue",
+            "UpdateID" to "0",
+            "StartingIndex" to first.toString(),
+            "NumberOfTracks" to count.toString(),
+            edit = true,
+        ).unit()
+    }
+
+    /** Moves [count] songs from track number [first] to just before the track that is number [before] now (the length plus one is the end). */
+    suspend fun moveTracks(first: Int, count: Int, before: Int): SonosResult<Unit> {
+        if (count <= 0) return SonosResult.Ok(Unit)
+        return send(
+            "ReorderTracksInQueue",
+            "StartingIndex" to first.toString(),
+            "NumberOfTracks" to count.toString(),
+            "InsertBefore" to before.toString(),
+            "UpdateID" to "0",
+            edit = true,
+        ).unit()
+    }
+
+    /**
+     * The addresses of the songs the speaker really has in its queue, in order (null for an entry without one). Used to
+     * find out where the app's idea of the queue and the speaker's part ways.
+     */
+    suspend fun readQueue(): SonosResult<List<String?>> = order.withLock {
+        val result = transport.call(
+            host,
+            SonosService.CONTENT_DIRECTORY,
+            "Browse",
+            listOf(
+                "ObjectID" to "Q:0",
+                "BrowseFlag" to "BrowseDirectChildren",
+                "Filter" to "res",
+                "StartingIndex" to "0",
+                "RequestedCount" to MAX_READ.toString(),
+                "SortCriteria" to "",
+            ),
+        )
+        when (result) {
+            is SonosResult.Err -> result
+            is SonosResult.Ok -> Didl.parseResources(result.value["Result"])?.let { SonosResult.Ok(it) }
+                ?: SonosResult.Err(SonosFailure.MalformedResponse)
+        }
+    }
+
     suspend fun play(): SonosResult<Unit> = send("Play", "Speed" to "1").unit()
 
     suspend fun pause(): SonosResult<Unit> = send("Pause").unit()
@@ -141,11 +234,13 @@ internal class SonosCommander(
         vararg arguments: Pair<String, String>,
         load: Long? = null,
         markWindow: Boolean = true,
+        edit: Boolean = false,
     ): SonosResult<Map<String, String>> = order.withLock {
         if (load != null && load != loads.get()) return@withLock SonosResult.Err(SonosFailure.Superseded)
-        if (markWindow) recordCommand(now())
+        val mark = if (edit) recordQueueEdit else recordCommand
+        if (markWindow) mark(now())
         val result = transport.call(host, SonosService.AV_TRANSPORT, action, listOf("InstanceID" to "0") + arguments)
-        if (markWindow) recordCommand(now())
+        if (markWindow) mark(now())
         result
     }
 
@@ -172,6 +267,12 @@ internal class SonosCommander(
     companion object {
         /** Most songs queued on a speaker for now; longer queues are handled in a later part. */
         const val MAX_QUEUE = 1000
+
+        /** Most songs the speaker takes in one `AddMultipleURIsToQueue` (measured on a Move: more gives error 402). */
+        const val MAX_BATCH = 16
+
+        /** The most entries asked for when the queue is read back: the queue sent never has more than [MAX_QUEUE]. */
+        private const val MAX_READ = 2 * MAX_QUEUE
         private const val LEAD_SONGS = 100
         private const val RESTART_THRESHOLD_MS = 3_000L
 
