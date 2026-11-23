@@ -25,9 +25,22 @@ android {
         unitTests.all { it.useJUnitPlatform() }
     }
 
+    signingConfigs {
+        // One debug key for the whole project, kept in the repo on purpose: it is public and only signs debug
+        // builds, so any machine (or contributor) signs them the same and they install over each other.
+        // Never use it for release: anyone could sign an APK that installs over yours.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
         }
