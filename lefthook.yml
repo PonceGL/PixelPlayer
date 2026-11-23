@@ -23,4 +23,4 @@ commit-msg:
 pre-push:
   commands:
     build-and-test:
-      run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest
+      run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest && ./gradlew -p buildSrc test
