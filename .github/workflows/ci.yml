@@ -85,6 +85,21 @@ jobs:
       - name: Build the debug APK
         run: ./gradlew :app:assembleDebug -Ppixelplay.enableAbiSplits=true --stacktrace
 
+      # The debug key lives in the repo (debug.keystore) so every machine signs the same; if this changes, debug
+      # builds stop installing over each other. When the key is replaced on purpose, update the digest here and in CONTRIBUTING.md.
+      - name: Check the debug APK is signed with the project key
+        run: |
+          EXPECTED=0b4b77b5ed47520142555589d70cfc0a9b213cee290c83ab0c3ccc75eafb4337
+          BUILD_TOOLS_VERSION="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          for apk in app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk; do
+            ACTUAL="$("$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner" verify --print-certs "$apk" | sed -n 's/^.*SHA-256 digest: //p' | head -n 1)"
+            echo "$apk $ACTUAL"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then
+              echo "::error::$apk is not signed with the project debug key (expected $EXPECTED)"
+              exit 1
+            fi
+          done
+
       # Sends the sources, the compiled classes and the coverage to SonarQube Cloud (settings: sonar-project.properties).
       # Skipped when there is no token: pull requests from forks and from Dependabot do not get the secrets.
       - name: SonarQube Cloud analysis
