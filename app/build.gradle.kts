@@ -118,6 +118,15 @@ android {
     }
 
     signingConfigs {
+        // One debug key for the whole project, kept in the repo on purpose: it is public and only signs debug
+        // builds, so any machine (or contributor) signs them the same and they install over each other.
+        // Never use it for release: anyone could sign an APK that installs over yours.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             storeFile = file("$rootDir/vz-pixelplay.jks")
             storePassword = keystoreProperties.getProperty("storePassword") ?: "dummyPassword"
