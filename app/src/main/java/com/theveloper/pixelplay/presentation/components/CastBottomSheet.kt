@@ -434,6 +434,8 @@ fun CastBottomSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 12.dp
     ) {
+        // The sheet is a window of its own: the volume keys would not reach the activity and would change the phone's volume.
+        DialogVolumeKeys(onKey = sonosViewModel::onVolumeKey)
         // AQUÍ APLICAMOS EL FIX: Anulamos la fábrica de overscroll para todo lo que esté aquí adentro
         CompositionLocalProvider(
             LocalOverscrollFactory provides null

@@ -122,4 +122,33 @@ class SonosVolumeKeysTest {
         assertThat(f.keys.onKey(up = true)).isFalse()
         verify(exactly = 0) { control.adjust(any()) }
     }
+
+    @Test
+    fun `a press that the speaker took has its release taken too, and the release of one it did not take goes on`() {
+        var takes = true
+        val gate = VolumeKeyGate { takes }
+
+        assertThat(gate.down(up = true)).isTrue()
+        assertThat(gate.up()).isTrue()
+
+        takes = false
+        assertThat(gate.down(up = false)).isFalse()
+        assertThat(gate.up()).isFalse()
+    }
+
+    @Test
+    fun `a release with no press before it is not taken`() {
+        assertThat(VolumeKeyGate { true }.up()).isFalse()
+    }
+
+    @Test
+    fun `the gate says which key it was`() {
+        val seen = mutableListOf<Boolean>()
+        val gate = VolumeKeyGate { up -> seen += up; true }
+
+        gate.down(up = true)
+        gate.down(up = false)
+
+        assertThat(seen).containsExactly(true, false).inOrder()
+    }
 }

@@ -8,6 +8,7 @@ import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import com.theveloper.pixelplay.data.sonos.session.SonosVolume
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
 import com.theveloper.pixelplay.data.sonos.session.DiscoveryUpdate
 import com.theveloper.pixelplay.data.sonos.session.SpeakerDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,6 +28,7 @@ internal class SonosDevicesViewModel @Inject constructor(
     private val discovery: SpeakerDiscovery,
     private val session: SonosSessionHolder,
     private val volumeBridge: SonosVolumeBridge,
+    private val volumeKeys: SonosVolumeKeys,
 ) : ViewModel() {
 
     /** The connection with a speaker, as the sheet shows it. */
@@ -39,6 +41,9 @@ internal class SonosDevicesViewModel @Inject constructor(
     fun setVolume(level: Int) {
         volumeBridge.setLevel(level)
     }
+
+    /** A volume key pressed while the sheet is open (a window of its own): true when the speaker took it. */
+    fun onVolumeKey(up: Boolean): Boolean = volumeKeys.onKey(up)
 
     fun toggleMute() {
         volumeBridge.toggleMute()

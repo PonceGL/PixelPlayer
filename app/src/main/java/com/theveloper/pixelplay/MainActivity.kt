@@ -22,6 +22,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import com.theveloper.pixelplay.presentation.components.SonosVolumeIndicator
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
+import com.theveloper.pixelplay.data.sonos.session.VolumeKeyGate
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
 import android.view.KeyEvent
 import androidx.activity.enableEdgeToEdge
@@ -193,7 +194,7 @@ class MainActivity : ComponentActivity() {
     @Inject
     internal lateinit var sonosVolumeBridge: SonosVolumeBridge
     // The press of a volume key that the speaker took: its release must not reach the phone either.
-    private var volumeKeyTaken = false
+    private val volumeKeyGate by lazy { VolumeKeyGate(sonosVolumeKeys::onKey) }
     // For handling shortcut navigation - using StateFlow so composables can observe changes
     @Suppress("ktlint:standard:backing-property-naming") // legacy name, observed through the Flow
     private val _pendingPlaylistNavigation = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -373,15 +374,13 @@ class MainActivity : ComponentActivity() {
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            volumeKeyTaken = sonosVolumeKeys.onKey(up = keyCode == KeyEvent.KEYCODE_VOLUME_UP)
-            if (volumeKeyTaken) return true
+            if (volumeKeyGate.down(up = keyCode == KeyEvent.KEYCODE_VOLUME_UP)) return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if ((keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) && volumeKeyTaken) {
-            volumeKeyTaken = false
+        if ((keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) && volumeKeyGate.up()) {
             return true
         }
         return super.onKeyUp(keyCode, event)

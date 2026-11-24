@@ -44,6 +44,27 @@ internal fun indicatorVisible(requests: Flow<Unit>, holdMs: Long): Flow<Boolean>
         }
         .onStart { emit(false) }
 
+/**
+ * Follows one press of a volume key through a window: the press that the speaker took must have its release taken too,
+ * or the phone would show its own volume bar on release. One gate for each window that gets keys (the activity, a sheet).
+ */
+internal class VolumeKeyGate(private val onKey: (up: Boolean) -> Boolean) {
+    private var taken = false
+
+    /** A key went down: true when the speaker took it. */
+    fun down(up: Boolean): Boolean {
+        taken = onKey(up)
+        return taken
+    }
+
+    /** A key was released: true when the press that it ends was taken. */
+    fun up(): Boolean {
+        val wasTaken = taken
+        taken = false
+        return wasTaken
+    }
+}
+
 /** The volume keys of the phone, while the app is in front: they go to the speaker when one is playing. */
 @Singleton
 internal class SonosVolumeKeys @Inject constructor(

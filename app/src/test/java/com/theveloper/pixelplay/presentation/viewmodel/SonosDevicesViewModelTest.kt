@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.presentation.viewmodel
 import com.google.common.truth.Truth.assertThat
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
 import com.theveloper.pixelplay.data.sonos.session.SonosVolumeControl
 import com.theveloper.pixelplay.data.sonos.session.SonosVolume
 import com.theveloper.pixelplay.data.sonos.session.VolumeSink
@@ -73,7 +74,7 @@ class SonosDevicesViewModelTest {
 
     private val volumeBridge = SonosVolumeBridge()
 
-    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery, holder, volumeBridge)
+    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery, holder, volumeBridge, SonosVolumeKeys(volumeBridge, holder))
 
     @Test
     fun `it starts idle`() = runTest {
@@ -281,5 +282,12 @@ class SonosDevicesViewModelTest {
         testScheduler.runCurrent()
 
         assertThat(log).containsExactly("mute true", "set 44")
+    }
+
+    @Test
+    fun `a volume key pressed with the sheet open stays with the phone when no speaker is playing`() = runTest {
+        val vm = viewModel(ScriptedDiscovery(emptyList()))
+
+        assertThat(vm.onVolumeKey(up = true)).isFalse()
     }
 }
