@@ -31,4 +31,6 @@
     <string name="sonos_toast_shuffle_unavailable">Lo speaker sta ancora caricando la coda. Riprova tra un momento.</string>
     <string name="sonos_toast_speaker_lost">Lo speaker non risponde più. La riproduzione è tornata sul telefono, in pausa.</string>
     <string name="sonos_toast_taken_over">Un altro dispositivo ha preso lo speaker. La tua musica è tornata sul telefono, in pausa.</string>
+    <string name="sonos_action_mute">Silenzia lo speaker</string>
+    <string name="sonos_action_unmute">Riattiva l\'audio dello speaker</string>
 </resources>

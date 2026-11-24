@@ -55,6 +55,9 @@ import com.theveloper.pixelplay.data.sonos.net.safeName
 import com.theveloper.pixelplay.data.sonos.session.ActiveSession
 import com.theveloper.pixelplay.data.sonos.session.SonosConnectPlan
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeControl
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
+import com.theveloper.pixelplay.data.sonos.session.SonosVolume
 import com.theveloper.pixelplay.data.sonos.session.ThrottleGate
 import com.theveloper.pixelplay.data.sonos.session.HandBack
 import com.theveloper.pixelplay.data.sonos.session.HandBackTarget
@@ -86,6 +89,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -195,6 +200,8 @@ class MusicService : MediaLibraryService() {
     lateinit var appScope: CoroutineScope
     @Inject
     internal lateinit var sonosSessionFactory: SonosSessionControllerFactory
+    @Inject
+    internal lateinit var sonosVolumeBridge: SonosVolumeBridge
 
     // ReplayGain volume-normalization state + logic, extracted to a standalone
     // component. Lazily built so the Hilt-injected engine/replayGainManager and the
@@ -214,6 +221,8 @@ class MusicService : MediaLibraryService() {
     private val sonosControllerLazy = lazy { sonosSessionFactory.create(sonosScope) }
     private val sonosController get() = sonosControllerLazy.value
     private var sonosPlayer: SonosPlayer? = null
+    private var sonosVolume: SonosVolumeControl? = null
+    private var sonosVolumeScope: CoroutineScope? = null
     private var sonosSongOrder: List<Int> = emptyList()
 
     private var favoriteSongIds = emptySet<String>()
@@ -538,6 +547,7 @@ class MusicService : MediaLibraryService() {
                 sonosPlayer = player
                 sonosSongOrder = session.included.mapNotNull { order.getOrNull(it) }.takeIf { it.size == session.included.size }.orEmpty()
                 publishMediaSessionPlayer(player, "Published the speaker session to MediaSession.")
+                connectSonosVolume(session)
                 watchSonosLoad(session)
                 watchSonosReachability(session)
                 watchSonosTakeover(player)
@@ -624,6 +634,27 @@ class MusicService : MediaLibraryService() {
         return handBack
     }
 
+    /** The volume of the speaker is what the screens show and the keys change while the session lasts. */
+    private fun connectSonosVolume(session: ActiveSession) {
+        disconnectSonosVolume()
+        val scope = CoroutineScope(serviceScope.coroutineContext + SupervisorJob(serviceScope.coroutineContext[Job]))
+        val reported = session.engine.state
+            .map { state -> state.playback.volume?.let { SonosVolume(it, state.playback.muted ?: false) } }
+            .distinctUntilChanged()
+            .stateIn(scope, SharingStarted.Eagerly, null)
+        val control = SonosVolumeControl(session.volume, reported, scope, SystemClock::elapsedRealtime, ::onSonosCommandFailed)
+        sonosVolume = control
+        sonosVolumeScope = scope
+        sonosVolumeBridge.attach(control)
+    }
+
+    private fun disconnectSonosVolume() {
+        sonosVolume?.let(sonosVolumeBridge::detach)
+        sonosVolume = null
+        sonosVolumeScope?.cancel()
+        sonosVolumeScope = null
+    }
+
     /** The session shows the local player again and the speaker player is let go. */
     private fun releaseSonosPlayer() {
         val sonos = sonosPlayer ?: return
@@ -633,6 +664,7 @@ class MusicService : MediaLibraryService() {
         sonosTakeoverJob?.cancel()
         sonosTakeoverJob = null
         sonosSongOrder = emptyList()
+        disconnectSonosVolume()
         disarmSonosWakeListener()
         publishMediaSessionPlayer(engine.masterPlayer, "Returned MediaSession to the local player.")
         sonos.release()

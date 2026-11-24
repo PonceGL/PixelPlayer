@@ -30,4 +30,6 @@
     <string name="sonos_toast_shuffle_unavailable">Der Lautsprecher lädt die Warteschlange noch. Versuche es gleich noch einmal.</string>
     <string name="sonos_toast_speaker_lost">Der Lautsprecher antwortet nicht mehr. Die Wiedergabe ist wieder auf dem Telefon, pausiert.</string>
     <string name="sonos_toast_taken_over">Ein anderes Gerät hat den Lautsprecher übernommen. Deine Musik ist wieder auf dem Telefon, pausiert.</string>
+    <string name="sonos_action_mute">Lautsprecher stummschalten</string>
+    <string name="sonos_action_unmute">Stummschaltung aufheben</string>
 </resources>

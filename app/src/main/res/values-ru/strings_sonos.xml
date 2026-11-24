@@ -32,4 +32,6 @@
     <string name="sonos_toast_shuffle_unavailable">Колонка ещё загружает очередь. Повторите чуть позже.</string>
     <string name="sonos_toast_speaker_lost">Колонка не отвечает. Воспроизведение вернулось на телефон и приостановлено.</string>
     <string name="sonos_toast_taken_over">Колонку заняло другое устройство. Музыка вернулась на телефон и приостановлена.</string>
+    <string name="sonos_action_mute">Отключить звук колонки</string>
+    <string name="sonos_action_unmute">Включить звук колонки</string>
 </resources>

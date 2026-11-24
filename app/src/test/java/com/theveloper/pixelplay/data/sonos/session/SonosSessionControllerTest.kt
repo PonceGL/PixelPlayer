@@ -45,6 +45,7 @@ class SonosSessionControllerTest {
         var current = 1
         var transport = "STOPPED"
         var mode = "NORMAL"
+        var volume = 12
         private var positionBase = 0L
         private var playingSince = 0L
         var failOn: (action: String, nth: Int) -> SonosResult<Map<String, String>>? = { _, _ -> null }
@@ -85,6 +86,9 @@ class SonosSessionControllerTest {
                         "TrackURI" to queue.getOrElse(current - 1) { "" }, "RelTime" to (UpnpTime.format(positionMs()) ?: "0:00:00"),
                     )
                     "GetTransportSettings" -> mapOf("PlayMode" to mode)
+                    "GetVolume" -> mapOf("CurrentVolume" to volume.toString())
+                    "GetMute", "GetGroupMute" -> mapOf("CurrentMute" to "0")
+                    "GetGroupVolume" -> mapOf("CurrentVolume" to volume.toString())
                     "GetMediaInfo" -> mapOf("NrTracks" to queue.size.toString())
                     else -> emptyMap()
                 },
@@ -194,6 +198,27 @@ class SonosSessionControllerTest {
         runCurrent()
         assertThat(f.connections.map { it::class }).containsExactly(SonosConnection.Idle::class, SonosConnection.Connecting::class, SonosConnection.Active::class).inOrder()
         assertThat(f.holder.state.value).isEqualTo(SonosConnection.Active(device))
+    }
+
+    @Test
+    fun `the volume of the speaker is read once when connecting, in case its first event is late`() = test { f ->
+        f.controller.connect(device, queue())
+        runCurrent()
+
+        val session = checkNotNull(f.controller.activeSession)
+        assertThat(session.engine.state.value.playback.volume).isEqualTo(12)
+        assertThat(session.engine.state.value.playback.muted).isFalse()
+        assertThat(f.speaker.calls.count { it.first == "GetVolume" }).isEqualTo(1)
+    }
+
+    @Test
+    fun `a speaker with several rooms has its volume read as a group`() = test { f ->
+        val rooms = device.copy(roomCount = 3)
+        f.controller.connect(rooms, queue())
+        runCurrent()
+
+        assertThat(f.speaker.calls.map { it.first }).contains("GetGroupVolume")
+        assertThat(f.speaker.calls.map { it.first }).doesNotContain("GetVolume")
     }
 
     @Test
@@ -808,5 +833,15 @@ class SonosSessionControllerTest {
         val handBack = f.controller.disconnect()
 
         assertThat(handBack?.repeat).isEqualTo(RepeatMode.ONE)
+    }
+
+    @Test
+    fun `the volume is looked at now and then unless events of both kinds arrive`() {
+        // No callbacks at all, or callbacks but no volume event ever (that subscription failed): look at it.
+        assertThat(shouldPollVolume(callbackReachable = false, volumeEventsApplied = 0)).isTrue()
+        assertThat(shouldPollVolume(callbackReachable = false, volumeEventsApplied = 5)).isTrue()
+        assertThat(shouldPollVolume(callbackReachable = true, volumeEventsApplied = 0)).isTrue()
+        // Callbacks, and the speaker has told its volume by event: nothing to look at.
+        assertThat(shouldPollVolume(callbackReachable = true, volumeEventsApplied = 1)).isFalse()
     }
 }

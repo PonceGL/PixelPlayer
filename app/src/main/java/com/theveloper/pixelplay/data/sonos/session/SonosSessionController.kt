@@ -23,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +79,8 @@ internal class ActiveSession(
     val loadFailure: StateFlow<SonosFailure?>,
     /** What the speaker needs to know about a song of the app, with an address it can get it from now; null for a song that cannot be served. */
     val trackFor: (QueueEntry) -> TrackMetadata?,
+    /** The volume of the speaker (or of its group). */
+    val volume: SonosVolumeCommander,
     /** True once the whole queue is on the speaker: until then it is still being filled and cannot be edited. */
     val loaded: StateFlow<Boolean>,
 )
@@ -237,6 +240,8 @@ internal class SonosSessionController(
         val subscriptions = SonosEventSubscriptions(subscriber, router) { server.currentAddress() ?: base }
         val engine = SonosSessionEngine(subscriptions.start(device.host), runtime.reader::read, elapsedMs, runtime.runScope)
         engine.start()
+        val volumeCommander = SonosVolumeCommander(transport, device.host, group = device.roomCount > 1)
+        runtime.runScope.launch { keepVolumeKnown(volumeCommander, engine) }
         val commander = SonosCommander(transport, device.host, device.id, elapsedMs, engine::noteCommand, engine::noteQueueEdit)
 
         val loadFailure = MutableStateFlow<SonosFailure?>(null)
@@ -268,9 +273,26 @@ internal class SonosSessionController(
             // The address of the phone can change while the session lasts: songs added later use the one it has then.
             SonosTrackMapper.urlsFor(entry, access, server.currentAddress() ?: base, revision)?.let { SonosTrackMapper.toTrack(entry, it) }
         }
-        val session = ActiveSession(device, commander, engine, included, window, loadFailure.asStateFlow(), trackFor, loaded.asStateFlow())
+        val session = ActiveSession(device, commander, engine, included, window, loadFailure.asStateFlow(), trackFor, volumeCommander, loaded.asStateFlow())
         runtime.session = session
         return SonosResult.Ok(session)
+    }
+
+    /**
+     * The volume comes by event, also the first time (a speaker tells all it has when it is subscribed to), so this only
+     * covers a delay of that first event, and a speaker that cannot call back: then it is looked at now and then.
+     */
+    private suspend fun keepVolumeKnown(volume: SonosVolumeCommander, engine: SonosSessionEngine) {
+        (volume.read() as? SonosResult.Ok)?.let { engine.noteVolumeRead(SonosSessionEngine.VolumeRead(it.value.level, it.value.muted), onlyIfUnknown = true) }
+        while (true) {
+            delay(VOLUME_POLL_MS)
+            if (!shouldPollVolume(engine.state.value.callbackReachable, engine.volumeEventsApplied)) continue
+            // An event that arrives while the read is on its way is newer than the read.
+            val eventsWhenStarted = engine.volumeEventsApplied
+            (volume.read() as? SonosResult.Ok)?.let {
+                engine.noteVolumeRead(SonosSessionEngine.VolumeRead(it.value.level, it.value.muted), onlyIfUnknown = false, eventsWhenStarted = eventsWhenStarted)
+            }
+        }
     }
 
     private suspend fun handBackOf(runtime: Runtime, session: ActiveSession): HandBack {
@@ -316,8 +338,16 @@ internal class SonosSessionController(
     companion object {
         const val START_TIMEOUT_MS = 30_000L
         private const val FINAL_READ_TIMEOUT_MS = 1_500L
+        private const val VOLUME_POLL_MS = 30_000L
         private const val PAUSE_TIMEOUT_MS = 2_000L
         private const val TEARDOWN_TIMEOUT_MS = 4_000L
         private const val TAG = "SonosSession"
     }
 }
+
+/**
+ * Whether the volume has to be looked at now and then: when the speaker cannot call back, and also when it can but has
+ * never told its volume by event (the subscription of the volume may have failed while the one of the transport works).
+ */
+internal fun shouldPollVolume(callbackReachable: Boolean, volumeEventsApplied: Int): Boolean =
+    !callbackReachable || volumeEventsApplied == 0

@@ -2,6 +2,12 @@ package com.theveloper.pixelplay.presentation.viewmodel
 
 import com.google.common.truth.Truth.assertThat
 import com.theveloper.pixelplay.data.sonos.session.SonosSessionHolder
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeBridge
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeKeys
+import com.theveloper.pixelplay.data.sonos.session.SonosVolumeControl
+import com.theveloper.pixelplay.data.sonos.session.SonosVolume
+import com.theveloper.pixelplay.data.sonos.session.VolumeSink
+import com.theveloper.pixelplay.data.sonos.net.SonosResult as VolumeResult
 import com.theveloper.pixelplay.data.sonos.session.SonosConnection
 import com.theveloper.pixelplay.MainCoroutineExtension
 import com.theveloper.pixelplay.data.sonos.model.SonosDevice
@@ -66,7 +72,9 @@ class SonosDevicesViewModelTest {
 
     private val holder = SonosSessionHolder()
 
-    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery, holder)
+    private val volumeBridge = SonosVolumeBridge()
+
+    private fun viewModel(discovery: SpeakerDiscovery) = SonosDevicesViewModel(discovery, holder, volumeBridge, SonosVolumeKeys(volumeBridge, holder))
 
     @Test
     fun `it starts idle`() = runTest {
@@ -254,5 +262,32 @@ class SonosDevicesViewModelTest {
         vm.search()
         assertThat(vm.connection.value).isEqualTo(SonosConnection.Active(kitchen))
         vm.stop()
+    }
+
+    @Test
+    fun `the volume orders of the sheet reach the speaker of the session`() = runTest {
+        val log = mutableListOf<String>()
+        val sink = object : VolumeSink {
+            override suspend fun setVolume(level: Int): VolumeResult<Int> { log += "set $level"; return VolumeResult.Ok(level) }
+            override suspend fun adjust(delta: Int): VolumeResult<Int> { log += "adjust $delta"; return VolumeResult.Ok(delta) }
+            override suspend fun setMuted(muted: Boolean): VolumeResult<Unit> { log += "mute $muted"; return VolumeResult.Ok(Unit) }
+        }
+        val control = SonosVolumeControl(sink, kotlinx.coroutines.flow.MutableStateFlow<SonosVolume?>(SonosVolume(30, false)), backgroundScope, { testScheduler.currentTime }, {})
+        volumeBridge.attach(control)
+        val model = viewModel(ScriptedDiscovery(listOf(script())))
+
+        model.setVolume(44)
+        model.toggleMute()
+        testScheduler.advanceTimeBy(500)
+        testScheduler.runCurrent()
+
+        assertThat(log).containsExactly("mute true", "set 44")
+    }
+
+    @Test
+    fun `a volume key pressed with the sheet open stays with the phone when no speaker is playing`() = runTest {
+        val vm = viewModel(ScriptedDiscovery(emptyList()))
+
+        assertThat(vm.onVolumeKey(up = true)).isFalse()
     }
 }
