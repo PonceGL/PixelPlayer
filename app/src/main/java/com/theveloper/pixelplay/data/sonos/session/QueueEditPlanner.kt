@@ -52,7 +52,7 @@ internal object QueueEditPlanner {
 
             middleWant.isEmpty() -> listOf(QueueEdit.Remove(first = prefix + 1, count = middleHave.size))
 
-            else -> moveOf(middleHave, middleWant, prefix, playing) ?: rebuild(have, want, playing)
+            else -> moveOf(middleHave, middleWant, prefix, playing) ?: rebuild(have, want, playing, prefix)
         }
     }
 
@@ -80,10 +80,18 @@ internal object QueueEditPlanner {
 
     /**
      * Everything but the song that plays is taken out and put back in the new order: what comes after it first, so that
-     * "next" works soon, then what comes before.
+     * "next" works soon, then what comes before. When the songs up to the playing one are the same in both queues
+     * ([prefix] goes past it), only what comes after the common start is rebuilt: the songs already played stay on the
+     * speaker, so a failed call in the middle cannot lose them.
      */
-    private fun rebuild(have: List<String>, want: List<String>, playing: Int?): List<QueueEdit> {
+    private fun rebuild(have: List<String>, want: List<String>, playing: Int?, prefix: Int): List<QueueEdit> {
         if (playing == null || playing !in have.indices) return listOf(QueueEdit.Reload)
+        if (playing < prefix) {
+            return listOf(
+                QueueEdit.Remove(first = prefix + 1, count = have.size - prefix),
+                QueueEdit.Insert(position = 0, targetIndices = (prefix until want.size).toList()),
+            )
+        }
         val anchor = want.indexOf(have[playing])
         if (anchor < 0) return listOf(QueueEdit.Reload)
         val edits = mutableListOf<QueueEdit>()
