@@ -113,6 +113,36 @@ class QueueEditPlannerTest {
     }
 
     @Test
+    fun `a shuffle of what comes after the playing song leaves the songs up to it alone`() {
+        // a b [c] | d e f g -> a b [c] | g e d f : the played songs and the playing one are not taken out and put back
+        val plan = check("abcdefg", "abcgedf", playing = 2)
+
+        assertThat(plan).containsExactly(
+            QueueEdit.Remove(first = 4, count = 4),
+            QueueEdit.Insert(position = 0, targetIndices = listOf(3, 4, 5, 6)),
+        )
+    }
+
+    @Test
+    fun `songs after the playing song that already match are left alone too`() {
+        // a [b] | c d e f -> a [b] | d f c e : the common start is only a b, but nothing before c is touched
+        val plan = check("abcdef", "abdfce", playing = 1)
+
+        assertThat(plan).containsExactly(
+            QueueEdit.Remove(first = 3, count = 4),
+            QueueEdit.Insert(position = 0, targetIndices = listOf(2, 3, 4, 5)),
+        )
+    }
+
+    @Test
+    fun `when the songs up to the playing one change too, they are still rebuilt around it`() {
+        val plan = check("abcdef", "fedcba", playing = 2)
+
+        assertThat(plan.none { it is QueueEdit.Reload }).isTrue()
+        assertThat(plan.filterIsInstance<QueueEdit.Remove>().any { it.first == 1 }).isTrue()
+    }
+
+    @Test
     fun `when the playing song is not in the new queue and the change is big, the queue is loaded again`() {
         val plan = check("abcd", "wxyz", playing = 1)
         assertThat(plan).containsExactly(QueueEdit.Reload)
